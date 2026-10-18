@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, SecretStr, ValidationError, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -198,7 +198,7 @@ class Settings(BaseModel):
     ui: UIConfig = UIConfig()
 
     # Secrets (loaded separately, not from TOML)
-    nvidia_api_key: str | None = None
+    nvidia_api_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def _validate_model_roles(self) -> Settings:
@@ -301,8 +301,9 @@ def load_config() -> Settings:
 
     # Inject secrets into raw dict so Pydantic can validate them
     # (they are not written back to disk)
-    if "NVIDIA_API_KEY" in secrets:
-        raw["nvidia_api_key"] = secrets["NVIDIA_API_KEY"]
+    key = secrets.get("NOX_NVIDIA_API_KEY") or secrets.get("NVIDIA_API_KEY")
+    if key:
+        raw["nvidia_api_key"] = key
 
     try:
         settings = Settings(**raw)

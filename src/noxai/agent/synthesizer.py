@@ -26,7 +26,8 @@ def _load_synthesizer_prompt() -> str:
         return SYNTHESIZER_PROMPT_PATH.read_text(encoding="utf-8")
     return (
         "You are NoX's Synthesizer. Merge worker findings into a coherent, structured report with "
-        "numbered citations [1], [2], an appended ## Sources section, and a ## Gaps & Limitations section."
+        "numbered citations [1], [2], an appended ## Sources section, and a ## Gaps & Limitations "
+        "section."
     )
 
 
@@ -115,7 +116,7 @@ async def synthesize_report(
         log.error("Synthesizer model call failed: %s", exc)
         # Fallback synthesis: directly concatenate worker summaries
         fallback_parts = [f"# Report: {goal}\n"]
-        for node, output, err in node_results:
+        for node, output, _err in node_results:
             if output:
                 fallback_parts.append(f"## {node.title}\n{output.summary}\n")
         if missing_sections:

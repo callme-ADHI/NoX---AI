@@ -211,12 +211,21 @@ def doctor() -> None:
         checks.append(("NVIDIA API endpoint reachable", nv_reach, nv_hint))
 
     # 10. Server port free
-    port_ok = _port_free("127.0.0.1", 7777)
+    try:
+        from noxai.config import get_config
+
+        cfg = get_config()
+        srv_host = cfg.server.host
+        srv_port = cfg.server.port
+    except Exception:
+        srv_host = "127.0.0.1"
+        srv_port = 7777
+    port_ok = _port_free(srv_host, srv_port)
     checks.append(
         (
-            "Port 7777 free (daemon not yet running)",
+            f"Port {srv_port} free (daemon not yet running)",
             port_ok,
-            "Stop any process using port 7777: ss -tlnp | grep 7777",
+            f"Stop any process using port {srv_port}: ss -tlnp | grep {srv_port}",
         )
     )
 

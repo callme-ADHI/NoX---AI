@@ -177,7 +177,22 @@ class TestSecrets:
         config_mod.SECRETS_FILE.chmod(0o600)
 
         cfg = config_mod.load_config()
-        assert cfg.nvidia_api_key == "nvapi-test123"
+        assert cfg.nvidia_api_key is not None
+        assert cfg.nvidia_api_key.get_secret_value() == "nvapi-test123"
+
+    def test_secrets_alias_nox_nvidia_api_key(self, tmp_path: Path) -> None:
+        """NOX_NVIDIA_API_KEY is preferred over NVIDIA_API_KEY."""
+        import noxai.config as config_mod
+
+        _write_valid_config(config_mod.CONFIG_FILE)
+        config_mod.SECRETS_FILE.write_text(
+            "NVIDIA_API_KEY=nvapi-fallback\nNOX_NVIDIA_API_KEY=nvapi-preferred\n"
+        )
+        config_mod.SECRETS_FILE.chmod(0o600)
+
+        cfg = config_mod.load_config()
+        assert cfg.nvidia_api_key is not None
+        assert cfg.nvidia_api_key.get_secret_value() == "nvapi-preferred"
 
     def test_missing_secrets_file_ok(self) -> None:
         """Missing secrets file is fine — NVIDIA just stays disabled."""
@@ -208,7 +223,8 @@ class TestSecrets:
         config_mod.SECRETS_FILE.chmod(0o600)
 
         cfg = config_mod.load_config()
-        assert cfg.nvidia_api_key == "nvapi-abc"
+        assert cfg.nvidia_api_key is not None
+        assert cfg.nvidia_api_key.get_secret_value() == "nvapi-abc"
 
     def test_malformed_secrets_line_raises(self) -> None:
         """A non-KEY=VALUE line that is not a comment must raise."""

@@ -251,8 +251,9 @@ async def generate_plan(
                             role="user",
                             content=(
                                 f"Your plan had a validation error: {val_err}\n"
-                                "Please fix the error and output the corrected JSON plan conforming "
-                                f"strictly to the schema (maximum {max_subtasks} subtasks, max depth {max_depth}, no cycles)."
+                                "Please fix the error and output the corrected JSON plan\n"
+                                f"conforming strictly to schema (max {max_subtasks} subtasks, "
+                                f"max depth {max_depth}, no cycles)."
                             ),
                         )
                     )
@@ -262,7 +263,10 @@ async def generate_plan(
                 messages.append(
                     Message(
                         role="user",
-                        content="Your response was not valid JSON. Please return ONLY a valid JSON plan.",
+                        content=(
+                            "Your response was not valid JSON. "
+                            "Please return ONLY a valid JSON plan."
+                        ),
                     )
                 )
 

@@ -8,7 +8,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from noxai.agent.planner import Plan, SubtaskNode, generate_plan, validate_plan_dag
 from noxai.agent.synthesizer import SynthesizerResult, synthesize_report
@@ -181,13 +181,14 @@ class DAGExecutor:
                     try:
                         node_outputs[nid] = WorkerOutput.model_validate_json(r["output_json"])
                         node_statuses[nid] = "done"
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        log.debug("Failed parsing cached node output for %s: %s", nid, err)
                 elif st == "failed":
                     node_errors[nid] = str(r["error"] or "Previously failed")
                     node_statuses[nid] = "failed"
 
         running_tasks: dict[str, asyncio.Task[WorkerOutput]] = {}
+        bg_tasks: set[asyncio.Task[Any]] = set()
 
         async def _run_single_node(target_node: SubtaskNode) -> WorkerOutput:
             async with sem:
@@ -195,7 +196,8 @@ class DAGExecutor:
                 if db is not None:
                     await execute(
                         db,
-                        "UPDATE task_nodes SET status = 'running', started_at = datetime('now') WHERE id = ? AND run_id = ?",
+                        "UPDATE task_nodes SET status = 'running', "
+                        "started_at = datetime('now') WHERE id = ? AND run_id = ?",
                         (target_node.id, actual_run_id),
                     )
 
@@ -209,7 +211,7 @@ class DAGExecutor:
                 )
 
                 def _progress_cb(msg: str) -> None:
-                    asyncio.create_task(
+                    t = asyncio.create_task(
                         self.event_bus.publish(
                             make_event(
                                 "node_progress",
@@ -219,6 +221,8 @@ class DAGExecutor:
                             db=db,
                         )
                     )
+                    bg_tasks.add(t)
+                    t.add_done_callback(bg_tasks.discard)
 
                 dep_findings = {
                     dep_id: node_outputs[dep_id]
@@ -249,14 +253,15 @@ class DAGExecutor:
                 # Check dependencies
                 deps = node.depends_on
                 if any(dep in node_errors for dep in deps):
-                    # Dependency failed -> fail this node as well
+                    failed_deps = [d for d in deps if d in node_errors]
                     node_statuses[nid] = "failed"
-                    err_msg = f"Prerequisite dependency failed: {[d for d in deps if d in node_errors]}"
+                    err_msg = f"Prerequisite dependency failed: {failed_deps}"
                     node_errors[nid] = err_msg
                     if db is not None:
                         await execute(
                             db,
-                            "UPDATE task_nodes SET status = 'failed', error = ?, finished_at = datetime('now') WHERE id = ? AND run_id = ?",
+                            "UPDATE task_nodes SET status = 'failed', error = ?, "
+                            "finished_at = datetime('now') WHERE id = ? AND run_id = ?",
                             (err_msg, nid, actual_run_id),
                         )
                     await self.event_bus.publish(
@@ -326,7 +331,8 @@ class DAGExecutor:
                     if db is not None:
                         await execute(
                             db,
-                            "UPDATE task_nodes SET status = 'failed', error = ?, finished_at = datetime('now') WHERE id = ? AND run_id = ?",
+                            "UPDATE task_nodes SET status = 'failed', error = ?, "
+                            "finished_at = datetime('now') WHERE id = ? AND run_id = ?",
                             (str(exc), done_nid, actual_run_id),
                         )
 

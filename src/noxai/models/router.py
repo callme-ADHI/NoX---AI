@@ -43,7 +43,9 @@ class ModelRouter:
                     num_ctx=config.models.ollama.num_ctx,
                 ),
                 "nvidia": NvidiaProvider(
-                    api_key=config.nvidia_api_key,
+                    api_key=config.nvidia_api_key.get_secret_value()
+                    if config.nvidia_api_key
+                    else None,
                     base_url=config.models.nvidia.base_url,
                     requests_per_minute=config.models.nvidia.requests_per_minute,
                     max_retries=config.models.nvidia.max_retries,

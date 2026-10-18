@@ -3,7 +3,7 @@
 - [x] R0 Resume + WIP commit
 - [x] R1 History secret scan
   - R1: history scan — no secrets found
-- [ ] R2 Schema/names/config alignment
+- [x] R2 Schema/names/config alignment
 - [ ] R3 Vector layer + doctor
 - [ ] R4 Approval columns
 - [ ] R5 Rename logging.py → logging_setup.py

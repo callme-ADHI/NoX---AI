@@ -73,6 +73,16 @@ class ToolDefinition:
     is_user_tool: bool = False
     is_meta_tool: bool = False
 
+    def to_spec(self) -> ToolSpec:
+        """Convert ToolDefinition to ToolSpec for model consumption."""
+        schema = self.params_model.model_json_schema()
+        schema.pop("title", None)
+        return ToolSpec(
+            name=self.name,
+            description=self.description,
+            parameters=schema,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Registry

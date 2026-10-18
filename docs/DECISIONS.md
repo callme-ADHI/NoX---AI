@@ -359,5 +359,19 @@ escalates `save_fact` and `forget_fact` to require explicit owner confirmation.
 Simultaneously, taint escalation guarantees that an untrusted web page cannot inject instructions to
 overwrite or wipe the user's persistent memory store without owner intervention.
 
+---
 
+### D-031: Approvals schema alignment (Migration 002)
+
+**Decision:** Apply migration 002_spec_alignment.sql adding args_hash, reason, expires_at, decided_at, and decided_by to the approvals table, with status constraint updated to include consumed and expired.
+
+**Rationale:** Per spec §7 and §6.5, approvals require deterministic argument hashing (args_hash) to bind approvals to exact payloads and transition to consumed upon execution to ensure single-use semantics.
+
+---
+
+### D-032: CLI framework: typer (per spec §6.10)
+
+**Decision:** Use typer and rich for the nx CLI implementation.
+
+**Rationale:** Per spec §6.10, typer provides typed CLI command groups and options with clean autocompletion and rich terminal output.
 

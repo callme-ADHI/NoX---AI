@@ -35,8 +35,8 @@ def _load_worker_prompt() -> str:
         return WORKER_PROMPT_PATH.read_text(encoding="utf-8")
     return (
         "You are a specialized Worker Agent. Execute the assigned objective using tools and return "
-        "valid JSON matching: {\"summary\": str, \"key_points\": [str], \"sources\": [{\"title\": str, \"url\": str}], "
-        "\"confidence\": float, \"gaps\": [str]}"
+        'valid JSON matching: {"summary": str, "key_points": [str], '
+        '"sources": [{"title": str, "url": str}], "confidence": float, "gaps": [str]}'
     )
 
 
@@ -90,8 +90,8 @@ def parse_worker_json(text: str) -> WorkerOutput:
     except Exception:
         try:
             parsed = repair_json(clean)
-        except Exception:
-            pass
+        except Exception as err:
+            log.debug("Worker output repair_json failed: %s", err)
 
     if isinstance(parsed, dict) and "summary" in parsed:
         try:
@@ -193,8 +193,8 @@ async def execute_worker_subtask(
                             arguments=raw_call.get("args", {}),
                         )
                     )
-            except Exception:
-                pass
+            except Exception as err:
+                log.debug("Failed to parse text-only tool call: %s", err)
 
         # If no tool calls, this is the worker's conclusion
         if not tool_calls:
@@ -261,8 +261,13 @@ async def execute_worker_subtask(
     # Retry rule per Section 6.4:
     # "if a node's confidence is below 0.5 or it lists gaps that matter,
     # run ONE refinement attempt with a rewritten query. Never more than one."
-    if output.confidence < 0.5 or (output.gaps and len(output.gaps) >= 1 and output.confidence < 0.8):
-        log.info("Node %s triggered 1-attempt refinement (confidence=%.2f)", node.id, output.confidence)
+    gaps_present = bool(output.gaps and len(output.gaps) >= 1)
+    if output.confidence < 0.5 or (gaps_present and output.confidence < 0.8):
+        log.info(
+            "Node %s triggered 1-attempt refinement (confidence=%.2f)",
+            node.id,
+            output.confidence,
+        )
         if emit_progress:
             emit_progress(f"Refining search for gaps in {node.id}")
 
@@ -277,7 +282,9 @@ async def execute_worker_subtask(
 
         refine_chunks: list[ChatChunk] = []
         try:
-            async for chunk in router.chat(role=role, messages=messages, tools=tool_specs, stream=False):
+            async for chunk in router.chat(
+                role=role, messages=messages, tools=tool_specs, stream=False
+            ):
                 refine_chunks.append(chunk)
 
             refine_tool_calls: list[ToolCall] = []

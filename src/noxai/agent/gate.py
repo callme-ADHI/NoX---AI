@@ -24,14 +24,20 @@ log = logging.getLogger(__name__)
 
 # Trigger keywords and phrases that signal complex multi-agent research
 COMPLEX_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\b(?:detailed|in[- ]depth|research|compare|report|full breakdown|deep dive)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:detailed|in[- ]depth|research|compare|report|full breakdown|deep dive)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\beverything about\b", re.IGNORECASE),
     re.compile(r"\bcomprehensive (?:analysis|breakdown|overview|summary)\b", re.IGNORECASE),
 ]
 
 # Simple greetings or direct commands that should immediately stay simple
 SIMPLE_SHORT_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"^(?:hi|hello|hey|ping|echo\b.*|what time is it\??|date|uptime|whoami|pwd)$", re.IGNORECASE),
+    re.compile(
+        r"^(?:hi|hello|hey|ping|echo\b.*|what time is it\??|date|uptime|whoami|pwd)$",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -121,11 +127,11 @@ async def evaluate_complexity(
     if router is not None:
         try:
             gate_prompt = (
-                "Decide if the following user request is simple (can be answered directly in 1 turn "
-                "or with a single tool call) or complex (requires multi-topic research, multi-source "
-                "comparison, or structured subtask decomposition).\n\n"
+                "Decide if the user request is simple (answered in 1 turn or single tool)\n"
+                "or complex (requires multi-topic research, multi-source comparison,\n"
+                "or structured subtask decomposition).\n\n"
                 f"User request: {raw}\n\n"
-                "Return ONLY a JSON object: {\"complex\": true|false, \"reason\": \"short explanation\"}"
+                'Return ONLY a JSON object: {"complex": true|false, "reason": "short explanation"}'
             )
             messages = [
                 Message(
@@ -145,7 +151,11 @@ async def evaluate_complexity(
             elif "```" in clean_json:
                 clean_json = clean_json.split("```", 1)[1].split("```", 1)[0].strip()
 
-            parsed = json.loads(clean_json) if clean_json.startswith("{") else repair_json(clean_json)
+            parsed = (
+                json.loads(clean_json)
+                if clean_json.startswith("{")
+                else repair_json(clean_json)
+            )
             if isinstance(parsed, dict) and "complex" in parsed:
                 return ComplexityResult(
                     is_complex=bool(parsed["complex"]),
