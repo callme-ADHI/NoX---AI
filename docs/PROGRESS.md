@@ -1,7 +1,8 @@
 # NoX — Session D Progress Tracking
 
-- [ ] R0 Resume + WIP commit
-- [ ] R1 History secret scan
+- [x] R0 Resume + WIP commit
+- [x] R1 History secret scan
+  - R1: history scan — no secrets found
 - [ ] R2 Schema/names/config alignment
 - [ ] R3 Vector layer + doctor
 - [ ] R4 Approval columns
