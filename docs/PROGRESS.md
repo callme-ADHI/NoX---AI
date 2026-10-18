@@ -25,7 +25,13 @@ Environment:
   - Repo state: 129 files, 0 forbidden tracked files.
   NEXT: Phase E2 (Realistic-data harness)
 
-- [ ] **E2** — Realistic-data harness
+- [x] **E2** — Realistic-data harness (commit pending)  
+  - Created `tests/fixtures/populate.py` populating 35 tables (40 facts, 120 episodes, 500 messages, 30 runs, BLOB embeddings with invalid UTF-8 bytes).
+  - Created `tests/test_api_sweep.py` sweeping all GET endpoints, mutation endpoints, and WebSocket events.
+  - Sweep executed against current codebase: 15 passed, 6 failed (exact defects D2 and D6 confirmed).
+  - Failure list recorded as bug list for E3.
+  NEXT: Phase E3 (Fix the API defects the sweep found)
+
 - [ ] **E3** — Fix API defects from sweep
 - [ ] **E4** — Daemon correctness: lifecycle, auth, CORS, routes, logging
 - [ ] **E5** — Drive real UI in real browser (Playwright)
