@@ -102,12 +102,41 @@ class FakeProvider(Provider):
         )
 
         # 3. Retrieve scripted response
-        if not self.responses:
-            # Default fallback text
-            yield ChatChunk(delta_text="Default fake response", finish_reason="stop")
-            return
+        is_extractor = False
+        if messages:
+            first_txt = str(messages[0].content).lower()
+            if (
+                "extractor" in first_txt
+                or "extract meaningful" in first_txt
+                or ("facts" in first_txt and "episode_summary" in first_txt)
+            ):
+                is_extractor = True
 
-        resp = self.responses.pop(0)
+        if is_extractor:
+            # Check if the next queued response is explicitly formatted for extractor
+            next_is_extractor = False
+            if self.responses and isinstance(self.responses[0], list) and self.responses[0]:
+                chunk_txt = getattr(self.responses[0][0], "delta_text", None) or ""
+                if "facts" in chunk_txt or "episode_summary" in chunk_txt:
+                    next_is_extractor = True
+
+            if next_is_extractor:
+                resp = self.responses.pop(0)
+            else:
+                yield ChatChunk(
+                    delta_text=(
+                        '{"facts": [], "episode_summary": "Turn summary", "importance": 0.5}'
+                    ),
+                    finish_reason="stop",
+                )
+                return
+        else:
+            if not self.responses:
+                # Default fallback text
+                yield ChatChunk(delta_text="Default fake response", finish_reason="stop")
+                return
+
+            resp = self.responses.pop(0)
         if isinstance(resp, Exception):
             raise resp
 

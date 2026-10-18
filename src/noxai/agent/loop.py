@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import logging
@@ -19,8 +18,11 @@ from noxai.agent.context import (
     assemble_system_prompt,
     trim_context,
 )
+from noxai.agent.json_repair import repair_json
 from noxai.config import Settings
 from noxai.events import EventBus, global_event_bus, make_event
+from noxai.memory.extract import extract_and_store_turn
+from noxai.memory.recall import recall_memories
 from noxai.models.base import Message, ToolCall
 from noxai.models.router import ModelRouter
 from noxai.taint import Content, TaintFlag
@@ -51,68 +53,6 @@ class AgentRunResult:
 # ---------------------------------------------------------------------------
 # Robustness Utilities
 # ---------------------------------------------------------------------------
-
-
-def repair_json(raw: str) -> dict[str, Any]:
-    """Attempt to parse and repair malformed JSON arguments from model output.
-
-    Handles:
-    - Markdown code fences (```json ... ```)
-    - Trailing commas in objects/arrays
-    - Unbalanced brackets and braces
-    - Single-quoted dictionary strings
-    """
-    text = raw.strip()
-    if not text:
-        return {}
-
-    # 1. Strip markdown code fences
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    # 2. Fast path: standard json.loads
-    try:
-        val = json.loads(text)
-        if isinstance(val, dict):
-            return val
-        if isinstance(val, list):
-            return {"items": val}
-        return {"value": val}
-    except json.JSONDecodeError:
-        pass
-
-    # 3. Clean trailing commas before } or ]
-    cleaned = re.sub(r",\s*([}\]])", r"\1", text)
-
-    # 4. Balance unclosed brackets and braces
-    open_braces = cleaned.count("{") - cleaned.count("}")
-    open_brackets = cleaned.count("[") - cleaned.count("]")
-    if open_brackets > 0:
-        cleaned = cleaned + ("]" * open_brackets)
-    if open_braces > 0:
-        cleaned = cleaned + ("}" * open_braces)
-
-    try:
-        val = json.loads(cleaned)
-        if isinstance(val, dict):
-            return val
-        return {"value": val}
-    except json.JSONDecodeError:
-        pass
-
-    try:
-        val = ast.literal_eval(text)
-        if isinstance(val, dict):
-            return {str(k): v for k, v in val.items()}
-    except (ValueError, SyntaxError, MemoryError) as exc:
-        log.debug("ast.literal_eval could not parse dict: %s", exc)
-
-    raise ValueError(f"Unable to parse arguments as valid JSON: {raw[:120]}")
 
 
 def detect_text_tool_call(
@@ -246,12 +186,31 @@ class AgentLoop:
         # 2. Build initial message list
         messages: list[Message] = []
 
+        # Recall memories if local and DB available
+        recalled_mem_list: list[str] | None = None
+        if not allow_cloud and db is not None:
+            user_text_raw = (
+                user_message if isinstance(user_message, str) else user_message.get_text()
+            )
+            try:
+                rec_res = await recall_memories(
+                    query=user_text_raw,
+                    db=db,
+                    router=self.router,
+                    config=self.config,
+                )
+                if rec_res.formatted_block:
+                    recalled_mem_list = [rec_res.formatted_block]
+            except Exception as exc:
+                log.warning("Memory recall failed: %s", exc)
+
         # System prompt assembly
         system_text = await assemble_system_prompt(
             config=self.config,
             tools=valid_tools,
             db=db,
             allow_cloud=allow_cloud,
+            recalled_memories=recalled_mem_list,
         )
         system_message = Message(role="system", content=system_text)
         messages.append(system_message)
@@ -321,7 +280,7 @@ class AgentLoop:
         loop_history: list[tuple[str, str]] = []  # Track (tool_name, serialized_args)
         json_repair_retries: dict[str, int] = {}  # Track retries per tool call id
 
-        background_tasks: set[asyncio.Task[None]] = set()
+        background_tasks: set[asyncio.Task[Any]] = set()
 
         def _handle_notice(n_text: str) -> None:
             t = asyncio.create_task(
@@ -436,6 +395,28 @@ class AgentLoop:
                         ),
                         db=db,
                     )
+
+                    # Trigger background memory extraction (local model only)
+                    if not allow_cloud and db is not None:
+                        try:
+                            user_str = (
+                                user_message
+                                if isinstance(user_message, str)
+                                else user_message.get_text()
+                            )
+                            t = asyncio.create_task(
+                                extract_and_store_turn(
+                                    user_text=user_str,
+                                    assistant_text=final_answer,
+                                    router=self.router,
+                                    db=None,
+                                    task_id=actual_run_id,
+                                )
+                            )
+                            background_tasks.add(t)
+                            t.add_done_callback(background_tasks.discard)
+                        except Exception as exc:
+                            log.warning("Could not schedule memory extraction: %s", exc)
 
                     citations = extract_citations(final_answer)
                     return AgentRunResult(
@@ -554,6 +535,7 @@ class AgentLoop:
                         db=db,
                         context_taint=current_context_taint,
                         request_approval=request_approval,
+                        router=self.router,
                     )
 
                     # Execute tool via registry

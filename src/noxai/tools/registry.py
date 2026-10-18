@@ -45,6 +45,7 @@ class ToolContext:
     request_approval: (
         Callable[[str, str, dict[str, Any], Tier, str | None], Coroutine[Any, Any, bool]] | None
     ) = None
+    router: Any | None = None
 
 
 @dataclass
@@ -70,6 +71,7 @@ class ToolDefinition:
     untrusted_output: bool = False
     timeout: float = 30.0
     is_user_tool: bool = False
+    is_meta_tool: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +131,15 @@ class ToolRegistry:
             "noxai.tools.builtin.system",
             "noxai.tools.builtin.file_tools",
             "noxai.tools.builtin.web",
+            "noxai.tools.builtin.memory_tools",
         ]
         for mod_name in builtin_modules:
             try:
-                importlib.import_module(mod_name)
+                mod = importlib.import_module(mod_name)
+                for attr_name in dir(mod):
+                    attr = getattr(mod, attr_name)
+                    if hasattr(attr, "tool_def"):
+                        self.register(attr)
             except Exception as exc:
                 log.warning("Could not load tool module %s: %s", mod_name, exc)
 
@@ -218,7 +225,10 @@ class ToolRegistry:
 
         # Taint escalation: untrusted context forces approval on write and dangerous tools
         has_untrusted_context = bool(ctx.context_taint & TaintFlag.UNTRUSTED)
-        needs_approval = tier in ("write", "dangerous")
+        if tool_def.is_meta_tool and not has_untrusted_context:
+            needs_approval = False
+        else:
+            needs_approval = tier in ("write", "dangerous")
 
         decision = "auto"
         approver = "system"
@@ -393,6 +403,7 @@ def tool(
     data_class: str = "public",
     untrusted_output: bool = False,
     timeout: float = 30.0,
+    is_meta_tool: bool = False,
 ) -> Callable[..., Any]:
     """Decorator to declare and register a tool."""
 
@@ -406,6 +417,7 @@ def tool(
             data_class=data_class,
             untrusted_output=untrusted_output,
             timeout=timeout,
+            is_meta_tool=is_meta_tool,
         )
         func.tool_def = tool_def  # type: ignore[attr-defined]
         registry.register(tool_def)

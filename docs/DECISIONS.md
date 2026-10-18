@@ -306,4 +306,58 @@ system prompt and the most recent 4 turns intact.
 **Rationale:** Prevents context window overflow while maintaining critical background context,
 preferences, active rules, and the immediate multi-turn thread.
 
+---
+
+### D-027: Hybrid memory recall ranking weights and 30-day half-life decay
+
+**Decision:** Rank candidate memories using a composite scoring formula:
+`score = 0.55 * cosine + 0.20 * keyword_bm25_norm + 0.15 * recency_decay + 0.10 * importance_or_use`.
+Recency decay uses an exponential formula `exp(-ln(2) * age_days / 30.0)` (30-day half-life).
+Pinned facts always bypass ranking score and appear first in the injected prompt context.
+
+**Rationale:** Semantic cosine similarity alone misses exact technical keywords (such as specific
+package names, file paths, or config options), while pure BM25 lacks semantic understanding.
+Combining cosine, BM25, recency, and frequency of use produces high recall accuracy with minimal noise.
+
+---
+
+### D-028: Multi-term cascading hard delete across history, embeddings, and episodes
+
+**Decision:** When an owner says "Forget X" or `hard_delete_fact` is executed, collect all associated
+terms (current `key`, current `value`, and all past historical values stored in `facts_history`),
+permanently delete the fact, delete its history snapshots, delete its vector embeddings, and search
+and delete any episode whose summary text references any of those collected terms.
+
+**Rationale:** Section 6.6 explicitly dictates: "Forget it" must be a hard delete. If an owner
+requests forgetting a sensitive fact or past preference, no lingering fragments should remain in
+older conversation episode summaries, history tables, or vector index entries.
+
+---
+
+### D-029: Pre-storage regex secret filtering for memory facts and episodes
+
+**Decision:** Filter all candidate memory keys, values, and episode summaries against a strict regex
+denylist (detecting `nvapi-*`, `sk-*`, `ghp_*`, `Bearer *`, passwords/keys in key-value format,
+private key blocks, credit card numbers, and SSNs) before persisting to SQLite or embeddings.
+Detected secrets are dropped and logged to an audit counter.
+
+**Rationale:** Principle 4 ("Local-first, privacy-enforced") and Section 6.6. Memory is persistent
+across all conversations; sensitive credentials accidentally uttered during an interactive debugging
+session must never be memorialized in long-term facts or episodes.
+
+---
+
+### D-030: Meta/memory tool immediate execution in clean context with taint escalation safeguard
+
+**Decision:** Designate memory management tools (`save_fact`, `recall_facts`, `forget_fact`, `pin_fact`)
+as meta-tools (`is_meta_tool=True`). In a clean owner conversation context, they execute immediately
+without prompting the owner for confirmation cards. However, if the session has accumulated
+`TaintFlag.UNTRUSTED` (e.g. from fetching an external website), `ToolRegistry.execute` automatically
+escalates `save_fact` and `forget_fact` to require explicit owner confirmation.
+
+**Rationale:** Smooth conversation flow allows NoX to remember and recall user facts transparently.
+Simultaneously, taint escalation guarantees that an untrusted web page cannot inject instructions to
+overwrite or wipe the user's persistent memory store without owner intervention.
+
+
 

@@ -385,10 +385,81 @@ app.add_typer(memory_app, name="memory")
 
 
 @memory_app.command(name="search")
-def memory_search(query: str = typer.Argument(...)) -> None:
-    """Search memory (M4)."""
-    console.print("[yellow]nx memory search[/] is implemented in Milestone 4 (memory).")
-    raise typer.Exit(1)
+def memory_search(
+    query: str = typer.Argument(..., help="Query string to search memory."),
+    top_k: int = typer.Option(10, "--top-k", "-k", help="Maximum results to return."),
+) -> None:
+    """Search long-term memory for facts and episodes matching a query."""
+    import asyncio
+
+    from rich.table import Table
+
+    from noxai.config import get_config
+    from noxai.db import get_db, run_migrations
+    from noxai.memory.recall import recall_memories
+    from noxai.models.router import ModelRouter
+
+    async def _search() -> None:
+        await run_migrations()
+        cfg = get_config()
+        router = ModelRouter(cfg)
+
+        async with get_db() as db:
+            result = await recall_memories(
+                query=query,
+                db=db,
+                router=router,
+                config=cfg,
+                top_k=top_k,
+            )
+
+            if not result.facts and not result.episodes:
+                console.print(f"[dim]No memories found matching '{query}'.[/dim]")
+                return
+
+            if result.facts:
+                f_table = Table(
+                    title=f"Facts matching '{query}'",
+                    show_header=True,
+                    header_style="bold cyan",
+                )
+                f_table.add_column("Key", style="bold")
+                f_table.add_column("Category")
+                f_table.add_column("Value")
+                f_table.add_column("Pinned", justify="center")
+                f_table.add_column("Confidence", justify="right")
+
+                for f in result.facts:
+                    pinned_badge = "[bold green]YES[/]" if f.pinned else "[dim]no[/]"
+                    f_table.add_row(
+                        f.key,
+                        f.category,
+                        f.value,
+                        pinned_badge,
+                        f"{f.confidence:.2f}",
+                    )
+                console.print(f_table)
+
+            if result.episodes:
+                console.print("")
+                e_table = Table(
+                    title=f"Episodes matching '{query}'",
+                    show_header=True,
+                    header_style="bold magenta",
+                )
+                e_table.add_column("Date", style="dim")
+                e_table.add_column("Summary")
+                e_table.add_column("Importance", justify="right")
+
+                for ep in result.episodes:
+                    e_table.add_row(
+                        ep.ts[:16] if len(ep.ts) >= 16 else ep.ts,
+                        ep.summary,
+                        f"{ep.importance:.2f}",
+                    )
+                console.print(e_table)
+
+    asyncio.run(_search())
 
 
 @app.command(name="eval-tools")
