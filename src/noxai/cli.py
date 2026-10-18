@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import shutil
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
+from datetime import UTC
 from pathlib import Path
 
 import httpx
@@ -635,3 +637,126 @@ def _check_gate() -> tuple[str, str]:
         return mode, ""
     except Exception:
         return "unknown", "Could not read config"
+
+
+# ---------------------------------------------------------------------------
+# nx tools (approvals and tool management)
+# ---------------------------------------------------------------------------
+
+tools_app = typer.Typer(
+    name="tools",
+    help="Manage tools, approvals, and execution policies.",
+    no_args_is_help=True,
+)
+app.add_typer(tools_app, name="tools")
+
+
+@tools_app.command(name="approve")
+def tools_approve(
+    approval_id: int = typer.Argument(..., help="ID of the pending approval to approve"),
+) -> None:
+    """Approve a pending tool execution by ID."""
+    from datetime import datetime
+
+    if not DB_PATH.exists():
+        console.print(f"[red]✗[/] Database not found at {DB_PATH}")
+        raise typer.Exit(1)
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+        if not row:
+            console.print(f"[red]✗[/] Approval {approval_id} not found.")
+            raise typer.Exit(1)
+        if row["status"] != "pending":
+            console.print(f"[yellow]![/] Approval {approval_id} is already '{row['status']}'.")
+            return
+        now_iso = datetime.now(UTC).isoformat()
+        if row["expires_at"] and row["expires_at"] < now_iso:
+            conn.execute("UPDATE approvals SET status = 'expired' WHERE id = ?", (approval_id,))
+            conn.commit()
+            console.print(f"[red]✗[/] Approval {approval_id} has expired.")
+            raise typer.Exit(1)
+
+        conn.execute(
+            "UPDATE approvals SET status = 'approved', decided_at = ?, decided_by = 'owner' "
+            "WHERE id = ?",
+            (now_iso, approval_id),
+        )
+        conn.commit()
+        console.print(f"[green]✓[/] Approved tool execution {approval_id} ({row['tool_name']})")
+    finally:
+        conn.close()
+
+
+@tools_app.command(name="deny")
+def tools_deny(
+    approval_id: int = typer.Argument(..., help="ID of the pending approval to deny"),
+) -> None:
+    """Deny a pending tool execution by ID."""
+    from datetime import datetime
+
+    if not DB_PATH.exists():
+        console.print(f"[red]✗[/] Database not found at {DB_PATH}")
+        raise typer.Exit(1)
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+        if not row:
+            console.print(f"[red]✗[/] Approval {approval_id} not found.")
+            raise typer.Exit(1)
+        if row["status"] != "pending":
+            console.print(f"[yellow]![/] Approval {approval_id} is already '{row['status']}'.")
+            return
+        now_iso = datetime.now(UTC).isoformat()
+        conn.execute(
+            "UPDATE approvals SET status = 'denied', decided_at = ?, decided_by = 'owner' "
+            "WHERE id = ?",
+            (now_iso, approval_id),
+        )
+        conn.commit()
+        console.print(f"[red]✗[/] Denied tool execution {approval_id} ({row['tool_name']})")
+    finally:
+        conn.close()
+
+
+@tools_app.command(name="list")
+def tools_list() -> None:
+    """List pending tool execution approvals."""
+    if not DB_PATH.exists():
+        console.print(f"[red]✗[/] Database not found at {DB_PATH}")
+        raise typer.Exit(1)
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, tool_name, args_hash, reason, requested_at, expires_at, status "
+            "FROM approvals WHERE status = 'pending' ORDER BY id ASC"
+        ).fetchall()
+        if not rows:
+            console.print("[dim]No pending tool approvals.[/dim]")
+            return
+
+        table = Table(title="Pending Tool Approvals")
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Tool", style="bold")
+        table.add_column("Hash", style="dim")
+        table.add_column("Reason", style="yellow")
+        table.add_column("Expires", style="dim")
+
+        for r in rows:
+            h = (r["args_hash"] or "")[:8]
+            table.add_row(
+                str(r["id"]),
+                r["tool_name"],
+                h,
+                r["reason"] or "",
+                r["expires_at"] or "",
+            )
+        console.print(table)
+    finally:
+        conn.close()

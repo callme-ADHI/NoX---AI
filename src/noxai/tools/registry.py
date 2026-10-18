@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -10,12 +11,14 @@ import logging
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from noxai.config import Settings
+from noxai.db import execute, fetch_one
 from noxai.models.base import ToolSpec
 from noxai.taint import Content, TaintFlag
 from noxai.tools.safety import Tier, redact_secrets
@@ -23,6 +26,30 @@ from noxai.tools.safety import Tier, redact_secrets
 log = logging.getLogger(__name__)
 
 USER_TOOLS_DIR = Path("~/.local/share/nox/tools").expanduser()
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class ToolPendingApproval(Exception):
+    """Raised when tool execution requires owner approval."""
+
+    def __init__(
+        self,
+        approval_id: int | str,
+        tool_name: str,
+        args_hash: str,
+        reason: str | None = None,
+    ) -> None:
+        self.approval_id = approval_id
+        self.tool_name = tool_name
+        self.args_hash = args_hash
+        self.reason = reason
+        super().__init__(
+            f"Tool '{tool_name}' pending approval (id={approval_id}, hash={args_hash[:8]})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +73,8 @@ class ToolContext:
         Callable[[str, str, dict[str, Any], Tier, str | None], Coroutine[Any, Any, bool]] | None
     ) = None
     router: Any | None = None
+    poll_approval: bool = True
+    approval_timeout: float | None = None
 
 
 @dataclass
@@ -244,20 +273,176 @@ class ToolRegistry:
         approver = "system"
 
         if needs_approval:
-            approval_reason = None
-            if has_untrusted_context:
-                approval_reason = "This run has read untrusted web/external content."
+            args_hash = hashlib.sha256(
+                json.dumps(raw_args, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            now_utc = datetime.now(UTC)
+            expires_at = (now_utc + timedelta(minutes=5)).isoformat()
 
-            if ctx.request_approval:
-                approved = await ctx.request_approval(
-                    ctx.run_id,
-                    name,
-                    raw_args,
-                    tier,
-                    approval_reason,
+            approval_reason = (
+                "This run has read untrusted web/external content."
+                if has_untrusted_context
+                else f"Execution of {tier} tier tool '{name}' requires owner approval."
+            )
+
+            approved = False
+            approval_id: int | None = None
+
+            if ctx.db is not None:
+                # 1. Check if already pre-approved and not yet consumed/expired
+                pre = await fetch_one(
+                    ctx.db,
+                    "SELECT id, expires_at FROM approvals "
+                    "WHERE tool_name = ? AND args_hash = ? AND status = 'approved' "
+                    "ORDER BY id DESC LIMIT 1",
+                    (name, args_hash),
                 )
+                if pre is not None:
+                    pre_id = pre["id"]
+                    pre_exp = pre["expires_at"]
+                    if pre_exp and pre_exp < now_utc.isoformat():
+                        await execute(
+                            ctx.db,
+                            "UPDATE approvals SET status = 'expired' WHERE id = ?",
+                            (pre_id,),
+                        )
+                    else:
+                        await execute(
+                            ctx.db,
+                            "UPDATE approvals SET status = 'consumed', "
+                            "decided_at = datetime('now') WHERE id = ?",
+                            (pre_id,),
+                        )
+                        approved = True
+                        decision = "approved"
+                        approver = "owner"
+
+                if not approved:
+                    # 2. Insert approval row
+                    cursor = await execute(
+                        ctx.db,
+                        "INSERT INTO approvals (tool_name, args_json, args_hash, reason, "
+                        "requested_at, expires_at, status, run_id) "
+                        "VALUES (?, ?, ?, ?, datetime('now'), ?, 'pending', ?)",
+                        (
+                            name,
+                            redact_secrets(json.dumps(raw_args)),
+                            args_hash,
+                            approval_reason,
+                            expires_at,
+                            ctx.run_id,
+                        ),
+                    )
+                    approval_id = cursor.lastrowid
+                    if ctx.emit:
+                        ctx.emit({
+                            "type": "approval_required",
+                            "approval_id": approval_id,
+                            "tool": name,
+                            "args": raw_args,
+                            "args_hash": args_hash,
+                            "reason": approval_reason,
+                        })
+
+                    if ctx.request_approval:
+                        approved = await ctx.request_approval(
+                            ctx.run_id,
+                            name,
+                            raw_args,
+                            tier,
+                            approval_reason,
+                        )
+                        st = "consumed" if approved else "denied"
+                        await execute(
+                            ctx.db,
+                            "UPDATE approvals SET status = ?, "
+                            "decided_at = datetime('now'), decided_by = 'owner' WHERE id = ?",
+                            (st, approval_id),
+                        )
+                        if approved:
+                            decision = "approved"
+                            approver = "owner"
+                        else:
+                            decision = "denied"
+                            approver = "owner"
+                    elif not ctx.poll_approval:
+                        raise ToolPendingApproval(
+                            approval_id=approval_id or 0,
+                            tool_name=name,
+                            args_hash=args_hash,
+                            reason=approval_reason,
+                        )
+                    else:
+                        timeout = (
+                            ctx.approval_timeout
+                            or (ctx.config.safety.approval_timeout_seconds if ctx.config else 300)
+                        )
+                        start_poll = time.monotonic()
+                        while time.monotonic() - start_poll < timeout:
+                            if ctx.cancel_event and ctx.cancel_event.is_set():
+                                break
+                            row = await fetch_one(
+                                ctx.db,
+                                "SELECT status, decided_by, expires_at FROM approvals WHERE id = ?",
+                                (approval_id,),
+                            )
+                            if row is not None:
+                                r_status = row["status"]
+                                if r_status == "approved":
+                                    await execute(
+                                        ctx.db,
+                                        "UPDATE approvals SET status = 'consumed', "
+                                        "decided_at = datetime('now') WHERE id = ?",
+                                        (approval_id,),
+                                    )
+                                    approved = True
+                                    decision = "approved"
+                                    approver = row["decided_by"] or "owner"
+                                    break
+                                elif r_status in ("denied", "expired"):
+                                    approved = False
+                                    decision = r_status
+                                    approver = row["decided_by"] or "owner"
+                                    break
+                                elif r_status == "consumed":
+                                    approved = True
+                                    decision = "approved"
+                                    break
+                            await asyncio.sleep(0.1)
+
+                        if not approved and decision not in ("denied", "expired"):
+                            await execute(
+                                ctx.db,
+                                "UPDATE approvals SET status = 'expired' "
+                                "WHERE id = ? AND status = 'pending'",
+                                (approval_id,),
+                            )
+                            decision = "timeout"
+                            approver = "timeout"
             else:
-                approved = False  # default deny if no approval handler configured
+                if ctx.request_approval:
+                    approved = await ctx.request_approval(
+                        ctx.run_id,
+                        name,
+                        raw_args,
+                        tier,
+                        approval_reason,
+                    )
+                    if approved:
+                        decision = "approved"
+                        approver = "owner"
+                    else:
+                        decision = "denied"
+                        approver = "owner"
+                elif not ctx.poll_approval:
+                    raise ToolPendingApproval(
+                        approval_id=0,
+                        tool_name=name,
+                        args_hash=args_hash,
+                        reason=approval_reason,
+                    )
+                else:
+                    approved = False
 
             if not approved:
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -266,8 +451,8 @@ class ToolRegistry:
                     tool=name,
                     args_json=redact_secrets(json.dumps(raw_args)),
                     tier=tier,
-                    decision="denied",
-                    approver="owner",
+                    decision=decision if decision != "auto" else "denied",
+                    approver=approver if approver != "system" else "owner",
                     result_summary="Action was denied by owner or timed out.",
                     duration_ms=duration_ms,
                     ok=False,
@@ -434,3 +619,71 @@ def tool(
         return func
 
     return decorator
+
+
+async def approve_approval(
+    approval_id: int,
+    decided_by: str = "owner",
+    db: Any | None = None,
+) -> bool:
+    """Approve an approval request by ID."""
+    from noxai.db import get_db
+
+    async def _do(conn: Any) -> bool:
+        row = await fetch_one(
+            conn,
+            "SELECT status, expires_at FROM approvals WHERE id = ?",
+            (approval_id,),
+        )
+        if not row or row["status"] != "pending":
+            return False
+        now_iso = datetime.now(UTC).isoformat()
+        if row["expires_at"] and row["expires_at"] < now_iso:
+            await execute(
+                conn,
+                "UPDATE approvals SET status = 'expired' WHERE id = ?",
+                (approval_id,),
+            )
+            return False
+        await execute(
+            conn,
+            "UPDATE approvals SET status = 'approved', decided_at = datetime('now'), "
+            "decided_by = ? WHERE id = ?",
+            (decided_by, approval_id),
+        )
+        return True
+
+    if db is not None:
+        return await _do(db)
+    async with get_db() as conn:
+        return await _do(conn)
+
+
+async def deny_approval(
+    approval_id: int,
+    decided_by: str = "owner",
+    db: Any | None = None,
+) -> bool:
+    """Deny an approval request by ID."""
+    from noxai.db import get_db
+
+    async def _do(conn: Any) -> bool:
+        row = await fetch_one(
+            conn,
+            "SELECT status FROM approvals WHERE id = ?",
+            (approval_id,),
+        )
+        if not row or row["status"] != "pending":
+            return False
+        await execute(
+            conn,
+            "UPDATE approvals SET status = 'denied', decided_at = datetime('now'), "
+            "decided_by = ? WHERE id = ?",
+            (decided_by, approval_id),
+        )
+        return True
+
+    if db is not None:
+        return await _do(db)
+    async with get_db() as conn:
+        return await _do(conn)

@@ -5,7 +5,7 @@
   - R1: history scan — no secrets found
 - [x] R2 Schema/names/config alignment
 - [x] R3 Vector layer + doctor
-- [ ] R4 Approval columns
+- [x] R4 Approval columns
 - [ ] R5 Rename logging.py → logging_setup.py
 - [ ] R6 Click → Typer migration
 - [ ] R7 Lint / type / test green
