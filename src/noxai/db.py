@@ -66,6 +66,11 @@ def _try_load_sqlite_vec() -> bool:
 
 
 def _detect_vector_backend() -> str:
+    import os
+
+    if os.getenv("NOX_FORCE_NUMPY_VECTORS", "0") == "1":
+        log.info("vector_backend=numpy forced via NOX_FORCE_NUMPY_VECTORS=1")
+        return "numpy"
     if _try_load_sqlite_vec():
         log.info("vector_backend=vec sqlite-vec extension loaded successfully")
         return "vec"

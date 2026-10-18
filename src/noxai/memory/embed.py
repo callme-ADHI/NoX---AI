@@ -123,6 +123,12 @@ async def delete_episode_vector(db: aiosqlite.Connection, episode_id: int) -> No
     await execute(db, "DELETE FROM vec_episodes WHERE episode_id = ?", (episode_id,))
 
 
+def _force_numpy() -> bool:
+    import os
+
+    return os.getenv("NOX_FORCE_NUMPY_VECTORS", "0") == "1"
+
+
 async def search_fact_vectors(
     db: aiosqlite.Connection,
     query_vec: list[float],
@@ -132,8 +138,8 @@ async def search_fact_vectors(
     if not query_vec:
         return []
 
-    # If sqlite-vec is active, try native query
-    if VECTOR_BACKEND == "vec":
+    # If sqlite-vec is active and not forced to numpy, try native query
+    if VECTOR_BACKEND == "vec" and not _force_numpy():
         try:
             q_blob = vector_to_bytes(query_vec)
             rows = await fetch_all(
@@ -180,7 +186,7 @@ async def search_episode_vectors(
     if not query_vec:
         return []
 
-    if VECTOR_BACKEND == "vec":
+    if VECTOR_BACKEND == "vec" and not _force_numpy():
         try:
             q_blob = vector_to_bytes(query_vec)
             rows = await fetch_all(

@@ -21,7 +21,6 @@ from noxai.agent.context import (
 from noxai.agent.json_repair import repair_json
 from noxai.config import Settings
 from noxai.events import EventBus, global_event_bus, make_event
-from noxai.memory.extract import extract_and_store_turn
 from noxai.memory.recall import recall_memories
 from noxai.models.base import Message, ToolCall
 from noxai.models.router import ModelRouter
@@ -399,6 +398,8 @@ class AgentLoop:
                     # Trigger background memory extraction (local model only)
                     if not allow_cloud and db is not None:
                         try:
+                            from noxai.memory.extract import extract_and_store_turn
+
                             user_str = (
                                 user_message
                                 if isinstance(user_message, str)
