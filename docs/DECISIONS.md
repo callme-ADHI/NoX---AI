@@ -140,3 +140,63 @@ PASS) — it shows the configured mode but does not fail if mode is "off".
 
 **Rationale:** "off" is a valid mode. The doctor should report what mode
 is configured, not demand a particular mode.
+
+---
+
+## M1 — Models and Router
+
+### D-013: Protocol signature for `chat` as an async generator
+
+**Decision:** In `Provider(Protocol)`, declare `def chat(...) -> AsyncIterator[ChatChunk]: ...`
+rather than `async def`.
+
+**Rationale:** Python async generator functions yield items asynchronously and return
+an `AsyncIterator[T]`. Declaring `async def` in the typing Protocol would imply a
+coroutine returning an iterator (`Coroutine[..., AsyncIterator]`), which causes type
+mismatches under strict `mypy`.
+
+---
+
+### D-014: Direct `httpx` HTTP clients for Ollama and NVIDIA
+
+**Decision:** Implement `OllamaProvider` and `NvidiaProvider` using `httpx.AsyncClient`
+directly rather than wrapping heavy external SDKs.
+
+**Rationale:** The Ollama and OpenAI-compatible endpoints are standard REST APIs.
+Using `httpx` gives full, granular control over timeouts, streaming line parsing,
+token-bucket rate limiting, jittered retry backoff, and exact error conversion without
+library version friction.
+
+---
+
+### D-015: Token-bucket rate limiter for NVIDIA API
+
+**Decision:** Use an async token-bucket algorithm using `time.monotonic()` and an
+`asyncio.Lock` to enforce the configured `requests_per_minute` (default 30).
+
+**Rationale:** Staying under NVIDIA's ~40 RPM free tier requires precise rate
+spacing. The token-bucket allows short bursts while guaranteeing the average rate
+never exceeds the limit, and callers sleep only the exact fractional duration required.
+
+---
+
+### D-016: Privacy enforcement strictly in code at router boundary
+
+**Decision:** `ModelRouter.check_privacy` raises `PrivacyViolation` immediately if any
+`Message` has `PRIVATE` taint and the target provider is non-local (`is_local=False`).
+
+**Rationale:** Non-negotiable Principle 4 ("Local-first, privacy-enforced"). Private
+data must never reach cloud endpoints, and this rule is enforced before any HTTP client
+or network socket is initialized.
+
+---
+
+### D-017: Transparent cloud fallback to local `brain`
+
+**Decision:** If a call to the cloud role `heavy` fails (offline, rate limited, 5xx),
+the router automatically re-routes the request to the local `brain` role and calls
+`on_notice` with an explanatory message.
+
+**Rationale:** Principle 7 ("Fail soft"). Cloud unavailability should degrade
+gracefully rather than aborting the owner's task.
+
