@@ -1,0 +1,59 @@
+[server]
+host = "127.0.0.1"          # never 0.0.0.0 in Phase 1
+port = 7777
+
+[timezone]
+name = "Asia/Kolkata"
+
+[logging]
+level = "INFO"              # DEBUG | INFO | WARNING | ERROR
+
+[models.ollama]
+base_url = "http://127.0.0.1:11434"
+keep_alive = "30m"          # how long to keep the model loaded in Ollama
+num_ctx = 8192              # context window size sent to Ollama
+
+[models.roles]
+brain  = { provider = "ollama", model = "qwen2.5:14b" }
+embed  = { provider = "ollama", model = "nomic-embed-text" }
+vision = { provider = "ollama", model = "gemma4:e4b" }      # reserved, unused in Phase 1
+# Optional strong cloud role for PUBLIC data only. Disabled until a key exists.
+heavy  = { provider = "nvidia", model = "nvidia/llama-3.3-nemotron-super-49b-v1.5" }
+
+[models.nvidia]
+enabled = true
+base_url = "https://integrate.api.nvidia.com/v1"
+requests_per_minute = 30   # stay under the ~40 RPM free limit
+max_retries = 4
+
+[agent]
+max_steps_per_run = 12
+max_subtasks = 8
+max_depth = 2
+worker_concurrency = 2
+run_timeout_seconds = 900
+tool_timeout_seconds = 60
+
+[memory]
+recall_top_k = 6
+recall_token_budget = 800
+episode_archive_days = 90
+
+[safety]
+allowed_file_roots = ["~"]
+denied_paths = [
+    "~/.ssh",
+    "~/.gnupg",
+    "~/.config/nox/secrets.env",
+    "~/.mozilla",
+    "~/.config/chromium",
+    "~/.config/google-chrome",
+]
+approval_timeout_seconds = 300
+
+[gate]
+mode = "token_only"         # "off" | "token_only" | "command"
+command = []                # e.g. ["facelock", "verify"]; exit code 0 = authenticated
+
+[ui]
+launcher_cmd = ["chromium", "--app={url}"]

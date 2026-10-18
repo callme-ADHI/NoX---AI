@@ -1,0 +1,25 @@
+[Unit]
+Description=NoX personal AI agent daemon
+Documentation=file://%h/nox/docs/ARCHITECTURE.md
+# Ollama is a *system* service — we cannot declare After=ollama.service here.
+# noxd waits for Ollama internally (retries for up to 60s at startup).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/nox/.venv/bin/noxd run
+Restart=on-failure
+RestartSec=3
+# Give the process a chance to shut down cleanly
+TimeoutStopSec=15
+# Environment
+Environment=HOME=%h
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+# Logging goes to the rotating JSON file; also captured by journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=noxd
+
+[Install]
+WantedBy=default.target

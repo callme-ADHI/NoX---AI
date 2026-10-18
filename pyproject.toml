@@ -1,0 +1,112 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "noxai"
+version = "0.1.0"
+description = "NoX — personal AI agent for Arch Linux"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=13.1",
+    # Data validation
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    # HTTP
+    "httpx>=0.28.0",
+    # CLI
+    "typer>=0.15.0",
+    "rich>=13.9.0",
+    # Database
+    "aiosqlite>=0.20.0",
+    # Scheduling
+    "croniter>=5.0.0",
+    "dateparser>=1.2.0",
+    # Web tools
+    "ddgs>=7.2.0",
+    "trafilatura>=2.0.0",
+    "feedparser>=6.0.11",
+    # System tools
+    "psutil>=6.1.0",
+    # LLM clients
+    "ollama>=0.4.0",
+    "openai>=1.54.0",
+    # Embeddings / vector math fallback
+    "numpy>=2.2.0",
+    # Taint / safety helpers (no external dep needed, stdlib only)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "types-psutil>=6.1.0",
+    "httpx",  # already in main, needed for test client
+]
+
+[project.scripts]
+noxd = "noxai.__main__:main"
+nx = "noxai.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noxai"]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+src = ["src"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "C4",            # comprehension improvements
+    "ANN",           # type annotations (basic)
+    "S",             # bandit security checks
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "ANN401",  # Any allowed in limited spots
+    "S101",    # assert fine in tests
+    "S603",    # subprocess without shell=True is fine with our safety layer
+    "S607",    # partial path in subprocess — handled by our shell filter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S"]
+"src/noxai/cli.py" = ["B008"]
+
+# ---------------------------------------------------------------------------
+# Mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+# Individual files can opt into stricter checking
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--tb=short"]
