@@ -264,15 +264,11 @@ class OllamaProvider(Provider):
                         f"Pull it: ollama pull {model}"
                     )
                 if resp_single.is_error:
-                    raise ProviderUnavailable(
-                        f"Ollama embedding error: {resp_single.text}"
-                    )
+                    raise ProviderUnavailable(f"Ollama embedding error: {resp_single.text}")
                 results.append(resp_single.json().get("embedding", []))
             return results
         except httpx.ConnectError as exc:
-            raise ProviderUnavailable(
-                f"Cannot connect to Ollama at {self.base_url}."
-            ) from exc
+            raise ProviderUnavailable(f"Cannot connect to Ollama at {self.base_url}.") from exc
         finally:
             await client.aclose()
 

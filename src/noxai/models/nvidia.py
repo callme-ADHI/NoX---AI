@@ -206,9 +206,7 @@ class NvidiaProvider(Provider):
                     error_text = await resp.aread()
                     await resp.aclose()
                     decoded = error_text.decode("utf-8", errors="replace")
-                    raise ProviderUnavailable(
-                        f"NVIDIA API error ({resp.status_code}): {decoded}"
-                    )
+                    raise ProviderUnavailable(f"NVIDIA API error ({resp.status_code}): {decoded}")
 
                 return resp
 

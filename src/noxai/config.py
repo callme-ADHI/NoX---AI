@@ -167,9 +167,7 @@ class GateConfig(_StrictModel):
     def mode_must_be_valid(cls, v: str) -> str:
         valid = {"off", "token_only", "command"}
         if v not in valid:
-            raise ValueError(
-                f"gate.mode must be one of {sorted(valid)}, got '{v}'"
-            )
+            raise ValueError(f"gate.mode must be one of {sorted(valid)}, got '{v}'")
         return v
 
 
@@ -260,6 +258,7 @@ def _load_secrets() -> dict[str, str]:
 # Config loader
 # ---------------------------------------------------------------------------
 
+
 def _ensure_config_exists() -> None:
     """Create config directory and copy example config if not present."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -269,15 +268,15 @@ def _ensure_config_exists() -> None:
         else:
             # Minimal bootstrap config
             CONFIG_FILE.write_text(
-                "[server]\nhost = \"127.0.0.1\"\nport = 7777\n\n"
-                "[timezone]\nname = \"Asia/Kolkata\"\n\n"
-                "[models.ollama]\nbase_url = \"http://127.0.0.1:11434\"\n\n"
+                '[server]\nhost = "127.0.0.1"\nport = 7777\n\n'
+                '[timezone]\nname = "Asia/Kolkata"\n\n'
+                '[models.ollama]\nbase_url = "http://127.0.0.1:11434"\n\n'
                 "[models.roles]\n"
-                "brain  = { provider = \"ollama\", model = \"qwen2.5:14b\" }\n"
-                "embed  = { provider = \"ollama\", model = \"nomic-embed-text\" }\n"
-                "vision = { provider = \"ollama\", model = \"gemma4:e4b\" }\n"
-                "heavy  = { provider = \"nvidia\","
-                " model = \"nvidia/llama-3.3-nemotron-super-49b-v1.5\" }\n"
+                'brain  = { provider = "ollama", model = "qwen2.5:14b" }\n'
+                'embed  = { provider = "ollama", model = "nomic-embed-text" }\n'
+                'vision = { provider = "ollama", model = "gemma4:e4b" }\n'
+                'heavy  = { provider = "nvidia",'
+                ' model = "nvidia/llama-3.3-nemotron-super-49b-v1.5" }\n'
             )
         print(f"Created default config at {CONFIG_FILE}")
 

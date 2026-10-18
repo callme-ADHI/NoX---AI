@@ -18,6 +18,7 @@ def db_path(tmp_path: Path) -> Path:
 def patch_db_path(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect all db module paths to a temporary location."""
     import noxai.db as db_mod
+
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
     monkeypatch.setattr(db_mod, "DATA_DIR", db_path.parent)
 
@@ -26,26 +27,41 @@ class TestMigrations:
     async def test_migrations_apply_on_fresh_db(self, db_path: Path) -> None:
         """Running migrations on a fresh database creates all expected tables."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         conn = sqlite3.connect(str(db_path))
         tables = {
             row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         conn.close()
 
         required_tables = {
-            "schema_migrations", "conversations", "messages", "runs",
-            "task_nodes", "facts", "facts_history", "episodes",
-            "vec_facts", "vec_episodes",
-            "jobs", "job_versions", "job_runs", "outputs",
-            "sources", "seen_items", "preferences",
-            "skills_index", "skill_versions",
-            "approvals", "audit_log", "safety_whitelist",
-            "settings", "seed_state",
+            "schema_migrations",
+            "conversations",
+            "messages",
+            "runs",
+            "task_nodes",
+            "facts",
+            "facts_history",
+            "episodes",
+            "vec_facts",
+            "vec_episodes",
+            "jobs",
+            "job_versions",
+            "job_runs",
+            "outputs",
+            "sources",
+            "seen_items",
+            "preferences",
+            "skills_index",
+            "skill_versions",
+            "approvals",
+            "audit_log",
+            "safety_whitelist",
+            "settings",
+            "seed_state",
         }
         missing = required_tables - tables
         assert not missing, f"Tables missing after migration: {sorted(missing)}"
@@ -53,6 +69,7 @@ class TestMigrations:
     async def test_migrations_idempotent(self, db_path: Path) -> None:
         """Running migrations twice on the same database produces no errors."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
         # Second run must not raise
         await db_mod.run_migrations()
@@ -67,6 +84,7 @@ class TestMigrations:
     async def test_wal_mode_enabled(self, db_path: Path) -> None:
         """After migrations, the database must be in WAL journal mode."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         conn = sqlite3.connect(str(db_path))
@@ -77,6 +95,7 @@ class TestMigrations:
     async def test_foreign_keys_enabled(self) -> None:
         """The async get_db context manager must have foreign keys enabled."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         async with db_mod.get_db() as db:
@@ -87,18 +106,18 @@ class TestMigrations:
     async def test_schema_migrations_table_has_entries(self, db_path: Path) -> None:
         """schema_migrations has one row per applied migration file."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         async with db_mod.get_db() as db:
-            rows = await db_mod.fetch_all(
-                db, "SELECT filename FROM schema_migrations ORDER BY id"
-            )
+            rows = await db_mod.fetch_all(db, "SELECT filename FROM schema_migrations ORDER BY id")
         assert len(rows) >= 1
         assert rows[0]["filename"] == "001_initial.sql"
 
     async def test_settings_default_rows_inserted(self) -> None:
         """The migration inserts default settings rows."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         async with db_mod.get_db() as db:
@@ -112,17 +131,17 @@ class TestQueryHelpers:
     async def test_fetch_one_returns_none_when_empty(self) -> None:
         """fetch_one returns None for an empty result set."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         async with db_mod.get_db() as db:
-            row = await db_mod.fetch_one(
-                db, "SELECT * FROM conversations WHERE id = 'nonexistent'"
-            )
+            row = await db_mod.fetch_one(db, "SELECT * FROM conversations WHERE id = 'nonexistent'")
         assert row is None
 
     async def test_execute_and_fetch_all(self) -> None:
         """execute + fetch_all round-trip works for a basic insert."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         async with db_mod.get_db() as db:
@@ -143,6 +162,7 @@ class TestQueryHelpers:
     async def test_rollback_on_exception(self) -> None:
         """A failed write inside get_db does not persist."""
         from noxai import db as db_mod
+
         await db_mod.run_migrations()
 
         with pytest.raises(RuntimeError, match="simulated error"):
@@ -155,7 +175,5 @@ class TestQueryHelpers:
                 raise RuntimeError("simulated error")
 
         async with db_mod.get_db() as db:
-            row = await db_mod.fetch_one(
-                db, "SELECT * FROM preferences WHERE key = 'rollback_key'"
-            )
+            row = await db_mod.fetch_one(db, "SELECT * FROM preferences WHERE key = 'rollback_key'")
         assert row is None, "Rolled-back row should not be visible"

@@ -25,6 +25,7 @@ def isolate_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator
     example_file = Path(__file__).parent.parent / "config.example.toml"
 
     import noxai.config as config_mod
+
     monkeypatch.setattr(config_mod, "CONFIG_DIR", cfg_dir)
     monkeypatch.setattr(config_mod, "CONFIG_FILE", cfg_file)
     monkeypatch.setattr(config_mod, "SECRETS_FILE", secrets_file)
@@ -203,9 +204,7 @@ class TestSecrets:
         import noxai.config as config_mod
 
         _write_valid_config(config_mod.CONFIG_FILE)
-        config_mod.SECRETS_FILE.write_text(
-            "# This is a comment\n\nNVIDIA_API_KEY=nvapi-abc\n"
-        )
+        config_mod.SECRETS_FILE.write_text("# This is a comment\n\nNVIDIA_API_KEY=nvapi-abc\n")
         config_mod.SECRETS_FILE.chmod(0o600)
 
         cfg = config_mod.load_config()

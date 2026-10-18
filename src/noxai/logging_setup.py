@@ -25,7 +25,7 @@ from typing import Any, ClassVar
 
 LOG_DIR = Path("~/.local/state/nox/logs").expanduser()
 LOG_FILE = LOG_DIR / "noxd.log"
-MAX_BYTES = 5 * 1024 * 1024   # 5 MB per file
+MAX_BYTES = 5 * 1024 * 1024  # 5 MB per file
 BACKUP_COUNT = 5
 
 
@@ -49,11 +49,28 @@ class _JsonFormatter(logging.Formatter):
         # Extra fields attached by callers via logging.extra
         for key, value in record.__dict__.items():
             if key.startswith("_") or key in {
-                "args", "created", "exc_info", "exc_text", "filename",
-                "funcName", "levelname", "levelno", "lineno", "message",
-                "module", "msecs", "msg", "name", "pathname", "process",
-                "processName", "relativeCreated", "stack_info", "taskName",
-                "thread", "threadName",
+                "args",
+                "created",
+                "exc_info",
+                "exc_text",
+                "filename",
+                "funcName",
+                "levelname",
+                "levelno",
+                "lineno",
+                "message",
+                "module",
+                "msecs",
+                "msg",
+                "name",
+                "pathname",
+                "process",
+                "processName",
+                "relativeCreated",
+                "stack_info",
+                "taskName",
+                "thread",
+                "threadName",
             }:
                 continue
             # Redact sensitive-looking keys
@@ -68,10 +85,10 @@ class _HumanFormatter(logging.Formatter):
     """Simple human-readable formatter for stderr output."""
 
     _LEVEL_COLORS: ClassVar[dict[str, str]] = {
-        "DEBUG":    "\033[36m",
-        "INFO":     "\033[32m",
-        "WARNING":  "\033[33m",
-        "ERROR":    "\033[31m",
+        "DEBUG": "\033[36m",
+        "INFO": "\033[32m",
+        "WARNING": "\033[33m",
+        "ERROR": "\033[31m",
         "CRITICAL": "\033[35m",
     }
     _RESET: ClassVar[str] = "\033[0m"

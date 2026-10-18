@@ -216,9 +216,7 @@ async def run_migrations() -> None:
 
             try:
                 conn.executescript(sql)
-                conn.execute(
-                    "INSERT INTO schema_migrations (filename) VALUES (?)", (filename,)
-                )
+                conn.execute("INSERT INTO schema_migrations (filename) VALUES (?)", (filename,))
                 conn.commit()
                 log.info("migration_done filename=%s", filename)
             except sqlite3.Error as exc:

@@ -200,3 +200,62 @@ the router automatically re-routes the request to the local `brain` role and cal
 **Rationale:** Principle 7 ("Fail soft"). Cloud unavailability should degrade
 gracefully rather than aborting the owner's task.
 
+---
+
+### D-018: Two-tier shell command safety evaluation
+
+**Decision:** Evaluate shell commands first by scanning raw string patterns for destructive
+operations (fork bombs, `rm -rf`, disk wipes, `sudo`, `curl|sh`), then parse `argv` via
+`shlex.split` to inspect binary allowlists, subcommands (e.g. `pacman -Q*` vs `-S*`), and
+sensitive path tokens (`.ssh`, `secrets.env`, `/etc/sudoers`).
+
+**Rationale:** Attackers or prompt injections may attempt to hide arguments in subshells or
+chaining. Scanning both the raw command line and the parsed arguments guarantees that neither
+pipes/operators nor token tricks can bypass the safety tiering.
+
+---
+
+### D-019: Path validation with symlink resolution and explicit root whitelisting
+
+**Decision:** Resolve all filesystem paths via `Path.resolve()` prior to boundary checks.
+Explicitly check `denied_paths` before `allowed_file_roots`.
+
+**Rationale:** Symlink traversal attacks can point inside an allowed root to a restricted
+target (e.g. `~/.ssh`). Resolving the path to its physical target before validation ensures
+no symlink escapes are possible.
+
+---
+
+### D-020: SSRF protection with redirect validation and NAT64 translation
+
+**Decision:** Enforce pre-flight DNS and IP checks blocking loopback, private RFC1918,
+carrier-grade NAT, and cloud metadata (`169.254.169.254`). For IPv6 NAT64 prefix `64:ff9b::/96`,
+extract the embedded IPv4 address and evaluate it against private ranges. In addition, validate
+every redirect URL in HTTP clients individually.
+
+**Rationale:** Web fetchers must prevent local network pivot attacks or cloud metadata
+exfiltration, even in networks utilizing DNS64/NAT64 or HTTP redirect chains.
+
+---
+
+### D-021: Taint-based approval escalation for tool execution
+
+**Decision:** In `ToolRegistry.execute`, inspect the caller's `context_taint`. If
+`TaintFlag.UNTRUSTED` is present in the context (from web fetching or external file reading),
+any `write` or `dangerous` tool execution requires explicit owner approval regardless of the tool's
+base tier.
+
+**Rationale:** Indirect prompt injection mitigation. If an untrusted web page or document contains
+hidden instructions to modify files or run commands, the agent cannot execute write operations
+without owner confirmation.
+
+---
+
+### D-022: Output truncation and secret redaction
+
+**Decision:** Truncate all tool outputs to 6,000 characters (or 200 KB for raw file reads) and
+pass them through regex secret redaction for API keys (`nvapi-*`, `sk-*`, `ghp_*`, `Bearer *`).
+
+**Rationale:** Prevents context window exhaustion, denial of service from huge outputs, and
+accidental token leakage in audit logs or LLM context.
+

@@ -107,12 +107,14 @@ class ModelRouter:
         # 2. Local execution path
         if provider.is_local:
             if on_model_used:
-                on_model_used({
-                    "role": role,
-                    "provider": provider.name,
-                    "model": model,
-                    "is_local": True,
-                })
+                on_model_used(
+                    {
+                        "role": role,
+                        "provider": provider.name,
+                        "model": model,
+                        "is_local": True,
+                    }
+                )
             async for chunk in provider.chat(
                 model=model,
                 messages=messages,
@@ -127,12 +129,14 @@ class ModelRouter:
         # 3. Cloud execution path with automatic fallback
         try:
             if on_model_used:
-                on_model_used({
-                    "role": role,
-                    "provider": provider.name,
-                    "model": model,
-                    "is_local": False,
-                })
+                on_model_used(
+                    {
+                        "role": role,
+                        "provider": provider.name,
+                        "model": model,
+                        "is_local": False,
+                    }
+                )
 
             async for chunk in provider.chat(
                 model=model,
@@ -153,13 +157,15 @@ class ModelRouter:
 
             fallback_provider, fallback_model = self.resolve_role("brain")
             if on_model_used:
-                on_model_used({
-                    "role": "brain",
-                    "provider": fallback_provider.name,
-                    "model": fallback_model,
-                    "is_local": True,
-                    "fallback_from": role,
-                })
+                on_model_used(
+                    {
+                        "role": "brain",
+                        "provider": fallback_provider.name,
+                        "model": fallback_model,
+                        "is_local": True,
+                        "fallback_from": role,
+                    }
+                )
 
             async for chunk in fallback_provider.chat(
                 model=fallback_model,

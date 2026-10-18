@@ -56,12 +56,14 @@ class FakeProvider(Provider):
         call_id: str = "call_fake1",
     ) -> None:
         """Enqueue a response that produces a tool call."""
-        self.responses.append([
-            ChatChunk(
-                delta_tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
-                finish_reason="tool_calls",
-            )
-        ])
+        self.responses.append(
+            [
+                ChatChunk(
+                    delta_tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+                    finish_reason="tool_calls",
+                )
+            ]
+        )
 
     def queue_embed(self, embeddings: list[list[float]]) -> None:
         """Enqueue embeddings for the next embed() call."""
@@ -88,14 +90,16 @@ class FakeProvider(Provider):
                     )
 
         # 2. Record call
-        self.calls.append({
-            "model": model,
-            "messages": messages,
-            "tools": tools,
-            "stream": stream,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        })
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "stream": stream,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
 
         # 3. Retrieve scripted response
         if not self.responses:

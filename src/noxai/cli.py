@@ -52,6 +52,7 @@ UI_BUILD = Path(__file__).parent.parent.parent / "ui" / "dist" / "index.html"
 # nx run
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def run(
     host: str = typer.Option("127.0.0.1", help="Bind address."),
@@ -60,8 +61,10 @@ def run(
 ) -> None:
     """Start the NoX daemon in the foreground."""
     from noxai.logging_setup import setup_logging
+
     try:
         from noxai.config import get_config
+
         cfg = get_config()
         setup_logging(cfg.logging.level)
         _host = cfg.server.host
@@ -73,9 +76,11 @@ def run(
         _port = port
 
     import uvicorn
+
     # Import the API app lazily so import errors surface clearly
     try:
         from noxai.api.app import create_app
+
         application = create_app()
     except ImportError:
         # M0 minimal app — full API is wired in M7
@@ -108,6 +113,7 @@ def _create_minimal_app() -> object:
 # nx status
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def status(
     host: str = typer.Option("127.0.0.1"),
@@ -122,8 +128,7 @@ def status(
         console.print_json(data=data)
     except httpx.ConnectError:
         console.print(
-            f"[red]✗[/] Cannot reach daemon at {url}\n"
-            "  Start it with: [bold]nx run[/bold]"
+            f"[red]✗[/] Cannot reach daemon at {url}\n  Start it with: [bold]nx run[/bold]"
         )
         raise typer.Exit(1) from None
     except Exception as exc:
@@ -135,6 +140,7 @@ def status(
 # nx doctor
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def doctor() -> None:
     """Run health checks and print PASS/FAIL with fix hints."""
@@ -145,11 +151,13 @@ def doctor() -> None:
     # 1. Python version
     major, minor = sys.version_info[:2]
     py_ok = (major, minor) >= (3, 11)
-    checks.append((
-        f"Python ≥ 3.11  (found {major}.{minor})",
-        py_ok,
-        "Install Python 3.11+ — on Arch: pacman -S python",
-    ))
+    checks.append(
+        (
+            f"Python ≥ 3.11  (found {major}.{minor})",
+            py_ok,
+            "Install Python 3.11+ — on Arch: pacman -S python",
+        )
+    )
 
     # 2. Ollama reachable
     ollama_ok, ollama_hint, ollama_data = _check_ollama()
@@ -157,19 +165,23 @@ def doctor() -> None:
 
     # 3. qwen2.5:14b model present
     qwen_ok = _model_present("qwen2.5:14b", ollama_data)
-    checks.append((
-        "qwen2.5:14b model in Ollama",
-        qwen_ok,
-        "Pull it: ollama pull qwen2.5:14b",
-    ))
+    checks.append(
+        (
+            "qwen2.5:14b model in Ollama",
+            qwen_ok,
+            "Pull it: ollama pull qwen2.5:14b",
+        )
+    )
 
     # 4. nomic-embed-text present
     embed_ok = _model_present("nomic-embed-text", ollama_data)
-    checks.append((
-        "nomic-embed-text model in Ollama",
-        embed_ok,
-        "Pull it: ollama pull nomic-embed-text",
-    ))
+    checks.append(
+        (
+            "nomic-embed-text model in Ollama",
+            embed_ok,
+            "Pull it: ollama pull nomic-embed-text",
+        )
+    )
 
     # 5. sqlite-vec or numpy fallback
     vec_ok, vec_hint = _check_sqlite_vec()
@@ -185,11 +197,13 @@ def doctor() -> None:
 
     # 8. NVIDIA API key present
     key_ok = _check_nvidia_key()
-    checks.append((
-        "NVIDIA API key configured",
-        key_ok,
-        "Add NVIDIA_API_KEY=nvapi-... to ~/.config/nox/secrets.env then chmod 600",
-    ))
+    checks.append(
+        (
+            "NVIDIA API key configured",
+            key_ok,
+            "Add NVIDIA_API_KEY=nvapi-... to ~/.config/nox/secrets.env then chmod 600",
+        )
+    )
 
     # 9. NVIDIA endpoint reachable (only if key present)
     if key_ok:
@@ -198,19 +212,23 @@ def doctor() -> None:
 
     # 10. Server port free
     port_ok = _port_free("127.0.0.1", 7777)
-    checks.append((
-        "Port 7777 free (daemon not yet running)",
-        port_ok,
-        "Stop any process using port 7777: ss -tlnp | grep 7777",
-    ))
+    checks.append(
+        (
+            "Port 7777 free (daemon not yet running)",
+            port_ok,
+            "Stop any process using port 7777: ss -tlnp | grep 7777",
+        )
+    )
 
     # 11. notify-send present
     ns_ok = shutil.which("notify-send") is not None
-    checks.append((
-        "notify-send in PATH",
-        ns_ok,
-        "Install libnotify: sudo pacman -S libnotify",
-    ))
+    checks.append(
+        (
+            "notify-send in PATH",
+            ns_ok,
+            "Install libnotify: sudo pacman -S libnotify",
+        )
+    )
 
     # 12. systemd user unit
     unit_ok, unit_hint = _check_systemd_unit()
@@ -222,11 +240,13 @@ def doctor() -> None:
 
     # 14. UI build present
     ui_ok = UI_BUILD.exists()
-    checks.append((
-        "UI build present (ui/dist/index.html)",
-        ui_ok,
-        "Build UI: cd ui && npm install && npm run build",
-    ))
+    checks.append(
+        (
+            "UI build present (ui/dist/index.html)",
+            ui_ok,
+            "Build UI: cd ui && npm install && npm run build",
+        )
+    )
 
     # Print results table
     table = Table(show_header=True, header_style="bold")
@@ -258,6 +278,7 @@ def doctor() -> None:
 # nx token
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def token() -> None:
     """Print the current session token path and first/last characters."""
@@ -277,6 +298,7 @@ def token() -> None:
 # ---------------------------------------------------------------------------
 # Stubs for later milestones (honest error messages)
 # ---------------------------------------------------------------------------
+
 
 @app.command()
 def open() -> None:
@@ -334,6 +356,7 @@ def eval_tools(
 # Doctor check helpers
 # ---------------------------------------------------------------------------
 
+
 def _check_ollama() -> tuple[bool, str, list[dict]]:
     """Check if Ollama is reachable and return its model list."""
     try:
@@ -364,6 +387,7 @@ def _check_sqlite_vec() -> tuple[bool, str]:
         import sqlite3
 
         import sqlite_vec  # type: ignore[import-untyped]
+
         conn = sqlite3.connect(":memory:")
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
@@ -372,6 +396,7 @@ def _check_sqlite_vec() -> tuple[bool, str]:
     except Exception:
         try:
             import numpy  # noqa: F401
+
             return True, "sqlite-vec missing; numpy fallback is active (PASS with note)"
         except ImportError:
             return False, "Install numpy: pip install numpy (or install sqlite-vec)"
@@ -383,10 +408,9 @@ def _check_db() -> tuple[bool, str]:
         return False, "Run migrations: python -m noxai (or start the daemon)"
     try:
         import sqlite3
+
         conn = sqlite3.connect(str(DB_PATH))
-        rows = conn.execute(
-            "SELECT filename FROM schema_migrations ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT filename FROM schema_migrations ORDER BY id").fetchall()
         conn.close()
         n = len(rows)
         if n == 0:
@@ -473,6 +497,7 @@ def _check_gate() -> tuple[str, str]:
     """Return the configured gate mode."""
     try:
         from noxai.config import get_config
+
         cfg = get_config()
         mode = cfg.gate.mode
         return mode, ""

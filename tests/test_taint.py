@@ -79,7 +79,7 @@ class TestAsModelText:
     def test_untrusted_without_source_no_attribute(self) -> None:
         c = Content.untrusted("some text")
         text = c.as_model_text()
-        assert 'source=' not in text
+        assert "source=" not in text
         assert "<untrusted_content>" in text
 
     def test_untrusted_closing_tag_in_text_is_neutralised(self) -> None:

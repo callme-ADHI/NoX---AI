@@ -30,8 +30,8 @@ class TaintFlag(enum.Flag):
     """
 
     NONE = 0
-    PRIVATE = enum.auto()     # must stay on-device; never sent to cloud
-    UNTRUSTED = enum.auto()   # from web/RSS/file; must be wrapped in tags
+    PRIVATE = enum.auto()  # must stay on-device; never sent to cloud
+    UNTRUSTED = enum.auto()  # from web/RSS/file; must be wrapped in tags
 
 
 @dataclass
@@ -78,7 +78,8 @@ class Content:
         # Strip any literal closing tags from the fetched content to prevent
         # an adversary from closing the wrapper and injecting instructions.
         safe_text = self.text.replace(
-            f"</{self.UNTRUSTED_TAG}>", f"</{self.UNTRUSTED_TAG} />"  # neutralise
+            f"</{self.UNTRUSTED_TAG}>",
+            f"</{self.UNTRUSTED_TAG} />",  # neutralise
         )
         source_attr = f' source="{self.source}"' if self.source else ""
         return f"<{self.UNTRUSTED_TAG}{source_attr}>\n{safe_text}\n</{self.UNTRUSTED_TAG}>"

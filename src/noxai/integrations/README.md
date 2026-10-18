@@ -11,6 +11,7 @@ Each integration implements the `Integration` protocol:
 from typing import Protocol
 from noxai.tools.registry import ToolSpec
 
+
 class Integration(Protocol):
     name: str
 
