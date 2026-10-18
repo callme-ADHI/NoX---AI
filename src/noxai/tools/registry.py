@@ -335,14 +335,16 @@ class ToolRegistry:
                     )
                     approval_id = cursor.lastrowid
                     if ctx.emit:
-                        ctx.emit({
-                            "type": "approval_required",
-                            "approval_id": approval_id,
-                            "tool": name,
-                            "args": raw_args,
-                            "args_hash": args_hash,
-                            "reason": approval_reason,
-                        })
+                        ctx.emit(
+                            {
+                                "type": "approval_required",
+                                "approval_id": approval_id,
+                                "tool": name,
+                                "args": raw_args,
+                                "args_hash": args_hash,
+                                "reason": approval_reason,
+                            }
+                        )
 
                     if ctx.request_approval:
                         approved = await ctx.request_approval(
@@ -373,9 +375,8 @@ class ToolRegistry:
                             reason=approval_reason,
                         )
                     else:
-                        timeout = (
-                            ctx.approval_timeout
-                            or (ctx.config.safety.approval_timeout_seconds if ctx.config else 300)
+                        timeout = ctx.approval_timeout or (
+                            ctx.config.safety.approval_timeout_seconds if ctx.config else 300
                         )
                         start_poll = time.monotonic()
                         while time.monotonic() - start_poll < timeout:

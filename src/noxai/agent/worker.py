@@ -172,7 +172,7 @@ async def execute_worker_subtask(
                 chunks.append(chunk)
         except Exception as exc:
             log.warning("Worker LLM call failed in node %s: %s", node.id, exc)
-            break
+            raise RuntimeError(f"Worker LLM call failed in node {node.id}: {exc}") from exc
 
         # Reconstruct response
         full_text = "".join(c.text for c in chunks if c.text)
@@ -254,7 +254,7 @@ async def execute_worker_subtask(
 
     output = parse_worker_json(final_output_text)
 
-    # Heuristic: Research nodes must provide sources
+    # Heuristic: Research nodes must provide sources per spec §6.4
     if node.kind == "research" and not output.sources:
         output.confidence = min(output.confidence, 0.3)
 
@@ -317,15 +317,23 @@ async def execute_worker_subtask(
                         final_res += chunk.text
                 if final_res:
                     refine_output = parse_worker_json(final_res)
+                    if node.kind == "research" and not refine_output.sources:
+                        refine_output.confidence = min(refine_output.confidence, 0.3)
                     if refine_output.confidence >= output.confidence:
                         output = refine_output
             else:
                 refine_text = "".join(c.text for c in refine_chunks if c.text)
                 if refine_text:
                     refine_output = parse_worker_json(refine_text)
+                    if node.kind == "research" and not refine_output.sources:
+                        refine_output.confidence = min(refine_output.confidence, 0.3)
                     if refine_output.confidence >= output.confidence:
                         output = refine_output
         except Exception as exc:
             log.warning("Refinement pass failed for node %s: %s", node.id, exc)
+
+    # Final safeguard: research nodes must provide sources per spec §6.4
+    if node.kind == "research" and not output.sources:
+        output.confidence = min(output.confidence, 0.3)
 
     return output

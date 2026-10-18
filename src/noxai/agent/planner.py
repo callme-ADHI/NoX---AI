@@ -27,9 +27,9 @@ def _load_planner_prompt() -> str:
         return PLANNER_PROMPT_PATH.read_text(encoding="utf-8")
     return (
         "You are NoX's Strategic Planner. Decompose the goal into 3-7 subtasks in strict JSON.\n"
-        "Schema: {\"goal\": str, \"subtasks\": [{\"id\": str, \"title\": str, \"objective\": str, "
-        "\"kind\": str, \"depends_on\": [], \"suggested_tools\": [], \"expected_output\": str}], "
-        "\"synthesis_instructions\": str}"
+        'Schema: {"goal": str, "subtasks": [{"id": str, "title": str, "objective": str, '
+        '"kind": str, "depends_on": [], "suggested_tools": [], "expected_output": str}], '
+        '"synthesis_instructions": str}'
     )
 
 

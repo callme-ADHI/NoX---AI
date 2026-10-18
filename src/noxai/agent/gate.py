@@ -115,13 +115,7 @@ async def evaluate_complexity(
             reason="Multi-point structured query detected",
         )
 
-    # 4. If short and direct, default to simple
-    if len(words) < 15:
-        return ComplexityResult(
-            is_complex=False,
-            cleaned_message=raw,
-            reason="Short, direct request",
-        )
+    # 4. Fast local model check if router is provided and heuristics are inconclusive
 
     # 5. Fast local model fallback check if router is provided
     if router is not None:
@@ -152,9 +146,7 @@ async def evaluate_complexity(
                 clean_json = clean_json.split("```", 1)[1].split("```", 1)[0].strip()
 
             parsed = (
-                json.loads(clean_json)
-                if clean_json.startswith("{")
-                else repair_json(clean_json)
+                json.loads(clean_json) if clean_json.startswith("{") else repair_json(clean_json)
             )
             if isinstance(parsed, dict) and "complex" in parsed:
                 return ComplexityResult(

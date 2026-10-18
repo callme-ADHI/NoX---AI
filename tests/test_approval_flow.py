@@ -1,4 +1,5 @@
 """Tests for tool approval flow: args_hash, single-use consumed status, polling, CLI."""
+
 from __future__ import annotations
 
 import asyncio
@@ -50,8 +51,12 @@ def write_tool_def() -> ToolDefinition:
 @pytest.fixture
 def mock_config() -> Settings:
     return Settings(
-        models={"roles": {"brain": {"provider": "ollama", "model": "qwen2.5:14b"},
-                          "embed": {"provider": "ollama", "model": "nomic-embed-text"}}},
+        models={
+            "roles": {
+                "brain": {"provider": "ollama", "model": "qwen2.5:14b"},
+                "embed": {"provider": "ollama", "model": "nomic-embed-text"},
+            }
+        },
     )
 
 
@@ -100,9 +105,7 @@ async def test_args_hash_computation(
     assert exc_info.value.args_hash == expected_hash
 
     # Verify DB row
-    cursor = await migrated_db.execute(
-        "SELECT * FROM approvals WHERE run_id = 'run_hash_test'"
-    )
+    cursor = await migrated_db.execute("SELECT * FROM approvals WHERE run_id = 'run_hash_test'")
     row = await cursor.fetchone()
     assert row is not None
     assert row["args_hash"] == expected_hash

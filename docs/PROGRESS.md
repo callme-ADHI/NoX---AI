@@ -12,9 +12,10 @@
   - Verified: typer is configured, pyproject.toml entrypoint set, nx commands operational
 - [x] R7 Lint / type / test green
   - 161 tests passed, ruff clean, mypy clean
-- [ ] M5.1 Gate + Planner tests
-- [ ] M5.2 Worker + Executor tests
-- [ ] M5.3 Synthesizer + resume tests
+- [x] M5.1 Gate + Planner tests
+- [x] M5.2 Worker + Executor tests
+- [x] M5.3 Synthesizer + resume tests
+  - 196 tests passed (35 new tests for M5), ruff clean, mypy clean
 - [ ] M6 Scheduler, jobs, reminders, meta-tools, seeds, skills
 - [ ] M7 Daemon, REST API, WebSocket, auth gate
 - [ ] M8 Web UI (React + TypeScript + Vite + Tailwind + shadcn/ui)

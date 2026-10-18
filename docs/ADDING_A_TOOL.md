@@ -22,22 +22,24 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from noxai.tools.registry import tool, ToolResult, ToolContext
 
+
 # 1. Define a strict Pydantic params model
 class MyToolParams(BaseModel):
-    model_config = {"extra": "forbid"}   # reject unexpected args
+    model_config = {"extra": "forbid"}  # reject unexpected args
 
     query: str = Field(..., description="What to look for.", min_length=1)
     max_results: int = Field(default=5, ge=1, le=20)
+
 
 # 2. Register the function
 @tool(
     name="my_tool",
     description="One clear sentence — this is what the model sees.",
     params=MyToolParams,
-    tier="read",          # "read" | "write" | "dangerous" | "forbidden"
+    tier="read",  # "read" | "write" | "dangerous" | "forbidden"
     data_class="public",  # "public" | "private"
     untrusted_output=False,  # True → wrap result in <untrusted_content> tags
-    timeout=15,           # seconds; 0 = use agent.tool_timeout_seconds from config
+    timeout=15,  # seconds; 0 = use agent.tool_timeout_seconds from config
 )
 async def my_tool(params: MyToolParams, ctx: ToolContext) -> ToolResult:
     """Docstring is for developers; `description` above is for the model."""
@@ -71,12 +73,12 @@ even if whitelisted. The approval card shows a warning.
 `ctx` is passed to your function by the runner. It provides:
 
 ```python
-ctx.run_id          # str — current run ID
-ctx.allow_cloud     # bool — is this a cloud-eligible run?
-ctx.config          # Settings — full config object
-ctx.db              # aiosqlite.Connection — use sparingly; prefer helpers
-ctx.emit(event)     # send a WebSocket event (e.g. node_progress)
-ctx.cancel_event    # asyncio.Event — check .is_set() in long loops
+ctx.run_id  # str — current run ID
+ctx.allow_cloud  # bool — is this a cloud-eligible run?
+ctx.config  # Settings — full config object
+ctx.db  # aiosqlite.Connection — use sparingly; prefer helpers
+ctx.emit(event)  # send a WebSocket event (e.g. node_progress)
+ctx.cancel_event  # asyncio.Event — check .is_set() in long loops
 ```
 
 ---
@@ -86,9 +88,9 @@ ctx.cancel_event    # asyncio.Event — check .is_set() in long loops
 ```python
 @dataclass
 class ToolResult:
-    ok: bool          # True = success
-    output: str       # Full text returned to the model (capped at 6,000 chars)
-    summary: str      # Short (≤ 80 chars) for UI display and audit log
+    ok: bool  # True = success
+    output: str  # Full text returned to the model (capped at 6,000 chars)
+    summary: str  # Short (≤ 80 chars) for UI display and audit log
     sources: list[dict] = field(default_factory=list)  # [{"title":…, "url":…}]
 ```
 

@@ -247,8 +247,17 @@ The client can send `{type: "ping"}`; server replies `pong`. The server replays 
 ```python
 class Provider(Protocol):
     name: str
-    async def chat(self, *, model: str, messages: list[Message], tools: list[ToolSpec] | None,
-                   stream: bool, temperature: float | None, max_tokens: int | None) -> AsyncIterator[ChatChunk]: ...
+
+    async def chat(
+        self,
+        *,
+        model: str,
+        messages: list[Message],
+        tools: list[ToolSpec] | None,
+        stream: bool,
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> AsyncIterator[ChatChunk]: ...
     async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]: ...
     async def health(self) -> ProviderHealth: ...
 ```
@@ -388,8 +397,15 @@ Parse and validate with a repair pass. If a worker returns no sources for a `res
 **Tool definition.** A decorator registers each tool:
 
 ```python
-@tool(name="fetch_page", description="...", params=FetchPageParams,
-      tier="read", data_class="public", untrusted_output=True, timeout=30)
+@tool(
+    name="fetch_page",
+    description="...",
+    params=FetchPageParams,
+    tier="read",
+    data_class="public",
+    untrusted_output=True,
+    timeout=30,
+)
 async def fetch_page(params: FetchPageParams, ctx: ToolContext) -> ToolResult: ...
 ```
 

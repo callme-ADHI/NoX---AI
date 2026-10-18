@@ -1,4 +1,5 @@
 """VectorIndex protocol — abstraction over the SQLite blob vector store."""
+
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
