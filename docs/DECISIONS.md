@@ -375,3 +375,20 @@ overwrite or wipe the user's persistent memory store without owner intervention.
 
 **Rationale:** Per spec §6.10, typer provides typed CLI command groups and options with clean autocompletion and rich terminal output.
 
+---
+
+### D-033: RSS seed feeds verification and pruning
+
+**Decision:** Live test candidate RSS feeds at implementation time. Kept: The Hacker News, BleepingComputer, Krebs on Security, Hacker News frontpage (hnrss), CTFtime upcoming events, Inc42, YourStory, and The Hindu Technology. Dropped: Entrackr (returned HTTP 404).
+
+**Rationale:** Spec §6.7 requires verifying every URL at implementation time, dropping dead ones, and logging which were dropped.
+
+---
+
+### D-034: Custom 15s tick loop with croniter/dateparser over APScheduler
+
+**Decision:** Implement custom tick loop in `src/noxai/scheduler/scheduler.py` polling SQLite every 15 seconds, using `croniter` for cron calculations and `dateparser` for natural language time parsing.
+
+**Rationale:** Spec §0 and §6.7 explicitly state: "Do NOT use APScheduler, because jobs are editable data rows and a custom loop is simpler to keep consistent."
+
+

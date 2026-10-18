@@ -171,6 +171,7 @@ class ToolRegistry:
             "noxai.tools.builtin.file_tools",
             "noxai.tools.builtin.web",
             "noxai.tools.builtin.memory_tools",
+            "noxai.tools.builtin.scheduler_tools",
         ]
         for mod_name in builtin_modules:
             try:

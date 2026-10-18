@@ -16,7 +16,8 @@
 - [x] M5.2 Worker + Executor tests
 - [x] M5.3 Synthesizer + resume tests
   - 196 tests passed (35 new tests for M5), ruff clean, mypy clean
-- [ ] M6 Scheduler, jobs, reminders, meta-tools, seeds, skills
+- [x] M6 Scheduler, jobs, reminders, meta-tools, seeds, skills
+  - 212 tests passed (16 new tests for M6), ruff clean, mypy clean
 - [ ] M7 Daemon, REST API, WebSocket, auth gate
 - [ ] M8 Web UI (React + TypeScript + Vite + Tailwind + shadcn/ui)
 - [ ] M9 Autostart, install, docs, final acceptance
