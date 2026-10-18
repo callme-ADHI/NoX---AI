@@ -1,6 +1,6 @@
 # NoX
 
-**NoX** (pronounced "nocks") is a personal AI agent that runs locally on Adhi's Arch Linux machine. It starts automatically at login, handles daily briefings, reminders, memory, and system tasks — all with a local-first, privacy-first architecture.
+**NoX** (pronounced "nocks") is a personal AI agent that runs locally on my Arch Linux machine. It starts automatically at login, handles daily briefings, reminders, memory, and system tasks — all with a local-first, privacy-first architecture.
 
 ---
 
