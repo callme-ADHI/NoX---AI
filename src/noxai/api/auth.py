@@ -138,7 +138,12 @@ def verify_websocket_auth(websocket: WebSocket) -> bool:
     origin = websocket.headers.get("origin")
     if origin:
         host = websocket.headers.get("host", "127.0.0.1:7777")
-        allowed = [f"http://{host}", f"https://{host}", "http://localhost:7777", "http://127.0.0.1:7777"]
+        allowed = [
+            f"http://{host}",
+            f"https://{host}",
+            "http://localhost:7777",
+            "http://127.0.0.1:7777",
+        ]
         if not any(origin.startswith(a) for a in allowed):
             log.warning("WebSocket rejected invalid origin: %s", origin)
             return False

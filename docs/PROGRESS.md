@@ -20,5 +20,9 @@
   - 212 tests passed (16 new tests for M6), ruff clean, mypy clean
 - [x] M7 Daemon, REST API, WebSocket, auth gate
   - 226 tests passed (14 new tests for M7), ruff clean, mypy clean
-- [ ] M8 Web UI (React + TypeScript + Vite + Tailwind + shadcn/ui)
+- [x] M8 Web UI (React + TypeScript + Vite + Tailwind)
+  - Vite build clean, production bundle compiled to ui/dist
+  - Live task DAG visualization, streaming chat, approval cards, briefings archive
+  - Jobs table with visual diff & version rollback, local memory manager
+  - PWA offline shell support, dark modern theme, responsive desktop/mobile nav
 - [ ] M9 Autostart, install, docs, final acceptance

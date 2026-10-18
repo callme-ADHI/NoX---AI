@@ -402,4 +402,3 @@ class JobScheduler:
                 await asyncio.sleep(self.tick_seconds)
             except asyncio.CancelledError:
                 break
-

@@ -399,5 +399,10 @@ overwrite or wipe the user's persistent memory store without owner intervention.
 
 **Rationale:** Complies with SPEC §6.1 and §6.9, providing zero-friction startup for `nx open` while guaranteeing session security and preventing web cross-site request forgery attacks.
 
+---
 
+### D-036: Web UI SPA routing and PWA caching policy
 
+**Decision:** The React Web UI is compiled to `ui/dist` via Vite. The FastAPI daemon serves static assets from `/assets`, resolves known root assets (`manifest.json`, `sw.js`, `icon.svg`) with strict path containment checks, and falls back to `index.html` for client-side SPA routing for authenticated sessions. The service worker (`sw.js`) caches app shell assets while strictly bypassing any `/api/` or `/ws` network requests.
+
+**Rationale:** Fulfills SPEC §9 ("Web UI — React + Vite + Tailwind + shadcn/ui") requirements for PWA installability, clean client-side routing, and protection against caching dynamic API responses or WebSocket streams.

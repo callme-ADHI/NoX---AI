@@ -1,0 +1,619 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Send,
+  Square,
+  Plus,
+  Search,
+  Cloud,
+  Cpu,
+  Trash2,
+  Sparkles,
+  Info,
+  Copy,
+  Check,
+} from 'lucide-react';
+import {
+  ApprovalRequest,
+  Conversation,
+  Message,
+  TaskPlan,
+  ToolCallItem,
+  WebSocketEvent,
+} from '../types';
+import { api } from '../services/api';
+import { wsService } from '../services/websocket';
+import { LiveTaskPlan } from '../components/LiveTaskPlan';
+import { ApprovalCard } from '../components/ApprovalCard';
+import { ToolCallCard } from '../components/ToolCallCard';
+
+export const ChatPage: React.FC = () => {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [allowCloud, setAllowCloud] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  // Streaming and execution state
+  const [currentPlan, setCurrentPlan] = useState<TaskPlan | null>(null);
+  const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+  const [streamingText, setStreamingText] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  // Subscribe to live WebSocket events
+  useEffect(() => {
+    const unsubscribe = wsService.subscribe((event: WebSocketEvent) => {
+      handleWsEvent(event);
+    });
+    return unsubscribe;
+  }, [activeRunId]);
+
+  // Scroll to bottom when messages or streaming text change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingText, currentPlan, pendingApprovals, toolCalls]);
+
+  const loadConversations = async () => {
+    try {
+      const data = await api.getConversations();
+      setConversations(data);
+      if (data.length > 0 && !activeConvId) {
+        selectConversation(data[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+    }
+  };
+
+  const selectConversation = async (convId: string) => {
+    setActiveConvId(convId);
+    try {
+      const conv = await api.getConversation(convId);
+      setMessages(conv.messages || []);
+      setStreamingText('');
+      setCurrentPlan(null);
+      setToolCalls([]);
+      setPendingApprovals([]);
+    } catch (err) {
+      console.error('Failed to load conversation details:', err);
+    }
+  };
+
+  const handleWsEvent = (event: WebSocketEvent) => {
+    const { type, data, run_id } = event;
+
+    // Filter by run_id if attached
+    if (activeRunId && run_id && run_id !== activeRunId) {
+      return;
+    }
+
+    switch (type) {
+      case 'run_started':
+        setIsRunning(true);
+        if (run_id) setActiveRunId(run_id);
+        break;
+
+      case 'token':
+        if (typeof data.delta === 'string') {
+          setStreamingText((prev) => prev + data.delta);
+        }
+        break;
+
+      case 'plan_created':
+        if (Array.isArray(data.nodes)) {
+          setCurrentPlan({
+            run_id: run_id || '',
+            goal: (data.goal as string) || 'Autonomous task breakdown',
+            nodes: data.nodes as any,
+            overall_progress: 0,
+            started_at: Date.now(),
+          });
+        }
+        break;
+
+      case 'node_started':
+        if (currentPlan && typeof data.node_id === 'string') {
+          setCurrentPlan((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              nodes: prev.nodes.map((n) =>
+                n.id === data.node_id ? { ...n, status: 'running' } : n
+              ),
+            };
+          });
+        }
+        break;
+
+      case 'node_done':
+        if (currentPlan && typeof data.node_id === 'string') {
+          setCurrentPlan((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              nodes: prev.nodes.map((n) =>
+                n.id === data.node_id
+                  ? {
+                      ...n,
+                      status: 'done',
+                      summary: data.summary as string,
+                      sources: data.sources as string[],
+                      duration_ms: data.duration_ms as number,
+                    }
+                  : n
+              ),
+            };
+          });
+        }
+        break;
+
+      case 'node_failed':
+        if (currentPlan && typeof data.node_id === 'string') {
+          setCurrentPlan((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              nodes: prev.nodes.map((n) =>
+                n.id === data.node_id ? { ...n, status: 'failed' } : n
+              ),
+            };
+          });
+        }
+        break;
+
+      case 'tool_call':
+        setToolCalls((prev) => [
+          ...prev,
+          {
+            id: (data.id as string) || `tool_${Date.now()}`,
+            name: data.name as string,
+            arguments: (data.arguments as Record<string, unknown>) || {},
+            tier: data.tier as any,
+          },
+        ]);
+        break;
+
+      case 'tool_result':
+        setToolCalls((prev) =>
+          prev.map((t) =>
+            t.name === data.name || t.id === data.id
+              ? {
+                  ...t,
+                  result_summary: data.summary as string,
+                  duration_ms: data.duration_ms as number,
+                  ok: data.ok as boolean,
+                }
+              : t
+          )
+        );
+        break;
+
+      case 'approval_required':
+        setPendingApprovals((prev) => [
+          ...prev,
+          {
+            id: Number(data.approval_id),
+            run_id: run_id,
+            tool_name: data.tool as string,
+            arguments: (data.args as Record<string, unknown>) || {},
+            reason: (data.reason as string) || 'Tool execution approval requested',
+            tier: (data.tier as any) || 'write',
+            untrusted_warning: !!data.untrusted_warning,
+            status: 'pending',
+          },
+        ]);
+        break;
+
+      case 'approval_resolved':
+        setPendingApprovals((prev) =>
+          prev.filter((a) => a.id !== Number(data.approval_id))
+        );
+        break;
+
+      case 'message_done':
+        if (typeof data.text === 'string') {
+          const newMsg: Message = {
+            id: `msg_${Date.now()}`,
+            conversation_id: activeConvId || '',
+            role: 'assistant',
+            content: data.text,
+            is_cloud: allowCloud,
+            model_name: allowCloud ? 'nemotron-super-49b' : 'qwen2.5:14b',
+          };
+          setMessages((prev) => [...prev, newMsg]);
+          setStreamingText('');
+        }
+        break;
+
+      case 'run_done':
+      case 'run_failed':
+      case 'run_cancelled':
+        setIsRunning(false);
+        setActiveRunId(null);
+        if (activeConvId) {
+          loadConversations();
+        }
+        break;
+    }
+  };
+
+  const handleSend = async () => {
+    if (!inputMessage.trim() || isRunning) return;
+
+    const trimmed = inputMessage.trim();
+    setInputMessage('');
+
+    // Handle slash commands per Section 9
+    if (trimmed.startsWith('/')) {
+      const parts = trimmed.split(' ');
+      const cmd = parts[0].toLowerCase();
+      if (cmd === '/clear') {
+        setMessages([]);
+        return;
+      }
+      if (cmd === '/cloud') {
+        if (parts[1] === 'on') setAllowCloud(true);
+        else if (parts[1] === 'off') setAllowCloud(false);
+        return;
+      }
+    }
+
+    // Add optimistic user message
+    const userMsg: Message = {
+      id: `msg_user_${Date.now()}`,
+      conversation_id: activeConvId || '',
+      role: 'user',
+      content: trimmed,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setIsRunning(true);
+    setStreamingText('');
+
+    try {
+      const resp = await api.startChat(trimmed, activeConvId || undefined, allowCloud);
+      setActiveRunId(resp.run_id);
+      if (!activeConvId) {
+        setActiveConvId(resp.conversation_id);
+        loadConversations();
+      }
+    } catch (err) {
+      console.error('Failed to start chat run:', err);
+      setIsRunning(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!activeRunId) return;
+    try {
+      await api.cancelRun(activeRunId);
+    } catch (err) {
+      console.error('Cancel run error:', err);
+    }
+  };
+
+  const handleNewChat = () => {
+    setActiveConvId(null);
+    setMessages([]);
+    setStreamingText('');
+    setCurrentPlan(null);
+    setToolCalls([]);
+    setPendingApprovals([]);
+    textareaRef.current?.focus();
+  };
+
+  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    try {
+      await api.deleteConversation(convId);
+      if (activeConvId === convId) {
+        handleNewChat();
+      }
+      loadConversations();
+    } catch (err) {
+      console.error('Delete conversation error:', err);
+    }
+  };
+
+  const handleApprovalDecision = async (id: number, decision: 'approve' | 'deny') => {
+    try {
+      await api.resolveApproval(id, decision);
+      setPendingApprovals((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      console.error('Resolve approval error:', err);
+    }
+  };
+
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const filteredConversations = conversations.filter((c) =>
+    c.title.toLowerCase().includes(searchFilter.toLowerCase())
+  );
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      {/* Left Sidebar: Conversations */}
+      <aside className="w-64 bg-surface border-r border-border flex flex-col shrink-0 hidden md:flex">
+        {/* New Chat Button */}
+        <div className="p-3 border-b border-border">
+          <button
+            onClick={handleNewChat}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-raised hover:bg-border text-text font-medium text-xs transition-colors border border-border"
+          >
+            <Plus className="w-4 h-4 text-accent" />
+            New Conversation
+          </button>
+        </div>
+
+        {/* Filter input */}
+        <div className="p-2 border-b border-border/60">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-muted absolute left-2.5 top-2.5" />
+            <input
+              type="text"
+              placeholder="Filter chats..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className="w-full bg-raised rounded-md pl-8 pr-3 py-1.5 text-xs text-text placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        </div>
+
+        {/* Conversation list */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {filteredConversations.length === 0 ? (
+            <div className="p-4 text-center text-xs text-muted">
+              No conversations yet
+            </div>
+          ) : (
+            filteredConversations.map((c) => {
+              const isActive = activeConvId === c.id;
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => selectConversation(c.id)}
+                  className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                    isActive
+                      ? 'bg-raised text-accent font-medium border border-border'
+                      : 'text-muted hover:text-text hover:bg-raised/40'
+                  }`}
+                >
+                  <span className="truncate flex-1 pr-2">{c.title || 'Untitled'}</span>
+                  <button
+                    onClick={(e) => handleDeleteConversation(e, c.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-danger rounded transition-opacity"
+                    title="Delete conversation"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </aside>
+
+      {/* Main Chat Area */}
+      <main className="flex-1 flex flex-col bg-background overflow-hidden relative">
+        {/* Messages scroll area */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+          {messages.length === 0 && !streamingText && (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 select-none max-w-lg mx-auto">
+              <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent mb-4 shadow-sm">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h2 className="text-base font-semibold text-text mb-1">
+                Welcome to NoX Agent
+              </h2>
+              <p className="text-xs text-muted mb-6 leading-relaxed">
+                Autonomous, privacy-first cybersecurity assistant running locally
+                on Arch Linux. Select a prompt or ask anything.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full text-left">
+                {[
+                  'Produce morning briefing for today',
+                  'Search CTF competitions for students in Kerala',
+                  'What are the latest CVEs in Linux kernel?',
+                  'Check system health and active services',
+                ].map((sample, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setInputMessage(sample);
+                      textareaRef.current?.focus();
+                    }}
+                    className="p-3 rounded-lg bg-surface hover:bg-raised border border-border text-xs text-text hover:border-accent/40 transition-colors"
+                  >
+                    {sample}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Render historical messages */}
+          {messages.map((msg) => {
+            const isUser = msg.role === 'user';
+            return (
+              <div
+                key={msg.id}
+                className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-3xl ${
+                  isUser ? 'ml-auto' : 'mr-auto'
+                } w-full`}
+              >
+                {/* Model badge */}
+                {!isUser && (
+                  <div className="flex items-center gap-2 mb-1 pl-1">
+                    <span className="text-[10px] font-mono text-muted flex items-center gap-1">
+                      {msg.is_cloud ? (
+                        <>
+                          <Cloud className="w-3 h-3 text-sky-400" />
+                          <span className="text-sky-400">Cloud ({msg.model_name || 'Nemotron'})</span>
+                        </>
+                      ) : (
+                        <>
+                          <Cpu className="w-3 h-3 text-accent" />
+                          <span className="text-accent">Local ({msg.model_name || 'qwen2.5:14b'})</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {/* Message Bubble */}
+                <div
+                  className={`p-4 rounded-xl text-xs leading-relaxed relative group ${
+                    isUser
+                      ? 'bg-accent/15 text-text border border-accent/30 rounded-br-none'
+                      : 'bg-surface text-text border border-border rounded-bl-none shadow-sm w-full'
+                  }`}
+                >
+                  <div className="whitespace-pre-wrap font-sans selection:bg-accent/20">
+                    {msg.content}
+                  </div>
+
+                  {/* Copy button */}
+                  <button
+                    onClick={() => handleCopyMessage(msg.id, msg.content)}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-raised border border-border text-muted hover:text-text transition-all"
+                    title="Copy message"
+                  >
+                    {copiedId === msg.id ? (
+                      <Check className="w-3 h-3 text-success" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Live Task Plan panel */}
+          {currentPlan && (
+            <div className="max-w-3xl mr-auto w-full">
+              <LiveTaskPlan plan={currentPlan} />
+            </div>
+          )}
+
+          {/* Pending Approval Cards */}
+          {pendingApprovals.map((approval) => (
+            <div key={approval.id} className="max-w-3xl mr-auto w-full">
+              <ApprovalCard
+                approval={approval}
+                onDecision={handleApprovalDecision}
+              />
+            </div>
+          ))}
+
+          {/* Tool call cards */}
+          {toolCalls.length > 0 && (
+            <div className="max-w-3xl mr-auto w-full space-y-1">
+              {toolCalls.map((t) => (
+                <ToolCallCard key={t.id} tool={t} />
+              ))}
+            </div>
+          )}
+
+          {/* Streaming assistant message */}
+          {streamingText && (
+            <div className="flex flex-col items-start max-w-3xl mr-auto w-full">
+              <div className="p-4 rounded-xl text-xs leading-relaxed bg-surface text-text border border-accent/40 rounded-bl-none shadow-sm w-full">
+                <div className="whitespace-pre-wrap font-sans">
+                  {streamingText}
+                  <span className="inline-block w-1.5 h-3.5 bg-accent ml-1 animate-pulse align-middle" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Bar */}
+        <div className="p-3 md:p-4 bg-surface border-t border-border shrink-0">
+          <div className="max-w-3xl mx-auto flex flex-col gap-2">
+            {/* Input Options bar */}
+            <div className="flex items-center justify-between text-xs text-muted px-1">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={allowCloud}
+                    onChange={(e) => setAllowCloud(e.target.checked)}
+                    className="rounded border-border text-accent focus:ring-accent bg-background"
+                  />
+                  <span className="text-[11px] flex items-center gap-1">
+                    <Cloud className="w-3.5 h-3.5" />
+                    Allow cloud for this request
+                  </span>
+                </label>
+                <div
+                  className="cursor-help text-muted hover:text-text"
+                  title="Declares request text public and enables heavy cloud model for deep planning. Memory injection is disabled for cloud requests per §6.2."
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {isRunning && (
+                <button
+                  onClick={handleStop}
+                  className="flex items-center gap-1 text-[11px] text-danger hover:underline font-medium"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  Stop generation
+                </button>
+              )}
+            </div>
+
+            {/* Input textarea box */}
+            <div className="flex items-end gap-2 bg-background border border-border rounded-xl p-2 focus-within:border-accent transition-colors">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Ask NoX a question, /deep for autonomous plan, /jobs..."
+                className="flex-1 bg-transparent text-xs text-text placeholder:text-muted resize-none focus:outline-none max-h-32 min-h-[36px] py-1.5 px-2 font-sans"
+              />
+
+              <button
+                disabled={!inputMessage.trim() || isRunning}
+                onClick={handleSend}
+                className={`p-2 rounded-lg transition-colors shrink-0 ${
+                  inputMessage.trim() && !isRunning
+                    ? 'bg-accent text-black hover:bg-accent/90 shadow-sm'
+                    : 'bg-raised text-muted cursor-not-allowed opacity-50'
+                }`}
+                title="Send message (Enter)"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};

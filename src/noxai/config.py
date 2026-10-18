@@ -247,8 +247,7 @@ def _load_secrets() -> dict[str, str]:
         match = _SECRET_PATTERN.match(line)
         if not match:
             raise ValueError(
-                f"Secrets file {SECRETS_FILE} line {line_no}: "
-                "expected KEY=VALUE format"
+                f"Secrets file {SECRETS_FILE} line {line_no}: expected KEY=VALUE format"
             )
         val = match.group(2).strip()
         is_double_quoted = val.startswith('"') and val.endswith('"')

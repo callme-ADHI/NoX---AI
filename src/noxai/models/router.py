@@ -210,4 +210,3 @@ def get_default_router(config: Settings | None = None) -> ModelRouter:
     """Return a ModelRouter instance with the provided or default settings."""
     cfg = config or get_config()
     return ModelRouter(config=cfg)
-

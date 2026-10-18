@@ -147,6 +147,17 @@ def test_root_token_exchange(client: TestClient, valid_token: str) -> None:
     client.cookies.set(COOKIE_NAME, valid_token)
     authed_root = client.get("/")
     assert authed_root.status_code == 200
+    assert "NoX" in authed_root.text
+
+    # Access SPA route e.g. /chat
+    chat_route = client.get("/chat")
+    assert chat_route.status_code == 200
+    assert "NoX" in chat_route.text
+
+    # Access static file e.g. /manifest.json
+    manifest_resp = client.get("/manifest.json")
+    assert manifest_resp.status_code == 200
+    assert "NoX AI Agent" in manifest_resp.text
 
 
 def test_auth_headers_and_cookie_acceptance(client: TestClient, valid_token: str) -> None:

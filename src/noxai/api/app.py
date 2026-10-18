@@ -170,8 +170,15 @@ def create_app(
         valid_token = load_session_token()
         cookie_val = request.cookies.get(COOKIE_NAME)
         if valid_token and cookie_val and secrets.compare_digest(cookie_val, valid_token):
-            if UI_DIST.exists() and (UI_DIST / "index.html").exists():
-                return FileResponse(str(UI_DIST / "index.html"))
+            if UI_DIST.exists():
+                try:
+                    resolved = (UI_DIST / full_path).resolve()
+                    if resolved.is_relative_to(UI_DIST.resolve()) and resolved.is_file():
+                        return FileResponse(str(resolved))
+                except (ValueError, RuntimeError):
+                    pass
+                if (UI_DIST / "index.html").exists():
+                    return FileResponse(str(UI_DIST / "index.html"))
 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
