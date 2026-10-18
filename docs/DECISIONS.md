@@ -259,3 +259,51 @@ pass them through regex secret redaction for API keys (`nvapi-*`, `sk-*`, `ghp_*
 **Rationale:** Prevents context window exhaustion, denial of service from huge outputs, and
 accidental token leakage in audit logs or LLM context.
 
+---
+
+### D-023: Multi-tier JSON argument repair pass with feedback loop
+
+**Decision:** When a tool call emits malformed arguments (unquoted keys, single quotes, trailing
+commas), run a multi-tier heuristic repair pipeline (`repair_json`) before falling back to feeding
+the parser error back to the model as an error observation for retry (capped at 2 retries).
+
+**Rationale:** Smaller local quantized models frequently emit slight JSON syntax deviations.
+Heuristic repairs fix 90%+ of these issues instantaneously without an extra LLM round-trip,
+saving latency and tokens.
+
+---
+
+### D-024: Consecutive identical call loop detection
+
+**Decision:** Track history of `(tool_name, serialized_args)`. If the exact same tool is invoked
+with identical arguments three consecutive times, abort the loop and return an informative message
+instructing the agent to try a different approach.
+
+**Rationale:** Prevents infinite spin cycles when a tool returns an expected result that the model
+misinterprets or repeatedly retries without modification.
+
+---
+
+### D-025: Text-only tool-call fallback detection for local models
+
+**Decision:** In addition to structured provider tool-call parsing, scan raw text generation for
+embedded JSON tool invocations matching registered tools (either top-level JSON objects or markdown
+code fences like ````json {"tool": ...} ````).
+
+**Rationale:** Certain open weights and fine-tuned variants of local models sometimes output tool
+calls directly into text generation rather than provider tool call objects. Detecting both ensures
+maximum tool execution reliability across model families.
+
+---
+
+### D-026: Rolling summary context trimming above 70% window threshold
+
+**Decision:** Estimate token count using a character ratio (approx 2.8 chars per token for
+mixed code/text). If total tokens exceed 70% of the model's context window (`num_ctx`), summarize
+older conversation turns and replace them with a concise summary message, preserving the initial
+system prompt and the most recent 4 turns intact.
+
+**Rationale:** Prevents context window overflow while maintaining critical background context,
+preferences, active rules, and the immediate multi-turn thread.
+
+

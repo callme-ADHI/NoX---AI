@@ -308,10 +308,58 @@ def open() -> None:
 
 
 @app.command(name="chat")
-def chat_cmd(message: str = typer.Argument(..., help="Message to send.")) -> None:
-    """Send a one-shot chat message (M3)."""
-    console.print("[yellow]nx chat[/] is implemented in Milestone 3 (agent loop).")
-    raise typer.Exit(1)
+def chat_cmd(
+    message: str = typer.Argument(..., help="Message to send to NoX."),
+    allow_cloud: bool = typer.Option(False, "--allow-cloud", help="Allow cloud model if eligible."),
+) -> None:
+    """Send a one-shot chat message to NoX."""
+    import asyncio
+
+    from noxai.agent.loop import AgentLoop
+    from noxai.config import get_config
+    from noxai.db import get_db, run_migrations
+    from noxai.events import global_event_bus
+    from noxai.models.router import ModelRouter
+    from noxai.tools.registry import default_registry
+
+    async def _run() -> None:
+        cfg = get_config()
+        await run_migrations()
+        router = ModelRouter(config=cfg)
+
+        async with get_db() as db:
+            loop = AgentLoop(
+                config=cfg,
+                router=router,
+                registry=default_registry,
+                event_bus=global_event_bus,
+            )
+
+            console.print(f"[bold cyan]You:[/] {message}\n")
+            console.print("[bold green]NoX:[/] ", end="")
+
+            def on_token(t: str) -> None:
+                console.print(t, end="")
+
+            result = await loop.run(
+                user_message=message,
+                allow_cloud=allow_cloud,
+                db=db,
+                on_token=on_token,
+            )
+
+            console.print("\n")
+            if result.citations:
+                console.print("\n[bold dim]Sources / Citations:[/]")
+                for c in result.citations:
+                    console.print(f"  [dim]- {c}[/]")
+            if result.tool_calls_count > 0:
+                console.print(
+                    f"\n[dim]({result.tool_calls_count} tool call(s), "
+                    f"{result.steps} step(s), {result.duration_seconds:.2f}s)[/dim]"
+                )
+
+    asyncio.run(_run())
 
 
 jobs_app = typer.Typer(help="Job management commands (M6).")
@@ -348,8 +396,12 @@ def eval_tools(
     models: list[str] = typer.Argument(..., help="Model names to evaluate."),
 ) -> None:
     """Run the tool-calling evaluation suite (M3)."""
-    console.print("[yellow]nx eval-tools[/] is implemented in Milestone 3.")
-    raise typer.Exit(1)
+    import asyncio
+
+    from noxai.agent.eval import run_tool_eval
+
+    for m in models:
+        asyncio.run(run_tool_eval(m, console=console))
 
 
 # ---------------------------------------------------------------------------

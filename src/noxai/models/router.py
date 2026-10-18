@@ -69,6 +69,22 @@ class ModelRouter:
 
         return self.providers[provider_name], model_name
 
+    def is_cloud_available(self) -> bool:
+        """Check if cloud execution is configured and available."""
+        if "heavy" not in self.config.models.roles:
+            return False
+        role_cfg = self.config.models.roles["heavy"]
+        provider_name = role_cfg.provider
+        if provider_name not in self.providers:
+            return False
+        provider = self.providers[provider_name]
+        if provider.is_local:
+            return True
+        api_key = getattr(provider, "api_key", None)
+        if api_key is not None and not api_key:
+            return False
+        return True
+
     def check_privacy(self, role: str, provider: Provider, messages: list[Message]) -> None:
         """Enforce that PRIVATE content never routes to a non-local/cloud provider.
 

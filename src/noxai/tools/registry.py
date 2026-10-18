@@ -35,8 +35,8 @@ class ToolContext:
     """Execution context provided to tool functions."""
 
     run_id: str
-    allow_cloud: bool
     config: Settings
+    allow_cloud: bool = False
     db: Any | None = None
     emit: Callable[[dict[str, Any]], None] | None = None
     cancel_event: asyncio.Event | None = None
@@ -83,10 +83,17 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
 
-    def register(self, tool_def: ToolDefinition) -> None:
-        """Register a tool definition."""
-        self._tools[tool_def.name] = tool_def
-        log.debug("Registered tool: %s (tier=%s)", tool_def.name, tool_def.tier)
+    def register(self, tool_def: ToolDefinition | Any) -> None:
+        """Register a tool definition or decorated tool function."""
+        actual_def: ToolDefinition
+        if hasattr(tool_def, "tool_def"):
+            actual_def = tool_def.tool_def
+        elif isinstance(tool_def, ToolDefinition):
+            actual_def = tool_def
+        else:
+            raise TypeError(f"Expected ToolDefinition or decorated function, got {type(tool_def)}")
+        self._tools[actual_def.name] = actual_def
+        log.debug("Registered tool: %s (tier=%s)", actual_def.name, actual_def.tier)
 
     def get(self, name: str) -> ToolDefinition | None:
         """Retrieve tool definition by name."""
@@ -111,6 +118,10 @@ class ToolRegistry:
                 )
             )
         return specs
+
+    def get_specs(self) -> list[ToolSpec]:
+        """Alias for get_tool_specs()."""
+        return self.get_tool_specs()
 
     def auto_discover(self) -> None:
         """Auto-discover built-in tools and custom user tools."""
@@ -366,6 +377,7 @@ class ToolRegistry:
 
 # Global registry singleton
 registry = ToolRegistry()
+default_registry = registry
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +407,7 @@ def tool(
             untrusted_output=untrusted_output,
             timeout=timeout,
         )
+        func.tool_def = tool_def  # type: ignore[attr-defined]
         registry.register(tool_def)
         return func
 

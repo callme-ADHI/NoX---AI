@@ -105,6 +105,19 @@ class ChatChunk:
     delta_tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str | None = None
     usage: dict[str, int] | None = None
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.text and not self.delta_text:
+            self.delta_text = self.text
+        elif self.delta_text and not self.text:
+            self.text = self.delta_text
+
+        if self.tool_calls and not self.delta_tool_calls:
+            self.delta_tool_calls = self.tool_calls
+        elif self.delta_tool_calls and not self.tool_calls:
+            self.tool_calls = self.delta_tool_calls
 
 
 @dataclass
