@@ -8,7 +8,8 @@
 - [x] R4 Approval columns
 - [x] R5 Rename logging.py → logging_setup.py
   - Verified: src/noxai/logging_setup.py already renamed and imports updated
-- [ ] R6 Click → Typer migration
+- [x] R6 Click → Typer migration
+  - Verified: typer is configured, pyproject.toml entrypoint set, nx commands operational
 - [ ] R7 Lint / type / test green
 - [ ] M5.1 Gate + Planner tests
 - [ ] M5.2 Worker + Executor tests
