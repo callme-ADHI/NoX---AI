@@ -159,12 +159,12 @@ They can only be changed by editing the config file directly.
 | Milestone | Status | Description |
 |---|---|---|
 | M0 | ✅ Done | Skeleton, config, DB, logging, `nx doctor` |
-| M1 | 🔲 Next | Models, router, taint, privacy enforcement |
-| M2 | 🔲 | Tools, safety, SSRF, approvals, audit log |
-| M3 | 🔲 | Agent loop, prompt assembly, tool calling |
-| M4 | 🔲 | Memory — facts, episodes, embeddings, recall |
-| M5 | 🔲 | Planner, workers, synthesizer, DAG execution |
-| M6 | 🔲 | Scheduler, jobs, reminders, meta-tools, seeds |
-| M7 | 🔲 | REST API, WebSocket, session auth, gate |
-| M8 | 🔲 | Web UI (React + TypeScript + Tailwind) |
-| M9 | 🔲 | Autostart, install script, full docs |
+| M1 | ✅ Done | Models, router, taint, privacy enforcement |
+| M2 | ✅ Done | Tools, safety, SSRF, approvals, audit log |
+| M3 | ✅ Done | Agent loop, prompt assembly, tool calling |
+| M4 | ✅ Done | Memory — facts, episodes, embeddings, recall |
+| M5 | ✅ Done | Planner, workers, synthesizer, DAG execution |
+| M6 | ✅ Done | Scheduler, jobs, reminders, meta-tools, seeds |
+| M7 | ✅ Done | REST API, WebSocket, session auth, gate |
+| M8 | ✅ Done | Web UI (React + TypeScript + Tailwind) |
+| M9 | ✅ Done | Autostart, install script, full docs |

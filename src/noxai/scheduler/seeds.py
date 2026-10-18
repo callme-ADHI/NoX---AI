@@ -235,3 +235,7 @@ async def seed_database_if_needed(db: aiosqlite.Connection) -> bool:
     await db.commit()
     log.info("Database seeding complete.")
     return True
+
+
+# Backward-compatible alias
+seed_database = seed_database_if_needed

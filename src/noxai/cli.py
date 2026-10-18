@@ -308,15 +308,36 @@ def token() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stubs for later milestones (honest error messages)
+# Client Commands
 # ---------------------------------------------------------------------------
 
 
 @app.command()
 def open() -> None:
-    """Open the NoX web UI (M7)."""
-    console.print("[yellow]nx open[/] is implemented in Milestone 7 (API + auth).")
-    raise typer.Exit(1)
+    """Open the NoX web UI."""
+    import subprocess
+    import webbrowser
+
+    from noxai.api.auth import generate_session_token, load_session_token
+    from noxai.config import get_config
+
+    cfg = get_config()
+    token = load_session_token()
+    if not token:
+        token = generate_session_token()
+
+    port = cfg.server.port
+    host = cfg.server.host
+    url = f"http://{host}:{port}/?t={token}"
+
+    launcher_cmd = getattr(cfg.ui, "launcher_cmd", ["chromium", "--app={url}"])
+    cmd = [c.replace("{url}", url) for c in launcher_cmd]
+
+    console.print(f"[bold green]Opening NoX Web UI:[/] {url}")
+    try:
+        subprocess.Popen(cmd)
+    except Exception:
+        webbrowser.open(url)
 
 
 @app.command(name="chat")
@@ -380,16 +401,90 @@ app.add_typer(jobs_app, name="jobs")
 
 @jobs_app.command(name="list")
 def jobs_list() -> None:
-    """List all jobs (M6)."""
-    console.print("[yellow]nx jobs list[/] is implemented in Milestone 6 (scheduler).")
-    raise typer.Exit(1)
+    """List all scheduled jobs."""
+    import asyncio
+
+    from rich.table import Table
+
+    from noxai.db import get_db, run_migrations
+    from noxai.scheduler.seeds import seed_database
+
+    async def _list() -> None:
+        await run_migrations()
+        async with get_db() as db:
+            await seed_database(db)
+            rows = await db.execute_fetchall(
+                "SELECT id, name, schedule_type, schedule_expr, timezone, enabled, next_run_at "
+                "FROM jobs ORDER BY name ASC"
+            )
+            if not rows:
+                console.print("[dim]No jobs found.[/dim]")
+                return
+
+            table = Table(title="NoX Scheduled Jobs")
+            table.add_column("ID", style="dim")
+            table.add_column("Name", style="bold cyan")
+            table.add_column("Schedule", style="green")
+            table.add_column("Timezone", style="dim")
+            table.add_column("Enabled", style="bold")
+            table.add_column("Next Run", style="yellow")
+
+            for r in rows:
+                en_str = "[green]yes[/]" if r[5] else "[red]no[/]"
+                next_str = str(r[6]) if r[6] else "[dim]none[/]"
+                table.add_row(
+                    str(r[0]),
+                    str(r[1]),
+                    f"{r[2]}: {r[3]}",
+                    str(r[4] or "local"),
+                    en_str,
+                    next_str,
+                )
+            console.print(table)
+
+    asyncio.run(_list())
 
 
 @jobs_app.command(name="run")
-def jobs_run(name: str = typer.Argument(...)) -> None:
-    """Run a job by name (M6)."""
-    console.print("[yellow]nx jobs run[/] is implemented in Milestone 6 (scheduler).")
-    raise typer.Exit(1)
+def jobs_run(name: str = typer.Argument(..., help="Job name or ID to execute.")) -> None:
+    """Run a job immediately by name or ID."""
+    import asyncio
+
+    from noxai.db import get_db, run_migrations
+    from noxai.scheduler.scheduler import JobScheduler
+    from noxai.scheduler.seeds import seed_database
+
+    async def _run() -> None:
+        await run_migrations()
+        async with get_db() as db:
+            await seed_database(db)
+            cursor = await db.execute(
+                "SELECT * FROM jobs WHERE name = ? OR id = ?",
+                (name, name),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                console.print(f"[red]Error:[/] Job '{name}' not found.")
+                raise typer.Exit(1)
+
+            col_names = [d[0] for d in cursor.description]
+            job_dict = dict(zip(col_names, row, strict=False))
+
+            console.print(f"[bold cyan]Running job:[/] {job_dict['name']} ({job_dict['id']})...")
+            scheduler = JobScheduler()
+            res = await scheduler.run_job(job_dict, db, run_context="cli")
+            status = res.get("status", "unknown")
+            if status == "ok":
+                console.print("[green]Job completed successfully![/]")
+                if res.get("output"):
+                    console.print(f"\n[dim]--- Output ---[/dim]\n{res['output'][:500]}")
+            else:
+                console.print(f"[red]Job failed with status: {status}[/]")
+                if res.get("error"):
+                    console.print(f"[red]Error:[/] {res['error']}")
+                raise typer.Exit(1)
+
+    asyncio.run(_run())
 
 
 memory_app = typer.Typer(help="Memory commands (M4).")

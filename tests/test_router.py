@@ -197,3 +197,44 @@ class TestRouterEdgeCases:
         assert vectors[0] == [0.5, 0.5, 0.5]
         assert len(local.calls) == 1
         assert local.calls[0]["action"] == "embed"
+
+    def test_is_cloud_available_scenarios(self) -> None:
+        """Test is_cloud_available with various configurations."""
+        router, _local, cloud = make_test_router()
+        assert router.is_cloud_available() is True
+
+        # When heavy role is missing
+        cfg_no_heavy = Settings(
+            models=ModelsConfig(
+                roles={
+                    "brain": ModelRoleConfig(provider="ollama", model="qwen"),
+                    "embed": ModelRoleConfig(provider="ollama", model="embed"),
+                }
+            )
+        )
+        r_no_heavy = ModelRouter(config=cfg_no_heavy, providers={"ollama": FakeProvider()})
+        assert r_no_heavy.is_cloud_available() is False
+
+        # When heavy role provider is not in providers
+        cfg_missing_prov = Settings(
+            models=ModelsConfig(
+                roles={
+                    "brain": ModelRoleConfig(provider="ollama", model="qwen"),
+                    "heavy": ModelRoleConfig(provider="nvidia", model="nemotron"),
+                    "embed": ModelRoleConfig(provider="ollama", model="embed"),
+                }
+            )
+        )
+        r_missing_prov = ModelRouter(config=cfg_missing_prov, providers={"ollama": FakeProvider()})
+        assert r_missing_prov.is_cloud_available() is False
+
+        # When cloud provider has empty api_key attribute
+        cloud.api_key = ""
+        assert router.is_cloud_available() is False
+
+    def test_get_default_router_helper(self) -> None:
+        """Test get_default_router returns a ModelRouter."""
+        from noxai.models.router import get_default_router
+
+        router = get_default_router()
+        assert isinstance(router, ModelRouter)

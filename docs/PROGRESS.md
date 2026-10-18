@@ -25,4 +25,9 @@
   - Live task DAG visualization, streaming chat, approval cards, briefings archive
   - Jobs table with visual diff & version rollback, local memory manager
   - PWA offline shell support, dark modern theme, responsive desktop/mobile nav
-- [ ] M9 Autostart, install, docs, final acceptance
+- [x] M9 Autostart, install, docs, final acceptance
+  - systemd user unit noxd.service and Hyprland exec-once integration
+  - Idempotent scripts/install.sh and launcher scripts/nx-open.sh executable
+  - Complete documentation: ARCHITECTURE.md, SECURITY.md, ADDING_A_TOOL.md, DECISIONS.md, README.md
+  - CLI commands fully operational: nx run, nx status, nx doctor, nx open, nx chat, nx jobs list|run, nx memory search
+  - 228 tests passing, 97% security/router/taint coverage, ruff clean, mypy clean
