@@ -16,6 +16,7 @@ The full daemon is wired up in M7.
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import sqlite3
@@ -61,14 +62,29 @@ def run(
     host: str = typer.Option("127.0.0.1", help="Bind address."),
     port: int = typer.Option(7777, help="Port."),
     reload: bool = typer.Option(False, "--reload", help="Hot-reload (dev only)."),
+    test_db: str | None = typer.Option(
+        None,
+        "--test-db",
+        help="Path to test database (only active when NOX_TEST_MODE=1).",
+    ),
 ) -> None:
     """Start the NoX daemon in the foreground."""
     from noxai.config import SECRETS_FILE, get_config
     from noxai.lock import DaemonLock
     from noxai.logging_setup import setup_logging
 
-    # 1. Check secrets permissions before doing anything
-    if SECRETS_FILE.exists():
+    is_test_mode = os.environ.get("NOX_TEST_MODE") == "1" and bool(test_db)
+    if test_db and os.environ.get("NOX_TEST_MODE") != "1":
+        console.print(
+            "[yellow]Warning:[/] --test-db ignored because NOX_TEST_MODE is not set to '1'."
+        )
+    elif os.environ.get("NOX_TEST_MODE") == "1" and not test_db:
+        console.print(
+            "[yellow]Warning:[/] NOX_TEST_MODE=1 ignored because --test-db flag was not provided."
+        )
+
+    # 1. Check secrets permissions before doing anything (skip in test mode if no secrets)
+    if not is_test_mode and SECRETS_FILE.exists():
         mode = stat.S_IMODE(SECRETS_FILE.stat().st_mode)
         if mode & 0o177:
             console.print(
@@ -76,7 +92,7 @@ def run(
                 f"({oct(mode)}). Expected 0600. Refusing to start daemon.\n"
                 f"Fix with: [bold]chmod 600 {SECRETS_FILE}[/bold]"
             )
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
     try:
         cfg = get_config()
@@ -105,7 +121,11 @@ def run(
     try:
         from noxai.api.app import create_app
 
-        application = create_app(manage_lock=False)
+        application = create_app(
+            manage_lock=False,
+            test_mode=is_test_mode,
+            test_db=test_db if is_test_mode else None,
+        )
     except ImportError:
         application = _create_minimal_app()
 

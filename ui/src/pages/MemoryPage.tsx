@@ -85,6 +85,16 @@ export const MemoryPage: React.FC = () => {
     }
   };
 
+  const handleConfirmFact = async (factId: number) => {
+    try {
+      setFacts((prev) =>
+        prev.map((f) => (f.id === factId ? { ...f, needs_review: false } : f))
+      );
+    } catch (err) {
+      console.error('Confirm fact error:', err);
+    }
+  };
+
   const categories = [
     'all',
     'profile',
@@ -235,7 +245,14 @@ export const MemoryPage: React.FC = () => {
                           </button>
                         </td>
                         <td className="py-3 px-4 font-mono font-medium text-text">
-                          {fact.key}
+                          <div className="flex items-center gap-2">
+                            <span>{fact.key}</span>
+                            {Boolean(fact.needs_review) && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase bg-warning/20 text-warning border border-warning/30 font-bold">
+                                Needs Review
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 max-w-md">
                           {isEditing ? (
@@ -248,6 +265,7 @@ export const MemoryPage: React.FC = () => {
                               />
                               <button
                                 onClick={() => handleSaveEdit(fact.id)}
+                                title="Save fact"
                                 className="p-1 rounded text-success hover:bg-raised"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -273,6 +291,15 @@ export const MemoryPage: React.FC = () => {
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {Boolean(fact.needs_review) && (
+                              <button
+                                onClick={() => handleConfirmFact(fact.id)}
+                                className="px-2 py-0.5 rounded bg-accent text-black font-semibold text-[10px] hover:bg-accent/90 transition-colors mr-1"
+                                title="Review and confirm fact"
+                              >
+                                Review
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 setEditingId(fact.id);

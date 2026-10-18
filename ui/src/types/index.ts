@@ -120,6 +120,8 @@ export interface Fact {
   category: string;
   confidence: number;
   pinned: boolean | number;
+  needs_review?: boolean | number;
+  provenance?: string;
   created_at: string;
   updated_at: string;
 }

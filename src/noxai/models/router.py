@@ -206,7 +206,18 @@ class ModelRouter:
         return await provider.embed(model=model, texts=texts)
 
 
+_DEFAULT_ROUTER: ModelRouter | None = None
+
+
+def set_default_router(router: ModelRouter | None) -> None:
+    """Set global router override (useful for testing with FakeProvider)."""
+    global _DEFAULT_ROUTER
+    _DEFAULT_ROUTER = router
+
+
 def get_default_router(config: Settings | None = None) -> ModelRouter:
     """Return a ModelRouter instance with the provided or default settings."""
+    if _DEFAULT_ROUTER is not None:
+        return _DEFAULT_ROUTER
     cfg = config or get_config()
     return ModelRouter(config=cfg)

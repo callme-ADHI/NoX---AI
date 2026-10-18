@@ -63,7 +63,12 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col p-6 md:p-8 bg-background overflow-y-auto max-w-4xl mx-auto">
+    <div
+      className="flex-1 flex flex-col p-6 md:p-8 bg-background overflow-y-auto max-w-4xl mx-auto"
+      tabIndex={0}
+      aria-label="Settings panel"
+      role="region"
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-8 pb-4 border-b border-border/70">
         <div>
@@ -95,8 +100,10 @@ export const SettingsPage: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-muted font-medium mb-1">Theme Mode</label>
+              <label htmlFor="theme-mode-select" className="block text-muted font-medium mb-1">Theme Mode</label>
               <select
+                id="theme-mode-select"
+                aria-label="Theme Mode"
                 value={theme}
                 onChange={(e) => setTheme(e.target.value)}
                 className="w-full bg-background border border-border rounded-lg p-2 text-text focus:outline-none focus:border-accent"
@@ -107,16 +114,19 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-muted font-medium mb-1">Accent Color</label>
+              <label htmlFor="accent-color-hex" className="block text-muted font-medium mb-1">Accent Color</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
+                  aria-label="Accent color picker"
                   value={accentColor}
                   onChange={(e) => setAccentColor(e.target.value)}
                   className="w-10 h-8 rounded border border-border bg-background cursor-pointer"
                 />
                 <input
+                  id="accent-color-hex"
                   type="text"
+                  aria-label="Accent color hex code"
                   value={accentColor}
                   onChange={(e) => setAccentColor(e.target.value)}
                   className="flex-1 bg-background border border-border rounded-lg p-2 font-mono text-text focus:outline-none focus:border-accent"

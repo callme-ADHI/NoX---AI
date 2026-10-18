@@ -105,9 +105,16 @@ def create_app(
     config: Settings | None = None,
     start_scheduler: bool = True,
     manage_lock: bool = False,
+    test_mode: bool = False,
+    test_db: str | Path | None = None,
 ) -> FastAPI:
     """Create and configure the main FastAPI application for noxd."""
     cfg = config or get_config()
+
+    if test_mode and test_db:
+        import noxai.db as db_mod
+
+        db_mod.DB_PATH = Path(test_db).resolve()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -116,7 +123,7 @@ def create_app(
 
         # 1. Config and secrets verification (refuse if looser than 0600)
         log.info("1. Verifying config and secrets permissions...")
-        if SECRETS_FILE.exists():
+        if not test_mode and SECRETS_FILE.exists():
             file_mode = stat.S_IMODE(SECRETS_FILE.stat().st_mode)
             if file_mode & 0o177:
                 raise PermissionError(
@@ -152,12 +159,39 @@ def create_app(
             log.info("Recovered %d interrupted runs and jobs.", interrupted_count)
 
         # 6. Build model router
-        log.info("6. Building ModelRouter...")
-        from noxai.models.router import ModelRouter
+        if test_mode:
+            log.info("6. Building ModelRouter with FakeProvider backends (test mode)...")
+            from noxai.models.base import ChatChunk
+            from noxai.models.fake import FakeProvider
+            from noxai.models.router import ModelRouter
 
-        router = ModelRouter(config=cfg)
-        app.state.model_router = router
-        log.info("ModelRouter built successfully.")
+            fake_brain = FakeProvider("ollama", is_local=True)
+            fake_cloud = FakeProvider("nvidia", is_local=False)
+            fake_brain.queue_response([
+                ChatChunk(delta_text="Hello from NoX local model! ", finish_reason=None),
+                ChatChunk(
+                    delta_text="Everything is working smoothly in test mode.",
+                    finish_reason="stop",
+                ),
+            ])
+            from noxai.models.router import set_default_router
+
+            router = ModelRouter(
+                config=cfg,
+                providers={"ollama": fake_brain, "nvidia": fake_cloud},
+            )
+            set_default_router(router)
+            app.state.model_router = router
+            app.state.ollama_reachable = True
+            app.state.is_test_mode = True
+            log.info("ModelRouter built with FakeProvider backends.")
+        else:
+            log.info("6. Building ModelRouter...")
+            from noxai.models.router import ModelRouter
+
+            router = ModelRouter(config=cfg)
+            app.state.model_router = router
+            log.info("ModelRouter built successfully.")
 
         # 7. Check Ollama readiness (background probe, non-blocking)
         log.info("7. Checking Ollama readiness at %s...", cfg.models.ollama.base_url)

@@ -470,10 +470,20 @@ async def chat_endpoint(req: ChatRequest) -> ChatResponse:
             db,
             """
             INSERT INTO conversations (id, title, created_at, updated_at)
-            VALUES (?, ?, datetime('now'), datetime('now'))
-            ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            ON CONFLICT(id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             """,
             (conv_id, req.message[:40]),
+        )
+        await execute(
+            db,
+            """
+            INSERT INTO runs (id, kind, conversation_id, status, allow_cloud, started_at)
+            VALUES (?, 'chat', ?, 'running', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            ON CONFLICT(id) DO UPDATE SET status = 'running'
+            """,
+            (run_id, conv_id, 1 if req.allow_cloud else 0),
         )
         await db.commit()
 

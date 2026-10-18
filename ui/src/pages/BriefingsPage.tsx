@@ -90,7 +90,11 @@ export const BriefingsPage: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div
+          tabIndex={0}
+          aria-label="Briefings archive list"
+          className="flex-1 overflow-y-auto p-2 space-y-1 focus:outline-none"
+        >
           {loading ? (
             <div className="p-4 text-center text-xs text-muted">
               Loading archive...

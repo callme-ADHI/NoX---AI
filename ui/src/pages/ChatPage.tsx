@@ -16,6 +16,7 @@ import {
   ApprovalRequest,
   Conversation,
   Message,
+  SubtaskNode,
   TaskPlan,
   ToolCallItem,
   WebSocketEvent,
@@ -25,6 +26,7 @@ import { wsService } from '../services/websocket';
 import { LiveTaskPlan } from '../components/LiveTaskPlan';
 import { ApprovalCard } from '../components/ApprovalCard';
 import { ToolCallCard } from '../components/ToolCallCard';
+import { SafeMarkdown } from '../components/SafeMarkdown';
 
 export const ChatPage: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -48,7 +50,7 @@ export const ChatPage: React.FC = () => {
 
   // Load conversations on mount
   useEffect(() => {
-    loadConversations();
+    loadConversations(true);
   }, []);
 
   // Subscribe to live WebSocket events
@@ -57,19 +59,23 @@ export const ChatPage: React.FC = () => {
       handleWsEvent(event);
     });
     return unsubscribe;
-  }, [activeRunId]);
+  }, []);
 
   // Scroll to bottom when messages or streaming text change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingText, currentPlan, pendingApprovals, toolCalls]);
 
-  const loadConversations = async () => {
+  const loadConversations = async (autoSelect = false) => {
     try {
       const data = await api.getConversations();
       setConversations(data);
-      if (data.length > 0 && !activeConvId) {
-        selectConversation(data[0].id);
+      if (autoSelect && data.length > 0 && !activeConvId) {
+        const savedConv = sessionStorage.getItem('nox_active_conv');
+        const target = (savedConv ? data.find((c) => c.id === savedConv) : null) || data[0];
+        if (target) {
+          selectConversation(target.id);
+        }
       }
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -78,6 +84,7 @@ export const ChatPage: React.FC = () => {
 
   const selectConversation = async (convId: string) => {
     setActiveConvId(convId);
+    sessionStorage.setItem('nox_active_conv', convId);
     try {
       const conv = await api.getConversation(convId);
       setMessages(conv.messages || []);
@@ -93,11 +100,6 @@ export const ChatPage: React.FC = () => {
   const handleWsEvent = (event: WebSocketEvent) => {
     const { type, data, run_id } = event;
 
-    // Filter by run_id if attached
-    if (activeRunId && run_id && run_id !== activeRunId) {
-      return;
-    }
-
     switch (type) {
       case 'run_started':
         setIsRunning(true);
@@ -110,17 +112,19 @@ export const ChatPage: React.FC = () => {
         }
         break;
 
-      case 'plan_created':
-        if (Array.isArray(data.nodes)) {
+      case 'plan_created': {
+        const rawNodes = (data.nodes || data.subtasks) as unknown as SubtaskNode[] | undefined;
+        if (Array.isArray(rawNodes)) {
           setCurrentPlan({
             run_id: run_id || '',
             goal: (data.goal as string) || 'Autonomous task breakdown',
-            nodes: data.nodes as any,
+            nodes: rawNodes,
             overall_progress: 0,
             started_at: Date.now(),
           });
         }
         break;
+      }
 
       case 'node_started':
         if (currentPlan && typeof data.node_id === 'string') {
@@ -179,7 +183,7 @@ export const ChatPage: React.FC = () => {
             id: (data.id as string) || `tool_${Date.now()}`,
             name: data.name as string,
             arguments: (data.arguments as Record<string, unknown>) || {},
-            tier: data.tier as any,
+            tier: data.tier as ToolCallItem['tier'],
           },
         ]);
         break;
@@ -208,7 +212,7 @@ export const ChatPage: React.FC = () => {
             tool_name: data.tool as string,
             arguments: (data.args as Record<string, unknown>) || {},
             reason: (data.reason as string) || 'Tool execution approval requested',
-            tier: (data.tier as any) || 'write',
+            tier: (data.tier as 'write' | 'dangerous') || 'write',
             untrusted_warning: !!data.untrusted_warning,
             status: 'pending',
           },
@@ -278,11 +282,13 @@ export const ChatPage: React.FC = () => {
     };
     setMessages((prev) => [...prev, userMsg]);
     setIsRunning(true);
+    setActiveRunId(null);
     setStreamingText('');
 
     try {
       const resp = await api.startChat(trimmed, activeConvId || undefined, allowCloud);
       setActiveRunId(resp.run_id);
+      sessionStorage.setItem('nox_active_conv', resp.conversation_id);
       if (!activeConvId) {
         setActiveConvId(resp.conversation_id);
         loadConversations();
@@ -303,7 +309,10 @@ export const ChatPage: React.FC = () => {
   };
 
   const handleNewChat = () => {
+    sessionStorage.removeItem('nox_active_conv');
     setActiveConvId(null);
+    setActiveRunId(null);
+    setIsRunning(false);
     setMessages([]);
     setStreamingText('');
     setCurrentPlan(null);
@@ -482,9 +491,10 @@ export const ChatPage: React.FC = () => {
                       : 'bg-surface text-text border border-border rounded-bl-none shadow-sm w-full'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap font-sans selection:bg-accent/20">
-                    {msg.content}
-                  </div>
+                  <SafeMarkdown
+                    content={msg.content}
+                    className="selection:bg-accent/20"
+                  />
 
                   {/* Copy button */}
                   <button
@@ -595,12 +605,14 @@ export const ChatPage: React.FC = () => {
                   }
                 }}
                 placeholder="Ask NoX a question, /deep for autonomous plan, /jobs..."
+                aria-label="Message NoX"
                 className="flex-1 bg-transparent text-xs text-text placeholder:text-muted resize-none focus:outline-none max-h-32 min-h-[36px] py-1.5 px-2 font-sans"
               />
 
               <button
                 disabled={!inputMessage.trim() || isRunning}
                 onClick={handleSend}
+                aria-label="Send message"
                 className={`p-2 rounded-lg transition-colors shrink-0 ${
                   inputMessage.trim() && !isRunning
                     ? 'bg-accent text-black hover:bg-accent/90 shadow-sm'

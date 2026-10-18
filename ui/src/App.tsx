@@ -28,9 +28,19 @@ export const App: React.FC = () => {
     wsService.connect();
     const unsubStatus = wsService.onStatusChange(setWsConnected);
 
+    // 3. Global Ctrl+K shortcut
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+
     return () => {
       unsubStatus();
       wsService.disconnect();
+      window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, []);
 

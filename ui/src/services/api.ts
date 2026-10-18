@@ -23,6 +23,18 @@ async function request<T>(
   const headers = new Headers(options.headers || {});
   headers.set('Accept', 'application/json');
 
+  // Attach session token if available
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('t') || params.get('token') || sessionStorage.getItem('nox_token');
+    if (token) {
+      sessionStorage.setItem('nox_token', token);
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+    }
+  }
+
   // Enforce CSRF header on state-changing requests per Section 6.1
   const method = (options.method || 'GET').toUpperCase();
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {

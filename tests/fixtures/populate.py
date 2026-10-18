@@ -459,3 +459,15 @@ def populate_realistic_db(db_path: Path | str) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.commit()
     conn.close()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Populate realistic database")
+    parser.add_argument("--db", type=str, default="/tmp/nox_test.db", help="Path to DB")
+    args = parser.parse_args()
+
+    populate_realistic_db(args.db)
+    print(f"Successfully populated {args.db}")
+

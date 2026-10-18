@@ -335,7 +335,12 @@ class ToolRegistry:
                         ),
                     )
                     approval_id = cursor.lastrowid
+                    if hasattr(ctx.db, "commit"):
+                        await ctx.db.commit()
                     if ctx.emit:
+                        is_tainted = bool(
+                            ctx.context_taint and (ctx.context_taint & TaintFlag.UNTRUSTED)
+                        )
                         ctx.emit(
                             {
                                 "type": "approval_required",
@@ -344,6 +349,8 @@ class ToolRegistry:
                                 "args": raw_args,
                                 "args_hash": args_hash,
                                 "reason": approval_reason,
+                                "tier": tool_def.tier,
+                                "untrusted_warning": is_tainted,
                             }
                         )
 
@@ -397,6 +404,8 @@ class ToolRegistry:
                                         "decided_at = datetime('now') WHERE id = ?",
                                         (approval_id,),
                                     )
+                                    if hasattr(ctx.db, "commit"):
+                                        await ctx.db.commit()
                                     approved = True
                                     decision = "approved"
                                     approver = row["decided_by"] or "owner"
@@ -621,6 +630,14 @@ def tool(
         return func
 
     return decorator
+
+
+# Auto-discover built-in tools on startup
+try:
+    default_registry.auto_discover()
+except Exception as _exc:
+    log.warning("Tool auto-discovery on startup failed: %s", _exc)
+
 
 
 async def approve_approval(

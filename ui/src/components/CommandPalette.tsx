@@ -147,6 +147,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             placeholder="Type a command or search..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && filtered.length > 0) {
+                e.preventDefault();
+                filtered[0].action();
+              }
+            }}
             className="w-full bg-transparent text-text text-sm placeholder:text-muted focus:outline-none"
           />
           <button

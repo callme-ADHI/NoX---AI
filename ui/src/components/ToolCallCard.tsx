@@ -10,6 +10,32 @@ import {
 } from 'lucide-react';
 import { ToolCallItem } from '../types';
 
+export function redactSecrets(data: unknown): unknown {
+  if (typeof data === 'string') {
+    return data
+      .replace(/nvapi-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED_API_KEY]')
+      .replace(/ghp_[A-Za-z0-9_-]+/g, '[REDACTED_TOKEN]')
+      .replace(/(?:Bearer\s+)[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
+      .replace(/((?:api_?key|token|password|secret|authorization)\s*[:=]\s*["']?)[^"'\s,}]+/gi, '$1[REDACTED]');
+  }
+  if (Array.isArray(data)) {
+    return data.map(redactSecrets);
+  }
+  if (data && typeof data === 'object') {
+    const res: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (/api_?key|token|password|secret|authorization/i.test(k)) {
+        res[k] = '[REDACTED]';
+      } else {
+        res[k] = redactSecrets(v);
+      }
+    }
+    return res;
+  }
+  return data;
+}
+
 interface ToolCallCardProps {
   tool: ToolCallItem;
 }
@@ -17,6 +43,9 @@ interface ToolCallCardProps {
 export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
   const [isExpanded, setIsExpanded] = useState(tool.expanded ?? false);
   const [copied, setCopied] = useState(false);
+
+  const safeArguments = redactSecrets(tool.arguments);
+  const safeSummary = tool.result_summary ? (redactSecrets(tool.result_summary) as string) : undefined;
 
   const getTierBadge = () => {
     switch (tool.tier) {
@@ -31,7 +60,7 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const content = JSON.stringify(tool.arguments, null, 2);
+    const content = JSON.stringify(safeArguments, null, 2);
     navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -82,9 +111,9 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
       </div>
 
       {/* Result summary if not expanded */}
-      {!isExpanded && tool.result_summary && (
+      {!isExpanded && safeSummary && (
         <div className="px-3 py-1.5 bg-raised/30 text-muted border-t border-border/40 font-mono text-[11px] truncate">
-          {tool.result_summary}
+          {safeSummary}
         </div>
       )}
 
@@ -104,17 +133,17 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
               </button>
             </div>
             <pre className="p-2 rounded bg-surface border border-border font-mono text-[11px] text-text overflow-x-auto">
-              {JSON.stringify(tool.arguments, null, 2)}
+              {JSON.stringify(safeArguments, null, 2)}
             </pre>
           </div>
 
-          {tool.result_summary && (
+          {safeSummary && (
             <div>
               <span className="text-muted font-semibold text-[11px] block mb-1">
                 Result Output:
               </span>
               <pre className="p-2 rounded bg-surface border border-border font-mono text-[11px] text-text overflow-x-auto whitespace-pre-wrap max-h-60">
-                {tool.result_summary}
+                {safeSummary}
               </pre>
             </div>
           )}

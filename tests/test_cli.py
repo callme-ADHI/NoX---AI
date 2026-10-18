@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,3 +48,43 @@ def test_doctor_reads_port_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
     with patch("noxai.config.get_config", return_value=mock_cfg):
         result = runner.invoke(app, ["doctor"])
         assert "Port 8888 free" in result.output
+
+
+def test_test_mode_switch_requires_both_env_and_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify test-only switch requires BOTH NOX_TEST_MODE=1 and --test-db."""
+    runner = CliRunner()
+    fake_db = tmp_path / "fake.db"
+    fake_db.touch()
+
+    # Case 1: NOX_TEST_MODE=1 but no --test-db flag -> ignored
+    monkeypatch.setenv("NOX_TEST_MODE", "1")
+    with patch("noxai.api.app.create_app") as mock_create_app, patch("uvicorn.run"), patch(
+        "noxai.lock.DaemonLock.acquire"
+    ), patch("noxai.lock.DaemonLock.release"):
+        result = runner.invoke(app, ["run"])
+        assert "Warning" in result.output or "--test-db flag was not provided" in result.output
+        mock_create_app.assert_called_once_with(manage_lock=False, test_mode=False, test_db=None)
+
+    # Case 2: --test-db passed but NOX_TEST_MODE not set -> ignored
+    monkeypatch.delenv("NOX_TEST_MODE", raising=False)
+    with patch("noxai.api.app.create_app") as mock_create_app, patch("uvicorn.run"), patch(
+        "noxai.lock.DaemonLock.acquire"
+    ), patch("noxai.lock.DaemonLock.release"):
+        result = runner.invoke(app, ["run", "--test-db", str(fake_db)])
+        assert (
+            "Warning" in result.output
+            or "ignored because NOX_TEST_MODE is not set" in result.output
+        )
+        mock_create_app.assert_called_once_with(manage_lock=False, test_mode=False, test_db=None)
+
+    # Case 3: BOTH NOX_TEST_MODE=1 and --test-db passed -> test mode activated!
+    monkeypatch.setenv("NOX_TEST_MODE", "1")
+    with patch("noxai.api.app.create_app") as mock_create_app, patch("uvicorn.run"), patch(
+        "noxai.lock.DaemonLock.acquire"
+    ), patch("noxai.lock.DaemonLock.release"):
+        runner.invoke(app, ["run", "--test-db", str(fake_db)])
+        mock_create_app.assert_called_once_with(
+            manage_lock=False, test_mode=True, test_db=str(fake_db)
+        )

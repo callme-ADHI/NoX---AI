@@ -45,7 +45,12 @@ export const ActivityPage: React.FC = () => {
   );
 
   return (
-    <div className="flex-1 flex flex-col p-6 md:p-8 bg-background overflow-y-auto">
+    <div
+      className="flex-1 flex flex-col p-6 md:p-8 bg-background overflow-y-auto"
+      tabIndex={0}
+      aria-label="System activity and audit log"
+      role="region"
+    >
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -174,7 +179,12 @@ export const ActivityPage: React.FC = () => {
 
       {/* Audit Log Table */}
       <div className="flex-1 bg-surface border border-border rounded-xl overflow-hidden shadow-sm flex flex-col">
-        <div className="overflow-x-auto flex-1">
+        <div
+          className="overflow-x-auto flex-1"
+          tabIndex={0}
+          aria-label="Audit log table"
+          role="region"
+        >
           <table className="w-full text-left text-xs">
             <thead className="bg-raised/50 border-b border-border text-muted font-mono uppercase text-[10px]">
               <tr>

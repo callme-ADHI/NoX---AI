@@ -267,6 +267,20 @@ class AgentLoop:
             except Exception as exc:
                 log.warning("Could not persist user message: %s", exc)
 
+        if db is not None:
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO runs (id, kind, conversation_id, status, allow_cloud, started_at)
+                    VALUES (?, 'chat', ?, 'running', ?, datetime('now'))
+                    ON CONFLICT(id) DO UPDATE SET status = 'running'
+                    """,
+                    (actual_run_id, conversation_id, 1 if allow_cloud else 0),
+                )
+                await db.commit()
+            except Exception as exc:
+                log.warning("Could not persist run state: %s", exc)
+
         # Tool execution loop state
         current_context_taint = TaintFlag.NONE
         for msg in messages:
@@ -291,6 +305,16 @@ class AgentLoop:
         def _handle_model_used(m_info: dict[str, Any]) -> None:
             t = asyncio.create_task(
                 self.event_bus.publish(make_event("model_used", m_info, run_id=actual_run_id))
+            )
+            background_tasks.add(t)
+            t.add_done_callback(background_tasks.discard)
+
+        def _handle_tool_emit(evt: dict[str, Any]) -> None:
+            t = asyncio.create_task(
+                self.event_bus.publish(
+                    make_event(evt.get("type", "tool_event"), evt, run_id=actual_run_id),
+                    db=db,
+                )
             )
             background_tasks.add(t)
             t.add_done_callback(background_tasks.discard)
@@ -537,6 +561,7 @@ class AgentLoop:
                         context_taint=current_context_taint,
                         request_approval=request_approval,
                         router=self.router,
+                        emit=_handle_tool_emit,
                     )
 
                     # Execute tool via registry
