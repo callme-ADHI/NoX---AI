@@ -36,17 +36,21 @@ class JobScheduler:
 
     def __init__(
         self,
-        router: ModelRouter,
-        registry: ToolRegistry,
-        config: Settings,
+        router: ModelRouter | None = None,
+        registry: ToolRegistry | None = None,
+        config: Settings | None = None,
         db_path: Path | None = None,
         delivery_router: DeliveryRouter | None = None,
         event_bus: EventBus | None = None,
         tick_seconds: float = 15.0,
     ) -> None:
-        self.router = router
-        self.registry = registry
-        self.config = config
+        from noxai.config import get_config
+        from noxai.models.router import get_default_router
+        from noxai.tools.registry import default_registry
+
+        self.config = config or get_config()
+        self.router = router or get_default_router(self.config)
+        self.registry = registry or default_registry
         self.db_path = db_path
         self.delivery_router = delivery_router or DeliveryRouter()
         self.event_bus = event_bus or global_event_bus
@@ -353,3 +357,49 @@ class JobScheduler:
         if row is None:
             raise ValueError(f"Job '{job_name_or_id}' not found.")
         return await self.run_job(row, db, run_context="manual")
+
+    async def start(self) -> None:
+        """Start the background tick loop."""
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+        log.info("JobScheduler loop started (tick=%.1fs).", self.tick_seconds)
+
+    async def stop(self) -> None:
+        """Stop the background tick loop."""
+        self._running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+        log.info("JobScheduler loop stopped.")
+
+    async def _run_loop(self) -> None:
+        """Periodic background tick loop."""
+        from noxai.db import get_db
+
+        # Initial startup catch-up
+        try:
+            async with get_db() as db:
+                await self.catch_up_missed_jobs(db)
+        except Exception as exc:
+            log.warning("Catch-up missed jobs on startup error: %s", exc)
+
+        while self._running:
+            try:
+                async with get_db() as db:
+                    await self.tick(db)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                log.error("Scheduler tick exception: %s", exc)
+
+            try:
+                await asyncio.sleep(self.tick_seconds)
+            except asyncio.CancelledError:
+                break
+

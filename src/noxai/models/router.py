@@ -6,7 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from noxai.config import Settings
+from noxai.config import Settings, get_config
 from noxai.models.base import (
     ChatChunk,
     Message,
@@ -204,3 +204,10 @@ class ModelRouter:
         """Generate embeddings using the configured embedding role."""
         provider, model = self.resolve_role(role)
         return await provider.embed(model=model, texts=texts)
+
+
+def get_default_router(config: Settings | None = None) -> ModelRouter:
+    """Return a ModelRouter instance with the provided or default settings."""
+    cfg = config or get_config()
+    return ModelRouter(config=cfg)
+

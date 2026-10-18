@@ -187,6 +187,11 @@ class EventBus:
             return []
         return list(buffer)
 
+    def get_recent_events(self, limit: int = 200) -> list[Event]:
+        """Return the most recent global events (up to limit)."""
+        events = list(self._global_buffer)
+        return events[-limit:]
+
 
 # Global event bus singleton instance
 global_event_bus = EventBus()

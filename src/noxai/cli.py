@@ -24,6 +24,7 @@ import subprocess
 import sys
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
@@ -97,7 +98,7 @@ def run(
     )
 
 
-def _create_minimal_app() -> object:
+def _create_minimal_app() -> Any:
     """Minimal FastAPI app for M0 that only serves /api/status."""
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse

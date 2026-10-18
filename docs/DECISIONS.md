@@ -391,4 +391,13 @@ overwrite or wipe the user's persistent memory store without owner intervention.
 
 **Rationale:** Spec §0 and §6.7 explicitly state: "Do NOT use APScheduler, because jobs are editable data rows and a custom loop is simpler to keep consistent."
 
+---
+
+### D-035: Daemon Session Token Exchange and CSRF Validation Architecture
+
+**Decision:** Implement session token authentication (`0600` permissions at `~/.local/share/nox/session_token`) with browser token-exchange URL `/?t=<token>`. Upon receipt of a valid token query parameter on `/`, the server sets an `HttpOnly`, `SameSite=Strict` cookie named `nox_session` and redirects with HTTP 303 (See Other) to `/`, stripping the token from URL bar and browser history. All mutation endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) require the `X-Nox-Client: web` or `cli` header to defend against CSRF.
+
+**Rationale:** Complies with SPEC §6.1 and §6.9, providing zero-friction startup for `nx open` while guaranteeing session security and preventing web cross-site request forgery attacks.
+
+
 

@@ -217,7 +217,7 @@ class Settings(BaseModel):
 # Secrets loader
 # ---------------------------------------------------------------------------
 
-_SECRET_PATTERN = re.compile(r"^([A-Z_][A-Z0-9_]*)=(.*)$")
+_SECRET_PATTERN = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$")
 
 
 def _load_secrets() -> dict[str, str]:
@@ -248,9 +248,14 @@ def _load_secrets() -> dict[str, str]:
         if not match:
             raise ValueError(
                 f"Secrets file {SECRETS_FILE} line {line_no}: "
-                f"expected KEY=VALUE format, got: {line!r}"
+                "expected KEY=VALUE format"
             )
-        secrets[match.group(1)] = match.group(2)
+        val = match.group(2).strip()
+        is_double_quoted = val.startswith('"') and val.endswith('"')
+        is_single_quoted = val.startswith("'") and val.endswith("'")
+        if is_double_quoted or is_single_quoted:
+            val = val[1:-1]
+        secrets[match.group(1)] = val
     return secrets
 
 
@@ -298,6 +303,13 @@ def load_config() -> Settings:
 
     # Load secrets
     secrets = _load_secrets()
+
+    # If NVIDIA_API_KEY was placed in [models.nvidia], safely extract it
+    if isinstance(raw.get("models"), dict) and isinstance(raw["models"].get("nvidia"), dict):
+        nvidia_map = raw["models"]["nvidia"]
+        legacy_key = nvidia_map.pop("NVIDIA_API_KEY", None) or nvidia_map.pop("api_key", None)
+        if legacy_key and "NVIDIA_API_KEY" not in secrets:
+            secrets["NVIDIA_API_KEY"] = legacy_key
 
     # Inject secrets into raw dict so Pydantic can validate them
     # (they are not written back to disk)
