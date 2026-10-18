@@ -6,7 +6,8 @@
 - [x] R2 Schema/names/config alignment
 - [x] R3 Vector layer + doctor
 - [x] R4 Approval columns
-- [ ] R5 Rename logging.py → logging_setup.py
+- [x] R5 Rename logging.py → logging_setup.py
+  - Verified: src/noxai/logging_setup.py already renamed and imports updated
 - [ ] R6 Click → Typer migration
 - [ ] R7 Lint / type / test green
 - [ ] M5.1 Gate + Planner tests
