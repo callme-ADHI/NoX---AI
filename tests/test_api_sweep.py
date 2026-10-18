@@ -179,9 +179,15 @@ def test_websocket_event_sweep(
 ) -> None:
     """Verify all event types pushed through event bus reach WebSocket client cleanly."""
     with realistic_app.websocket_connect(f"/ws?token={valid_token}") as ws:
-        # Drain any initial messages
+        # Send ping and drain any replayed historical events until pong is received
         ws.send_json({"type": "ping"})
-        msg = ws.receive_json()
+        msg = None
+        for _ in range(100):
+            data = ws.receive_json()
+            if data.get("type") == "pong":
+                msg = data
+                break
+        assert msg is not None
         assert msg.get("type") == "pong"
 
         events_to_test = [

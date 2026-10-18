@@ -46,6 +46,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 # ---------------------------------------------------------------------------
 
 VECTOR_BACKEND: str = "numpy"  # "vec" | "numpy"
+_CACHED_VECTOR_BACKEND: str | None = None
 
 
 def _try_load_sqlite_vec() -> bool:
@@ -66,18 +67,25 @@ def _try_load_sqlite_vec() -> bool:
 
 
 def _detect_vector_backend() -> str:
+    global _CACHED_VECTOR_BACKEND
+    if _CACHED_VECTOR_BACKEND is not None:
+        return _CACHED_VECTOR_BACKEND
+
     import os
 
     if os.getenv("NOX_FORCE_NUMPY_VECTORS", "0") == "1":
         log.info("vector_backend=numpy forced via NOX_FORCE_NUMPY_VECTORS=1")
+        _CACHED_VECTOR_BACKEND = "numpy"
         return "numpy"
     if _try_load_sqlite_vec():
         log.info("vector_backend=vec sqlite-vec extension loaded successfully")
+        _CACHED_VECTOR_BACKEND = "vec"
         return "vec"
     log.warning(
         "vector_backend=numpy sqlite-vec not available; "
         "using numpy brute-force cosine similarity (fine under ~50k vectors)"
     )
+    _CACHED_VECTOR_BACKEND = "numpy"
     return "numpy"
 
 
@@ -236,8 +244,10 @@ async def run_migrations() -> None:
 
     # After migrations, detect the vector backend
     global VECTOR_BACKEND
+    already_detected = _CACHED_VECTOR_BACKEND is not None
     VECTOR_BACKEND = _detect_vector_backend()
-    log.info("startup vector_backend=%s db_path=%s", VECTOR_BACKEND, DB_PATH)
+    if not already_detected:
+        log.info("startup vector_backend=%s db_path=%s", VECTOR_BACKEND, DB_PATH)
 
 
 # ---------------------------------------------------------------------------

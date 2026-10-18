@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 async def mark_interrupted_runs(db: aiosqlite.Connection) -> int:
-    """Mark any orphaned runs in 'running' state as 'interrupted'.
+    """Mark any orphaned runs and job runs in 'running' state as 'interrupted'.
 
     Called during daemon startup to recover from unclean exits.
     """
@@ -43,12 +43,27 @@ async def mark_interrupted_runs(db: aiosqlite.Connection) -> int:
         WHERE status = 'running'
         """
     )
-    affected = cursor.rowcount
+    affected_runs = cursor.rowcount
+
+    # 3. Update job_runs in 'running' state
+    job_cursor = await db.execute(
+        """
+        UPDATE job_runs
+        SET status = 'interrupted', finished_at = datetime('now'), error = 'Daemon interrupted'
+        WHERE status = 'running'
+        """
+    )
+    affected_jobs = job_cursor.rowcount
     await db.commit()
 
-    if affected > 0:
-        log.warning("Marked %d orphaned active runs as 'interrupted'.", affected)
-    return affected
+    total_affected = affected_runs + affected_jobs
+    if total_affected > 0:
+        log.warning(
+            "Marked %d orphaned active runs and %d active job runs as 'interrupted'.",
+            affected_runs,
+            affected_jobs,
+        )
+    return total_affected
 
 
 async def resume_run(

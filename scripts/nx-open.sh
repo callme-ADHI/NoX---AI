@@ -9,7 +9,8 @@
 
 set -euo pipefail
 
-NOX_DIR="${HOME}/nox"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NOX_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TOKEN_FILE="${HOME}/.local/share/nox/session_token"
 API_BASE="http://127.0.0.1:7777"
 

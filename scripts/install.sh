@@ -73,10 +73,10 @@ mkdir -p "${SYSTEMD_USER_DIR}"
 SERVICE_SRC="${NOX_DIR}/systemd/noxd.service"
 SERVICE_DST="${SYSTEMD_USER_DIR}/noxd.service"
 
-if [ ! -f "${SERVICE_DST}" ] || ! diff -q "${SERVICE_SRC}" "${SERVICE_DST}" &> /dev/null; then
-    cp "${SERVICE_SRC}" "${SERVICE_DST}"
-    log "Installed noxd.service"
-fi
+sed -e "s|ExecStart=.*|ExecStart=${VENV}/bin/nx run|g" \
+    -e "s|Documentation=.*|Documentation=file://${NOX_DIR}/docs/ARCHITECTURE.md|g" \
+    "${SERVICE_SRC}" > "${SERVICE_DST}"
+log "Installed and templated noxd.service at ${SERVICE_DST}"
 
 systemctl --user daemon-reload
 systemctl --user enable noxd.service
@@ -91,7 +91,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Add this line to ~/.config/hypr/hyprland.conf:"
 echo ""
-echo "    exec-once = ~/nox/scripts/nx-open.sh"
+echo "    exec-once = ${NOX_DIR}/scripts/nx-open.sh"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

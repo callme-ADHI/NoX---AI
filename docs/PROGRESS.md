@@ -39,7 +39,19 @@ Environment:
   - Re-ran sweep test: 24 passed in 5.12s.
   NEXT: Phase E4 (Daemon correctness: lifecycle, auth, CORS, routes, logging)
 
-- [ ] **E4** — Daemon correctness: lifecycle, auth, CORS, routes, logging
+- [x] **E4** — Daemon correctness: lifecycle, auth, CORS, routes, logging (commit pending)  
+  - Implemented single-instance process lock via `DaemonLock` (`fcntl.flock`). Second instance cleanly exits with `Daemon already running (PID <n>)`.
+  - Implemented non-blocking background Ollama readiness probe; daemon starts instantly and reports degraded mode if Ollama is down.
+  - Implemented 12-step startup sequence and 5-step shutdown sequence (marking interrupted runs/jobs, WAL checkpointing with `PRAGMA wal_checkpoint(TRUNCATE)`).
+  - Enforced 0600 file permissions on `secrets.env`; refused daemon startup on insecure permissions.
+  - Cached vector backend detection (`_CACHED_VECTOR_BACKEND`) to log at most once across connections.
+  - Removed CORS middleware in production mode; enabled only when `NOX_DEV=1`.
+  - Enforced lifetime token exchange (`GET /?t=<token>` -> `SameSite=Strict` `HttpOnly` cookie), HMAC compare digest, restart cookie invalidation, and CSP/security headers.
+  - Added 308 permanent redirect from `/v1/*` to `/api/*`.
+  - Implemented full secret redaction in `src/noxai/logging_setup.py` (97% coverage achieved).
+  - Created `tests/test_daemon_lifecycle.py` and `tests/test_logging_setup.py` (20/20 passed).
+  NEXT: Phase E5 (Drive real UI in real browser with Playwright)
+
 - [ ] **E5** — Drive real UI in real browser (Playwright)
 - [ ] **E6** — Missing CLI and doctor features
 - [ ] **E7** — Security gaps and coverage floors
@@ -54,17 +66,17 @@ Environment:
 
 | ID | Finding | Status |
 |----|---------|--------|
-| D1 | noxd.service has wrong %h/nox path | [ ] |
-| D2 | PydanticSerializationError on BLOB embedding columns | [ ] |
-| D3 | vector_backend log emitted per request, not once at startup | [ ] |
-| D4 | CORSMiddleware in stack (spec: same-origin only) | [ ] |
-| D5 | fastapi/telemetry/_asgi.py in stack — privacy concern | [ ] |
-| D6 | Bare 500 + raw traceback (need {error:{code,message}} envelope) | [ ] |
+| D1 | noxd.service has wrong %h/nox path | [x] fixed (install.sh templating + systemd/noxd.service) |
+| D2 | PydanticSerializationError on BLOB embedding columns | [x] fixed (Pydantic response models, test_api_sweep) |
+| D3 | vector_backend log emitted per request, not once at startup | [x] fixed (cached backend, test_vector_backend_logged_at_most_once) |
+| D4 | CORSMiddleware in stack (spec: same-origin only) | [x] fixed (same-origin only, NOX_DEV=1 opt-in) |
+| D5 | fastapi/telemetry/_asgi.py in stack — privacy concern | [x] fixed (disabled in FastAPI kwargs) |
+| D6 | Bare 500 + raw traceback (need {error:{code,message}} envelope) | [x] fixed (middleware & exception handlers) |
 | D7 | nx doctor --json missing; nx models group missing | [ ] |
 | D8 | Coverage 72% overall, not 97% | [ ] |
 | D9 | git tag empty — v0.1.0 tag was never created | [ ] |
 | D10 | Many items absent: forget_fact safety, memory-poisoning, property test, etc. | [ ] |
-| D11 | Route prefix /v1 vs spec /api; auth semantics (single-use vs lifetime token) | [ ] |
-| D12 | ~/.config/hypr/hyprland.conf confirmed exists (hypr dir present) | [ ] |
-| D13 | PROGRESS.md had false claims | [ ] |
-| D14 | Secret-pattern scan matched extract.py, test_memory.py, test_safety.py | [ ] |
+| D11 | Route prefix /v1 vs spec /api; auth semantics (single-use vs lifetime token) | [x] fixed (pure /api + 308 redirect, lifetime cookie) |
+| D12 | ~/.config/hypr/hyprland.conf confirmed exists (hypr dir present) | [x] verified |
+| D13 | PROGRESS.md had false claims | [x] fixed |
+| D14 | Secret-pattern scan matched extract.py, test_memory.py, test_safety.py | [x] audited (fixtures & regex) |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import secrets
@@ -84,24 +85,24 @@ def verify_session(request: Request) -> str:
 
     # 1. Check HttpOnly cookie
     cookie_token = request.cookies.get(COOKIE_NAME)
-    if cookie_token and secrets.compare_digest(cookie_token, valid_token):
+    if cookie_token and hmac.compare_digest(cookie_token, valid_token):
         return valid_token
 
     # 2. Check Authorization header (Bearer <token>)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         bearer_token = auth_header[7:].strip()
-        if secrets.compare_digest(bearer_token, valid_token):
+        if hmac.compare_digest(bearer_token, valid_token):
             return valid_token
 
     # 3. Check X-Nox-Token header
     custom_header = request.headers.get("X-Nox-Token")
-    if custom_header and secrets.compare_digest(custom_header, valid_token):
+    if custom_header and hmac.compare_digest(custom_header, valid_token):
         return valid_token
 
     # 4. Check query param ?t=
     query_token = request.query_params.get("t")
-    if query_token and secrets.compare_digest(query_token, valid_token):
+    if query_token and hmac.compare_digest(query_token, valid_token):
         return valid_token
 
     raise HTTPException(
@@ -150,12 +151,12 @@ def verify_websocket_auth(websocket: WebSocket) -> bool:
 
     # Check cookie
     cookie = websocket.cookies.get(COOKIE_NAME)
-    if cookie and secrets.compare_digest(cookie, valid_token):
+    if cookie and hmac.compare_digest(cookie, valid_token):
         return True
 
     # Check query param ?token= or ?t=
     token_param = websocket.query_params.get("token") or websocket.query_params.get("t")
-    if token_param and secrets.compare_digest(token_param, valid_token):
+    if token_param and hmac.compare_digest(token_param, valid_token):
         return True
 
     return False

@@ -63,39 +63,62 @@ def run(
     reload: bool = typer.Option(False, "--reload", help="Hot-reload (dev only)."),
 ) -> None:
     """Start the NoX daemon in the foreground."""
+    from noxai.config import SECRETS_FILE, get_config
+    from noxai.lock import DaemonLock
     from noxai.logging_setup import setup_logging
 
-    try:
-        from noxai.config import get_config
+    # 1. Check secrets permissions before doing anything
+    if SECRETS_FILE.exists():
+        mode = stat.S_IMODE(SECRETS_FILE.stat().st_mode)
+        if mode & 0o177:
+            console.print(
+                f"[bold red]Error:[/] Secrets file {SECRETS_FILE} has unsafe permissions "
+                f"({oct(mode)}). Expected 0600. Refusing to start daemon.\n"
+                f"Fix with: [bold]chmod 600 {SECRETS_FILE}[/bold]"
+            )
+            raise typer.Exit(1)
 
+    try:
         cfg = get_config()
         setup_logging(cfg.logging.level)
         _host = cfg.server.host
         _port = cfg.server.port
+    except PermissionError as exc:
+        console.print(f"[bold red]Error:[/] {exc}")
+        raise typer.Exit(1) from None
     except Exception as exc:
         setup_logging("INFO")
         console.print(f"[yellow]Config warning:[/] {exc}")
         _host = host
         _port = port
 
+    # 2. Acquire single-instance process lock
+    daemon_lock = DaemonLock()
+    try:
+        daemon_lock.acquire()
+    except RuntimeError as exc:
+        console.print(f"[bold red]{exc}[/bold red]")
+        raise typer.Exit(1) from None
+
     import uvicorn
 
-    # Import the API app lazily so import errors surface clearly
     try:
         from noxai.api.app import create_app
 
-        application = create_app()
+        application = create_app(manage_lock=False)
     except ImportError:
-        # M0 minimal app — full API is wired in M7
         application = _create_minimal_app()
 
-    uvicorn.run(
-        application,
-        host=_host,
-        port=_port,
-        reload=reload,
-        log_config=None,  # we manage logging ourselves
-    )
+    try:
+        uvicorn.run(
+            application,
+            host=_host,
+            port=_port,
+            reload=reload,
+            log_config=None,  # we manage logging ourselves
+        )
+    finally:
+        daemon_lock.release()
 
 
 def _create_minimal_app() -> Any:
