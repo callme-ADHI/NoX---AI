@@ -16,11 +16,15 @@ Environment:
 
 ## Phases
 
-- [ ] **E0** — Orientation and safety net  
-  Status: in-progress  
-  NEXT: finish E0 commit then E1
+- [x] **E0** — Orientation and safety net (commit: `ad5f2a5`)
+- [x] **E1** — Trust audit (secrets, telemetry, egress, repo state) (commit pending)  
+  - Secret scan: 0 real secrets (all matches classified as regex or test fixtures).
+  - Telemetry: fastapi/telemetry audit complete, 0 outbound reporting without OTLP env var.
+  - Egress: only 127.0.0.1:11434, 127.0.0.1:7777, and DDG search endpoints contacted.
+  - Hygiene test: `tests/test_repo_hygiene.py` passing (3/3 tests).
+  - Repo state: 129 files, 0 forbidden tracked files.
+  NEXT: Phase E2 (Realistic-data harness)
 
-- [ ] **E1** — Trust audit (secrets, telemetry, egress, repo state)
 - [ ] **E2** — Realistic-data harness
 - [ ] **E3** — Fix API defects from sweep
 - [ ] **E4** — Daemon correctness: lifecycle, auth, CORS, routes, logging
