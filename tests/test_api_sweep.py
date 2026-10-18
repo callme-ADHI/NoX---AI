@@ -207,3 +207,120 @@ def test_websocket_event_sweep(
             assert received["type"] == ev.type
             assert received["run_id"] == ev.run_id
             assert received["data"] == ev.data
+
+
+# ---------------------------------------------------------------------------
+# Response Model Byte Scan & Bad Input Tests (Spec E3)
+# ---------------------------------------------------------------------------
+
+
+def test_no_bytes_fields_in_any_response_model() -> None:
+    """Scan all pydantic models in routes module; fail if any field is bytes or contains bytes."""
+    import inspect
+    import typing
+
+    from pydantic import BaseModel
+
+    import noxai.api.routes as routes_mod
+
+    found_models: list[type[BaseModel]] = []
+    for attr_name in dir(routes_mod):
+        attr = getattr(routes_mod, attr_name)
+        if inspect.isclass(attr) and issubclass(attr, BaseModel) and attr is not BaseModel:
+            found_models.append(attr)
+
+    assert len(found_models) >= 10, f"Expected multiple models, found {len(found_models)}"
+
+    violations = []
+    for model in found_models:
+        for field_name, field_info in model.model_fields.items():
+            ann = field_info.annotation
+            args = typing.get_args(ann)
+            if ann is bytes or bytes in args:
+                violations.append(f"{model.__name__}.{field_name} has bytes type")
+
+    assert not violations, f"Response models contain bytes fields: {violations}"
+
+
+def test_error_envelope_and_correlation_id_on_forced_error(
+    realistic_app: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unhandled server errors return 500 with standard error envelope."""
+    import noxai.api.routes as routes_mod
+
+    async def _failing_auth(cfg):
+        raise RuntimeError("Forced simulation error for E3 verification")
+
+    # Temporarily monkeypatch check_gate_authenticated called by get_system_status
+    monkeypatch.setattr(routes_mod, "check_gate_authenticated", _failing_auth)
+
+    resp = realistic_app.get("/api/status", headers=auth_headers)
+    assert resp.status_code == 500
+
+    data = resp.json()
+    assert "error" in data
+    err = data["error"]
+    assert err["code"] == "internal_error"
+    assert err["message"] == "Something went wrong"
+    assert "correlation_id" in err
+    assert resp.headers.get("X-Request-Id") == err["correlation_id"]
+
+
+def test_bad_inputs_standard_envelope(
+    realistic_app: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    """Verify bad payloads, wrong types, and limits receive standard error envelope."""
+    # 1. Oversized body (>1 MB)
+    large_payload = {"message": "A" * 1_050_000}
+    resp = realistic_app.post("/api/chat", json=large_payload, headers=auth_headers)
+    assert resp.status_code in (413, 400)
+    data = resp.json()
+    assert "error" in data
+    assert "correlation_id" in data["error"]
+    assert resp.headers.get("X-Request-Id") == data["error"]["correlation_id"]
+
+    # 2. Invalid JSON
+    raw_headers = dict(auth_headers)
+    raw_headers["Content-Type"] = "application/json"
+    resp = realistic_app.post("/api/chat", content="not-a-json-object", headers=raw_headers)
+    assert resp.status_code == 422
+    data = resp.json()
+    assert "error" in data
+    assert data["error"]["code"] == "validation_error"
+    assert "correlation_id" in data["error"]
+
+    # 3. Wrong types (string instead of integer rating)
+    resp = realistic_app.post(
+        "/api/briefings/1/feedback",
+        json={"rating": "invalid_string_not_an_int"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+    data = resp.json()
+    assert "error" in data
+    assert data["error"]["code"] == "validation_error"
+
+    # 4. Negative limit in query
+    resp = realistic_app.get("/api/conversations?limit=-10", headers=auth_headers)
+    assert resp.status_code == 422
+    data = resp.json()
+    assert "error" in data
+
+    # 5. Excessively huge limit in query
+    resp = realistic_app.get("/api/conversations?limit=999999", headers=auth_headers)
+    assert resp.status_code == 422
+    data = resp.json()
+    assert "error" in data
+
+    # 6. SQL-ish string in input (safely handled, not 500)
+    resp = realistic_app.post(
+        "/api/chat",
+        json={"message": "' OR 1=1; DROP TABLE facts; --"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "run_id" in data

@@ -25,14 +25,20 @@ Environment:
   - Repo state: 129 files, 0 forbidden tracked files.
   NEXT: Phase E2 (Realistic-data harness)
 
-- [x] **E2** — Realistic-data harness (commit pending)  
+- [x] **E2** — Realistic-data harness (commit: `a36fa61`)  
   - Created `tests/fixtures/populate.py` populating 35 tables (40 facts, 120 episodes, 500 messages, 30 runs, BLOB embeddings with invalid UTF-8 bytes).
   - Created `tests/test_api_sweep.py` sweeping all GET endpoints, mutation endpoints, and WebSocket events.
-  - Sweep executed against current codebase: 15 passed, 6 failed (exact defects D2 and D6 confirmed).
-  - Failure list recorded as bug list for E3.
-  NEXT: Phase E3 (Fix the API defects the sweep found)
+  - Sweep executed against baseline codebase: 15 passed, 6 failed (exact defects D2 and D6 confirmed).
 
-- [ ] **E3** — Fix API defects from sweep
+- [x] **E3** — Fix API defects from sweep (commit pending)  
+  - Explicit Pydantic response models defined for all endpoints in `src/noxai/api/routes.py`.
+  - Excluded BLOB columns (`embedding`) at repository SQL layer; zero bytes leak to routes.
+  - Added correlation ID middleware, 1 MB payload size limit, and uniform `{error: {code, message, correlation_id}}` exception handling in `src/noxai/api/app.py`.
+  - Added `test_no_bytes_fields_in_any_response_model` (0 bytes fields across all models).
+  - Added `test_error_envelope_and_correlation_id_on_forced_error` & `test_bad_inputs_standard_envelope`.
+  - Re-ran sweep test: 24 passed in 5.12s.
+  NEXT: Phase E4 (Daemon correctness: lifecycle, auth, CORS, routes, logging)
+
 - [ ] **E4** — Daemon correctness: lifecycle, auth, CORS, routes, logging
 - [ ] **E5** — Drive real UI in real browser (Playwright)
 - [ ] **E6** — Missing CLI and doctor features

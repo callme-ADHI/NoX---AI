@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import logging
+import os
 import secrets
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from noxai.agent.resume import mark_interrupted_runs
 from noxai.api.auth import COOKIE_NAME, generate_session_token, load_session_token
@@ -82,21 +87,125 @@ def create_app(
         docs_url="/api/docs",
         redoc_url=None,
         lifespan=lifespan,
+        telemetry={
+            "tracing": False,
+            "metrics": False,
+            "logs": False,
+            "operation_spans": False,
+            "auto_configure": False,
+        },
     )
 
-    # Allow local development and Web UI origins
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:7777",
-            "http://localhost:7777",
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Correlation ID, body size limit (1 MB), and response headers middleware
+    @app.middleware("http")
+    async def correlation_and_security_middleware(request: Request, call_next: Any) -> Response:
+        corr_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
+        request.state.correlation_id = corr_id
+
+        # 1 MB body size cap per spec §6.1 / E3
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > 1_048_576:
+                    resp = JSONResponse(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        content={
+                            "error": {
+                                "code": "payload_too_large",
+                                "message": "Request body exceeds 1 MB limit",
+                                "correlation_id": corr_id,
+                            }
+                        },
+                    )
+                    resp.headers["X-Request-Id"] = corr_id
+                    return resp
+            except ValueError:
+                pass
+
+        try:
+            response: Response = await call_next(request)
+        except Exception as exc:
+            log.error(
+                "Unhandled server error correlation_id=%s: %s",
+                corr_id,
+                exc,
+                exc_info=True,
+            )
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "error": {
+                        "code": "internal_error",
+                        "message": "Something went wrong",
+                        "correlation_id": corr_id,
+                    }
+                },
+            )
+
+        response.headers["X-Request-Id"] = corr_id
+        # Security headers
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+    # Exception handlers for standard JSON envelope
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        corr_id = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        code = (
+            "not_found"
+            if exc.status_code == 404
+            else "unauthorized"
+            if exc.status_code == 401
+            else "forbidden"
+            if exc.status_code == 403
+            else f"http_{exc.status_code}"
+        )
+        resp = JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": code,
+                    "message": str(exc.detail),
+                    "correlation_id": corr_id,
+                }
+            },
+        )
+        resp.headers["X-Request-Id"] = corr_id
+        return resp
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        corr_id = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        resp = JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "error": {
+                    "code": "validation_error",
+                    "message": "Request validation failed",
+                    "details": exc.errors(),
+                    "correlation_id": corr_id,
+                }
+            },
+        )
+        resp.headers["X-Request-Id"] = corr_id
+        return resp
+
+    # CORS locked down: only enabled in dev mode NOX_DEV=1 per Spec D4 / E4.3
+    if os.environ.get("NOX_DEV") == "1":
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://127.0.0.1:5173",
+                "http://localhost:5173",
+            ],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # Mount REST and WebSocket routers
     app.include_router(api_router)
