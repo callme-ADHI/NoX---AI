@@ -78,6 +78,7 @@ class FakeProvider(Provider):
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Record the call, check privacy rules, and yield scripted chunks."""
         # 1. Privacy inspection for cloud/non-local providers

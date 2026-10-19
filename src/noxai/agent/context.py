@@ -45,18 +45,26 @@ async def assemble_system_prompt(
     allow_cloud: bool = False,
     recalled_memories: list[str] | None = None,
     relevant_skills: list[dict[str, str]] | None = None,
+    stable_prefix: bool = False,
 ) -> str:
-    """Assemble the system prompt adhering to Section 6.3.1 required order:
+    """Assemble the system prompt.
 
+    When stable_prefix is False (legacy Section 6.3.1 order):
     1. Core identity and rules (prompts/system.md).
     2. Current date, time, weekday, and timezone.
     3. Owner preferences (from preferences table).
     4. Relevant skills (at most 3, trimmed).
     5. Recalled memories (omitted entirely if allow_cloud=True).
     6. Tool list with short descriptions.
-    """
-    sections: list[str] = []
 
+    When stable_prefix is True (Phase F1 KV cache optimization):
+    1. Core identity and rules (stable).
+    2. Tool list with short descriptions (stable).
+    3. Owner preferences (stable across turns).
+    4. Relevant skills (stable).
+    5. Current date, time, weekday, and timezone (volatile).
+    6. Recalled memories (volatile).
+    """
     # 1. Core identity & rules
     if SYSTEM_PROMPT_PATH.exists():
         system_rules = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
@@ -64,7 +72,6 @@ async def assemble_system_prompt(
         system_rules = (
             "You are NoX, the owner's personal AI agent running on his Arch Linux computer."
         )
-    sections.append(system_rules)
 
     # 2. Date, time, weekday, timezone
     tz_name = config.timezone.name
@@ -79,7 +86,7 @@ async def assemble_system_prompt(
     date_str = now.strftime("%Y-%m-%d")
     weekday_str = now.strftime("%A")
     time_str = now.strftime("%H:%M:%S")
-    sections.append(f"Current date & time: {weekday_str}, {date_str} {time_str} {tz_name}")
+    date_time_sec = f"Current date & time: {weekday_str}, {date_str} {time_str} {tz_name}"
 
     # 3. Owner preferences
     preferences: dict[str, str] = {}
@@ -91,11 +98,12 @@ async def assemble_system_prompt(
         except Exception as exc:
             log.warning("Could not load preferences from database: %s", exc)
 
+    pref_sec = ""
     if preferences:
         pref_lines = ["Owner preferences:"]
         for k, v in preferences.items():
             pref_lines.append(f"- {k}: {v}")
-        sections.append("\n".join(pref_lines))
+        pref_sec = "\n".join(pref_lines)
 
     # 4. Relevant skills (at most 3; omitted for cloud-eligible runs)
     skills = [] if allow_cloud else (relevant_skills or [])
@@ -107,29 +115,51 @@ async def assemble_system_prompt(
         except Exception as exc:
             log.warning("Could not load skills from database: %s", exc)
 
+    skills_sec = ""
     if skills:
         skill_lines = ["Active skills:"]
         for s in skills[:3]:
             skill_lines.append(f"- {s.get('name')}: {s.get('description', '')}")
-        sections.append("\n".join(skill_lines))
+        skills_sec = "\n".join(skill_lines)
 
     # 5. Recalled memories (Omitted entirely for cloud-eligible runs!)
+    memories_sec = ""
     if not allow_cloud:
         memories = recalled_memories or []
         if memories:
             mem_lines = ["Recalled memories:"]
             for m in memories:
                 mem_lines.append(f"- {m}")
-            sections.append("\n".join(mem_lines))
+            memories_sec = "\n".join(mem_lines)
 
     # 6. Tool list with short descriptions
+    tools_sec = ""
     if tools:
         tool_lines = ["Available tools:"]
         for t in tools:
             tool_lines.append(f"- {t.name}: {t.description}")
-        sections.append("\n".join(tool_lines))
+        tools_sec = "\n".join(tool_lines)
 
-    return "\n\n".join(sections)
+    if stable_prefix:
+        ordered = [
+            system_rules,
+            tools_sec,
+            pref_sec,
+            skills_sec,
+            date_time_sec,
+            memories_sec,
+        ]
+    else:
+        ordered = [
+            system_rules,
+            date_time_sec,
+            pref_sec,
+            skills_sec,
+            memories_sec,
+            tools_sec,
+        ]
+
+    return "\n\n".join([sec for sec in ordered if sec])
 
 
 async def trim_context(

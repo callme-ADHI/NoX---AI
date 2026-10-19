@@ -24,9 +24,9 @@ def test_no_real_path_writes_during_test(tmp_path: Path) -> None:
     # Record snapshot of real directories if they exist
     real_paths = [REAL_CONFIG_NOX, REAL_DATA_NOX, REAL_STATE_NOX]
     before_snapshots = {}
-    for p in real_paths:
-        if p.exists():
-            for f in p.rglob("*"):
+    for real_p in real_paths:
+        if real_p.exists():
+            for f in real_p.rglob("*"):
                 if f.is_file():
                     before_snapshots[str(f)] = f.stat().st_mtime
 
@@ -39,9 +39,9 @@ def test_no_real_path_writes_during_test(tmp_path: Path) -> None:
     assert cfg is not None
 
     # Verify no file under real paths was modified
-    for p in real_paths:
-        if p.exists():
-            for f in p.rglob("*"):
+    for real_p in real_paths:
+        if real_p.exists():
+            for f in real_p.rglob("*"):
                 if f.is_file():
                     path_str = str(f)
                     if path_str in before_snapshots:

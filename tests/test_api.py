@@ -549,7 +549,7 @@ def test_websocket_ping_pong_and_auth(client: TestClient, valid_token: str) -> N
         # Ping -> Pong
         ws.send_json({"type": "ping"})
         msg = {}
-        for _ in range(50):
+        for _ in range(250):
             m = ws.receive_json()
             if m.get("type") == "pong":
                 msg = m

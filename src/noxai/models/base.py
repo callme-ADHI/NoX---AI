@@ -161,6 +161,9 @@ class Provider(Protocol):
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        num_ctx: int | None = None,
+        keep_alive: str | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Execute a chat completion, optionally streaming chunks."""
         ...

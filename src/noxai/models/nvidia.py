@@ -255,6 +255,7 @@ class NvidiaProvider(Provider):
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Execute chat completion via NVIDIA API."""
         if not self.is_enabled:

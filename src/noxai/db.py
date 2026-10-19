@@ -100,6 +100,7 @@ def _configure_sync_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA cache_size=-64000")  # 64 MB page cache
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
 
 
@@ -109,6 +110,7 @@ async def _configure_async_connection(db: aiosqlite.Connection) -> None:
     await db.execute("PRAGMA foreign_keys=ON")
     await db.execute("PRAGMA synchronous=NORMAL")
     await db.execute("PRAGMA cache_size=-64000")
+    await db.execute("PRAGMA busy_timeout=30000")
     db.row_factory = aiosqlite.Row
 
 
@@ -119,7 +121,7 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     The connection is committed on clean exit and rolled back on exception.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
         await _configure_async_connection(db)
         try:
             yield db

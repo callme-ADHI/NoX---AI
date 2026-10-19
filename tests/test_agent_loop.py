@@ -132,6 +132,48 @@ class TestPromptAssembly:
             assert pos_rules < pos_time < pos_prefs < pos_skills < pos_memories < pos_tools
 
     @pytest.mark.asyncio
+    async def test_system_prompt_stable_prefix_order(
+        self, test_config: Settings, tmp_path: Path
+    ) -> None:
+        """Phase F1: When stable_prefix=True, tools and preferences precede time/memories."""
+        db_path = tmp_path / "test_prompt_stable.db"
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)"
+            )
+            await db.execute(
+                "INSERT INTO preferences VALUES ('summary_style', 'bullet points', datetime('now'))"
+            )
+            await db.commit()
+
+            tools = [ToolSpec(name="test_tool", description="A test tool", parameters={})]
+            prompt = await assemble_system_prompt(
+                config=test_config,
+                tools=tools,
+                db=db,
+                allow_cloud=False,
+                recalled_memories=["Owner likes dark mode."],
+                relevant_skills=[{"name": "arch_pkg", "description": "Pacman skill"}],
+                stable_prefix=True,
+            )
+
+            pos_rules = prompt.find("You are NoX")
+            pos_tools = prompt.find("Available tools:")
+            pos_prefs = prompt.find("Owner preferences:")
+            pos_skills = prompt.find("Active skills:")
+            pos_time = prompt.find("Current date & time:")
+            pos_memories = prompt.find("Recalled memories:")
+
+            assert pos_rules != -1, "System rules missing"
+            assert pos_tools != -1, "Tools missing"
+            assert pos_prefs != -1, "Preferences missing"
+            assert pos_skills != -1, "Skills missing"
+            assert pos_time != -1, "Date/time missing"
+            assert pos_memories != -1, "Memories missing"
+
+            assert pos_rules < pos_tools < pos_prefs < pos_skills < pos_time < pos_memories
+
+    @pytest.mark.asyncio
     async def test_memories_omitted_for_cloud(self, test_config: Settings) -> None:
         """Section 6.3.1 rule 5: Recalled memories are omitted entirely for cloud runs."""
         tools = [ToolSpec(name="test_tool", description="A test tool", parameters={})]

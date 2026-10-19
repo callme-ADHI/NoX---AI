@@ -38,6 +38,7 @@ EVENT_TYPES = {
     "job_changed",
     "reminder_fired",
     "briefing_ready",
+    "trace",
 }
 
 
@@ -123,11 +124,13 @@ class EventBus:
                 if event.type == "run_started":
                     await db.execute(
                         """
-                        UPDATE runs
-                        SET status = 'running', started_at = ?
-                        WHERE id = ?
+                        INSERT INTO runs (id, kind, status, started_at)
+                        VALUES (?, 'chat', 'running', ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            status = 'running',
+                            started_at = excluded.started_at
                         """,
-                        (event.ts, event.run_id),
+                        (event.run_id, event.ts),
                     )
                     await db.commit()
                 elif event.type == "run_done":

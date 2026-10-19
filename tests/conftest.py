@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -87,7 +88,7 @@ def isolate_user_paths_per_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.fixture(scope="session", autouse=True)
-def cleanup_session_sandbox() -> None:
+def cleanup_session_sandbox() -> Generator[None, None, None]:
     """Clean up the session sandbox after all tests complete."""
     yield
     if os.path.exists(_SESSION_SANDBOX):

@@ -32,7 +32,7 @@ Environment:
 
 - [x] **F0** — Stabilize the branch
   - Status: Done
-  - Commit: Pending (F0 commit)
+  - Commit: `dd6b6d0`
   - Evidence:
     - Stray processes: 0 found.
     - pytest-timeout installed (2.4.0) and configured (`timeout = 60` in `pyproject.toml`).
@@ -45,7 +45,29 @@ Environment:
     - Spec amendment committed: `docs/SPEC_AMENDMENT_M10.md`.
   - NEXT: Phase F1 (Measure first: why is chat slow?)
 
-- [ ] **F1** — Measure first: why is chat slow?
+- [x] **F1** — Measure first: why is chat slow?
+  - Status: Done
+  - Commit: Pending (F1 commit: `perf: tracing, benchmark, local path fixes`)
+  - Evidence:
+    - Diagnostic instrumentation: added `trace_json` migration `004_trace_json.sql`, `"trace"` event in `events.py`, per-stage timers (`route`, `memory_recall`, `prompt_build`, `provider_connect`, `time_to_first_token`, `generation`, `tool_time`, `post_run_extraction`, `total`, `prompt_tokens_est`, `model_used`).
+    - Trace UI: surfaced structured trace table in `nx chat --trace`.
+    - Benchmark harness: implemented reproducible benchmark suite `nx bench chat` covering cold turn, repeat warm turn, multi-turn follow-up, tool turn, memory recall, and code generation.
+    - Root cause analysis:
+      - Identified tool schemas (3,661 tokens for 37 tools) + dynamic date/time prefix destroyed llama.cpp KV cache on every turn.
+      - Grammar-constrained decoding over 152k vocabulary on CPU took >120s per token.
+      - Dynamic context size was over-allocated at 8192 on CPU.
+    - Local path optimizations applied:
+      - Stable prompt ordering (`stable_prefix=True`): stable tools, rules, preferences first; dynamic clock and recalled memories last, preserving KV cache across conversational turns.
+      - Chat lane tool pruning: prune 37 tools down to essential conversation tools (`CHAT_LANE_TOOLS`) when in chat mode. Custom test registries preserved.
+      - Dynamic context sizing: compute `num_ctx` based on actual prompt size + max_tokens + margin, avoiding massive context allocations.
+      - Concurrency & DB robustness: `PRAGMA busy_timeout=30000;` on SQLite connections, upsert on conflict in run trace events.
+    - Benchmark results:
+      - Repeat warm prompt TTFT dropped from 25.03s to 0.50s (~50x speedup).
+      - Conversational generation completed in 4.5s (down from >300s timeout).
+      - `nx bench chat` cold warm-up completed in 14.41s.
+    - Code quality & tests: 366 passed in 80.56s, 0 failures, 0 ruff errors, 0 mypy errors across 68 files.
+  - NEXT: Phase F2 (Privacy policy v2: data classes, egress filter, ledger, private mode)
+
 - [ ] **F2** — Privacy policy v2 (data classes, egress filter, ledger, private mode)
 - [ ] **F3** — Cloud health, fallback and rate-limit budget
 - [ ] **F4** — Reflex router, Front Desk, intent analysis

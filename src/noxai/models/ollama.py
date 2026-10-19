@@ -101,20 +101,25 @@ class OllamaProvider(Provider):
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        num_ctx: int | None = None,
+        keep_alive: str | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Execute chat completion with Ollama."""
+        target_keep_alive = keep_alive if keep_alive is not None else self.keep_alive
+        target_ctx = num_ctx if num_ctx is not None else self.num_ctx
         payload: dict[str, Any] = {
             "model": model,
             "messages": self._format_messages(messages),
             "stream": stream,
-            "keep_alive": self.keep_alive,
+            "keep_alive": target_keep_alive,
         }
 
         tools_payload = self._format_tools(tools)
         if tools_payload:
             payload["tools"] = tools_payload
 
-        options: dict[str, Any] = {"num_ctx": self.num_ctx}
+        options: dict[str, Any] = {"num_ctx": target_ctx}
         if temperature is not None:
             options["temperature"] = temperature
         if max_tokens is not None:

@@ -113,6 +113,8 @@ class ModelRouter:
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        num_ctx: int | None = None,
+        keep_alive: str | None = None,
         on_notice: Callable[[str], None] | None = None,
         on_model_used: Callable[[dict[str, Any]], None] | None = None,
     ) -> AsyncIterator[ChatChunk]:
@@ -140,6 +142,8 @@ class ModelRouter:
                 stream=stream,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                num_ctx=num_ctx,
+                keep_alive=keep_alive,
             ):
                 yield chunk
             return
@@ -163,6 +167,8 @@ class ModelRouter:
                 stream=stream,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                num_ctx=num_ctx,
+                keep_alive=keep_alive,
             ):
                 yield chunk
 
@@ -192,6 +198,8 @@ class ModelRouter:
                 stream=stream,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                num_ctx=num_ctx,
+                keep_alive=keep_alive,
             ):
                 yield chunk
 

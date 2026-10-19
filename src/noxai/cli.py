@@ -55,6 +55,9 @@ app.add_typer(briefings_app, name="briefings")
 app.add_typer(audit_app, name="audit")
 app.add_typer(service_app, name="service")
 
+bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
+app.add_typer(bench_app, name="bench")
+
 app.command(name="remind")(remind_command)
 app.command(name="session-env")(session_env_command)
 
@@ -276,6 +279,7 @@ def open() -> None:
 def chat_cmd(
     message: str = typer.Argument(..., help="Message to send to NoX."),
     allow_cloud: bool = typer.Option(False, "--allow-cloud", help="Allow cloud model if eligible."),
+    trace: bool = typer.Option(False, "--trace", help="Print detailed latency stage trace."),
 ) -> None:
     """Send a one-shot chat message to NoX."""
     import asyncio
@@ -323,6 +327,35 @@ def chat_cmd(
                     f"\n[dim]({result.tool_calls_count} tool call(s), "
                     f"{result.steps} step(s), {result.duration_seconds:.2f}s)[/dim]"
                 )
+
+            if trace and result.trace:
+                from rich.table import Table
+
+                t = Table(title="Latency Trace Breakdown", show_header=True)
+                t.add_column("Stage", style="cyan")
+                t.add_column("Duration (ms)", justify="right", style="green")
+
+                t.add_row("route", f"{result.trace.get('route', 0.0):.1f}")
+                t.add_row("memory_recall", f"{result.trace.get('memory_recall', 0.0):.1f}")
+                t.add_row("prompt_build", f"{result.trace.get('prompt_build', 0.0):.1f}")
+                t.add_row("provider_connect", f"{result.trace.get('provider_connect', 0.0):.1f}")
+                t.add_row(
+                    "time_to_first_token", f"{result.trace.get('time_to_first_token', 0.0):.1f}"
+                )
+                t.add_row("generation", f"{result.trace.get('generation', 0.0):.1f}")
+
+                tool_times = result.trace.get("tool_time", {})
+                for tool_name, ms in tool_times.items():
+                    t.add_row(f"tool_time[{tool_name}]", f"{ms:.1f}")
+
+                t.add_row(
+                    "post_run_extraction", f"{result.trace.get('post_run_extraction', 0.0):.1f}"
+                )
+                t.add_row("[bold]total[/]", f"[bold]{result.trace.get('total', 0.0):.1f}[/]")
+                t.add_row("prompt_tokens_est", str(result.trace.get("prompt_tokens_est", 0)))
+                t.add_row("model_used", str(result.trace.get("model_used", "")))
+                console.print()
+                console.print(t)
 
     asyncio.run(_run())
 
@@ -461,3 +494,15 @@ def tools_list() -> None:
         console.print(table)
     finally:
         conn.close()
+
+
+@bench_app.command(name="chat")
+def bench_chat_cmd(
+    runs: int = typer.Option(3, "--runs", "-r", help="Number of benchmark runs per prompt."),
+) -> None:
+    """Benchmark chat latency across raw Ollama, NoX local, and NoX cloud paths."""
+    import asyncio
+
+    from noxai.commands.bench_chat import run_chat_bench
+
+    asyncio.run(run_chat_bench(console=console, runs_per_case=runs))
