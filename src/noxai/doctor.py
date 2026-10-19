@@ -233,6 +233,19 @@ def check_nvidia_models_endpoint(cfg: Any, has_key: bool) -> DoctorCheck:
         return DoctorCheck("NVIDIA API endpoint", "WARN", f"NVIDIA error: {exc}")
 
 
+def check_cloud_health_state(has_key: bool = True) -> DoctorCheck:
+    from noxai.models.cloud_health import CloudHealthState, get_cloud_health
+
+    ch = get_cloud_health(has_key=has_key)
+    if ch.state == CloudHealthState.ACTIVE:
+        return DoctorCheck("Cloud health state", "PASS", f"Active ({ch.reason})")
+    if ch.state == CloudHealthState.NO_KEY:
+        return DoctorCheck("Cloud health state", "WARN", "Cloud disabled: no API key")
+    if ch.state == CloudHealthState.DEGRADED:
+        return DoctorCheck("Cloud health state", "WARN", f"Degraded: {ch.reason}")
+    return DoctorCheck("Cloud health state", "WARN", f"{ch.state.value}: {ch.reason}")
+
+
 def check_server_port(cfg: Any) -> DoctorCheck:
     srv_host = "127.0.0.1"
     srv_port = 7777
@@ -451,6 +464,7 @@ def run_all_checks() -> list[DoctorCheck]:
 
     # 9. NVIDIA models API
     checks.append(check_nvidia_models_endpoint(cfg, has_key))
+    checks.append(check_cloud_health_state(has_key=has_key))
 
     # 10. Server port
     checks.append(check_server_port(cfg))

@@ -23,6 +23,8 @@ from noxai.models.base import (
     ToolCall,
     ToolSpec,
 )
+from noxai.models.budget import RequestBudget
+from noxai.models.cloud_health import CloudHealth
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +105,8 @@ class NvidiaProvider(Provider):
         max_retries: int = 4,
         timeout: float = 60.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        cloud_health: CloudHealth | None = None,
+        budget: RequestBudget | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -110,6 +114,12 @@ class NvidiaProvider(Provider):
         self.timeout = timeout
         self.transport = transport
         self.rate_limiter = TokenBucket(requests_per_minute=requests_per_minute)
+        self.budget = budget or RequestBudget(requests_per_minute=requests_per_minute)
+        self.cloud_health = (
+            cloud_health
+            if cloud_health is not None
+            else CloudHealth(has_key=self.is_enabled)
+        )
 
     def __repr__(self) -> str:
         masked = f"{self.api_key[:6]}...***" if self.api_key else "None"
@@ -178,8 +188,24 @@ class NvidiaProvider(Provider):
         client: httpx.AsyncClient,
         payload: dict[str, Any],
         stream: bool = True,
+        is_interactive: bool = True,
     ) -> httpx.Response:
         """Execute request with rate limiting and exponential backoff retry."""
+        if not self.cloud_health.can_attempt():
+            raise ProviderUnavailable(
+                f"NVIDIA cloud circuit breaker is {self.cloud_health.circuit_breaker.state.value} "
+                f"({self.cloud_health.reason})"
+            )
+
+        acquired = await self.budget.acquire(is_interactive=is_interactive, timeout=0.0)
+        if not acquired:
+            self.cloud_health.record_failure(
+                error="Request budget exhausted",
+                status_code=429,
+                retry_after=2.0,
+            )
+            raise RateLimitError("NVIDIA request budget exhausted")
+
         attempt = 0
         backoff = 1.0
 
@@ -202,6 +228,11 @@ class NvidiaProvider(Provider):
                     wait_sec = _parse_retry_after(retry_after_header, backoff)
                     jitter = random.uniform(0.1, 0.5)  # noqa: S311
                     total_wait = wait_sec + jitter
+                    self.cloud_health.record_failure(
+                        error="HTTP 429: rate limited",
+                        status_code=429,
+                        retry_after=wait_sec,
+                    )
                     log.warning(
                         "NVIDIA 429 rate limited. Attempt %d/%d, waiting %.2fs",
                         attempt,
@@ -217,8 +248,24 @@ class NvidiaProvider(Provider):
                     backoff *= 2.0
                     continue
 
+                if resp.status_code in (401, 403):
+                    error_text = await resp.aread()
+                    await resp.aclose()
+                    decoded = error_text.decode("utf-8", errors="replace")
+                    self.cloud_health.record_failure(
+                        error=decoded,
+                        status_code=resp.status_code,
+                    )
+                    raise ProviderUnavailable(
+                        f"NVIDIA API authorization error ({resp.status_code}): {decoded}"
+                    )
+
                 if resp.status_code >= 500:
                     await resp.aclose()
+                    self.cloud_health.record_failure(
+                        error=f"Server error {resp.status_code}",
+                        status_code=resp.status_code,
+                    )
                     if attempt > self.max_retries:
                         raise ProviderUnavailable(
                             f"NVIDIA API server error ({resp.status_code}) "
@@ -233,11 +280,16 @@ class NvidiaProvider(Provider):
                     error_text = await resp.aread()
                     await resp.aclose()
                     decoded = error_text.decode("utf-8", errors="replace")
+                    self.cloud_health.record_failure(
+                        error=decoded,
+                        status_code=resp.status_code,
+                    )
                     raise ProviderUnavailable(f"NVIDIA API error ({resp.status_code}): {decoded}")
 
                 return resp
 
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                self.cloud_health.record_failure(error=exc)
                 if attempt > self.max_retries:
                     raise ProviderUnavailable(
                         f"NVIDIA API request failed after {self.max_retries} retries: {exc}"
@@ -277,12 +329,18 @@ class NvidiaProvider(Provider):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
+        is_interactive = bool(kwargs.get("is_interactive", True))
+        t0 = time.perf_counter()
+        ttft_sec: float | None = None
+
         client = httpx.AsyncClient(
             timeout=httpx.Timeout(self.timeout, connect=10.0),
             transport=self.transport,
         )
         try:
-            resp = await self._request_with_retry(client, payload, stream=stream)
+            resp = await self._request_with_retry(
+                client, payload, stream=stream, is_interactive=is_interactive
+            )
 
             if stream:
                 async for line in resp.aiter_lines():
@@ -304,6 +362,9 @@ class NvidiaProvider(Provider):
                         delta = choice.get("delta", {})
                         delta_text = delta.get("content") or ""
                         finish_reason = choice.get("finish_reason")
+
+                        if delta_text and ttft_sec is None:
+                            ttft_sec = time.perf_counter() - t0
 
                         tool_calls: list[ToolCall] = []
                         raw_tcs = delta.get("tool_calls")
@@ -366,6 +427,12 @@ class NvidiaProvider(Provider):
                     finish_reason=finish_reason,
                     usage=data.get("usage"),
                 )
+
+            latency_sec = time.perf_counter() - t0
+            self.cloud_health.record_success(
+                latency_seconds=latency_sec,
+                ttft_seconds=ttft_sec,
+            )
         finally:
             await client.aclose()
 
@@ -384,7 +451,12 @@ class NvidiaProvider(Provider):
             return ProviderHealth(
                 status="degraded",
                 latency_ms=0.0,
-                details={"enabled": False, "reason": "No API key configured"},
+                details={
+                    "enabled": False,
+                    "reason": "No API key configured",
+                    "cloud_health": self.cloud_health.to_dict(),
+                    "budget": self.budget.to_dict(),
+                },
             )
 
         start = time.perf_counter()
@@ -400,19 +472,39 @@ class NvidiaProvider(Provider):
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 stats = self.rate_limiter.get_stats()
                 if resp.status_code == 200:
+                    self.cloud_health.record_success(latency_seconds=elapsed_ms / 1000.0)
                     return ProviderHealth(
                         status="ok",
                         latency_ms=elapsed_ms,
-                        details={"enabled": True, "rate_limiter": stats},
+                        details={
+                            "enabled": True,
+                            "rate_limiter": stats,
+                            "cloud_health": self.cloud_health.to_dict(),
+                            "budget": self.budget.to_dict(),
+                        },
                     )
+                self.cloud_health.record_failure(
+                    f"HTTP {resp.status_code}", status_code=resp.status_code
+                )
                 return ProviderHealth(
                     status="degraded",
                     latency_ms=elapsed_ms,
-                    details={"status_code": resp.status_code, "rate_limiter": stats},
+                    details={
+                        "status_code": resp.status_code,
+                        "rate_limiter": stats,
+                        "cloud_health": self.cloud_health.to_dict(),
+                        "budget": self.budget.to_dict(),
+                    },
                 )
         except Exception as exc:
+            self.cloud_health.record_failure(exc)
             return ProviderHealth(
                 status="error",
                 latency_ms=0.0,
-                details={"error": str(exc), "rate_limiter": self.rate_limiter.get_stats()},
+                details={
+                    "error": str(exc),
+                    "rate_limiter": self.rate_limiter.get_stats(),
+                    "cloud_health": self.cloud_health.to_dict(),
+                    "budget": self.budget.to_dict(),
+                },
             )

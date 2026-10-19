@@ -41,6 +41,10 @@ EXPLICIT_KEY_ALLOWLIST = {
     "ghp_abcdefghijklmnopqrstuvwxyz123456",
     # Synthetic test fixture used in tests/test_providers_mock.py:366 to verify repr masking
     "nvapi-secret1234567890abcdefghijklmnopqrstuvwxyz",
+    # Synthetic fixtures in tests/test_privacy_v2.py to verify sensitivity detection & redaction
+    "nvapi-1234567890abcdefghijklmnopqrstuvwxyz",
+    "nvapi-randomkey1234567890abcdef12345",
+    "ghp_1234567890abcdefghijklmnopqrstuvwxyz12",
 }
 
 

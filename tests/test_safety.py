@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -187,8 +189,18 @@ class TestPathGuard:
 
 
 class TestSSRFGuard:
-    def test_public_url_permitted(self) -> None:
+    def test_public_url_permitted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Public internet URLs pass the SSRF check."""
+        # Hermetic DNS fallback for offline test environments
+        real_getaddrinfo = socket.getaddrinfo
+
+        def mock_getaddrinfo(host: str, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return real_getaddrinfo(host, *args, **kwargs)
+            except socket.gaierror:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
         # DuckDuckGo and GitHub should resolve to public IPs
         assert check_ssrf_url("https://duckduckgo.com") == "https://duckduckgo.com"
         assert check_ssrf_url("https://github.com") == "https://github.com"

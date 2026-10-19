@@ -38,6 +38,12 @@ class ModelRouter:
         if providers is not None:
             self.providers = providers
         else:
+            from noxai.models.cloud_health import get_cloud_health
+
+            has_nv_key = bool(
+                config.nvidia_api_key and config.nvidia_api_key.get_secret_value()
+            )
+            ch = get_cloud_health(has_key=has_nv_key)
             self.providers = {
                 "ollama": OllamaProvider(
                     base_url=config.models.ollama.base_url,
@@ -51,6 +57,7 @@ class ModelRouter:
                     base_url=config.models.nvidia.base_url,
                     requests_per_minute=config.models.nvidia.requests_per_minute,
                     max_retries=config.models.nvidia.max_retries,
+                    cloud_health=ch,
                 ),
             }
 
@@ -86,6 +93,9 @@ class ModelRouter:
             return True
         api_key = getattr(provider, "api_key", None)
         if api_key is not None and not api_key:
+            return False
+        cloud_health = getattr(provider, "cloud_health", None)
+        if cloud_health is not None and not cloud_health.is_active():
             return False
         return True
 
@@ -213,7 +223,42 @@ class ModelRouter:
             else messages
         )
 
-        # 3. Cloud execution path with automatic fallback
+        # 3. Check proactive cloud health status
+        cloud_health = getattr(provider, "cloud_health", None)
+        if cloud_health is not None and not cloud_health.is_active():
+            notice = (
+                f"[Cloud notice] Cloud provider unavailable ({cloud_health.reason}) — "
+                "routing to local model."
+            )
+            if on_notice:
+                on_notice(notice)
+            log.info(notice)
+            local_provider, local_model = self.resolve_role("brain")
+            if on_model_used:
+                on_model_used(
+                    {
+                        "role": role,
+                        "provider": local_provider.name,
+                        "model": local_model,
+                        "is_local": True,
+                        "fallback_from": role,
+                        "fallback_reason": cloud_health.reason,
+                    }
+                )
+            async for chunk in local_provider.chat(
+                model=local_model,
+                messages=messages,
+                tools=tools,
+                stream=stream,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                num_ctx=num_ctx,
+                keep_alive=keep_alive,
+            ):
+                yield chunk
+            return
+
+        # 4. Cloud execution path with automatic fallback
         try:
             if on_model_used:
                 on_model_used(

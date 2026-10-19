@@ -82,7 +82,19 @@ Environment:
     - Quality gates: 0 ruff errors, 0 mypy errors across 71 source files.
   - NEXT: Phase F3 (Cloud health, fallback and rate-limit budget)
 
-- [ ] **F3** — Cloud health, fallback and rate-limit budget
+- [x] **F3** — Cloud health, fallback and rate-limit budget
+  - Status: Done
+  - Commit: Pending (F3 commit: `feat(cloud): health state machine, circuit breaker, rate budget`)
+  - Evidence:
+    - Cloud health state machine: implemented `src/noxai/models/cloud_health.py` with observable states `ACTIVE`, `NO_KEY`, `INVALID_KEY`, `RATE_LIMITED`, `DEGRADED`, `OFFLINE`, and global/instance singleton lifecycle.
+    - Circuit breaker: implemented `CircuitBreaker` (`CLOSED`, `OPEN`, `HALF_OPEN`) with configurable failure threshold, cooldown timer, `force_open` for 401/403 and 429, single in-flight probe testing in `HALF_OPEN`, and automatic reset to `CLOSED` upon successful probe.
+    - Rate budget manager: created `src/noxai/models/budget.py` with token-bucket algorithm (default 30 RPM), dedicated interactive reserve (default 10 RPM) preventing batch/background starvation, and instant non-blocking reservation accounting.
+    - Provider & router integration: wired `CloudHealth` and `RequestBudget` into `src/noxai/models/nvidia.py` while preserving backward compatibility with `TokenBucket` class and existing tests; updated `src/noxai/models/router.py` to check cloud health proactively before routing, falling back to local `brain` instantly with user notice.
+    - Diagnostics & CLI: added `check_cloud_health_state` to `src/noxai/doctor.py`; updated `/api/status` with `cloud_health` in `src/noxai/api/routes.py`; implemented `nx cloud status` (table and `--json`) and `nx cloud test` in `src/noxai/commands/cloud.py`; implemented `nx models bench-cloud` in `src/noxai/commands/models.py`; registered `cloud_app` and `nx bench cloud` in `src/noxai/cli.py`.
+    - Verification & testing: created 16 unit and integration tests in `tests/test_cloud_health.py` and updated `tests/test_doctor.py`. AST safety test `test_llm_providers_never_called_outside_router` verified.
+    - Quality gates: 411 passed in 61.39s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 74 source files.
+  - NEXT: Phase F4 (Reflex router, Front Desk, intent analysis)
+
 - [ ] **F4** — Reflex router, Front Desk, intent analysis
 - [ ] **F5** — Task Center
 - [ ] **F6** — Resident small model and Ollama tuning

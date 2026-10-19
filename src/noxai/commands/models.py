@@ -262,3 +262,98 @@ def models_privacy_test() -> None:
         console.print("\n[bold green]All privacy routing invariants verified.[/bold green]")
 
     asyncio.run(_run_privacy_test())
+
+
+@models_app.command(name="bench-cloud")
+def models_bench_cloud(
+    runs: int = typer.Option(3, "--runs", "-r", help="Number of benchmark runs per prompt."),
+) -> None:
+    """Benchmark cloud provider TTFT, throughput, and total latency across standard prompts."""
+    import statistics
+
+    from noxai.models.base import Message
+    from noxai.models.router import ModelRouter
+
+    cfg = get_config()
+    if not cfg.nvidia_api_key or not cfg.nvidia_api_key.get_secret_value():
+        console.print("[yellow]Cannot benchmark cloud:[/] NVIDIA_API_KEY is not configured.")
+        raise typer.Exit(1)
+
+    model_name = (
+        cfg.models.roles["heavy"].model
+        if "heavy" in cfg.models.roles
+        else "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+    )
+
+    prompts = [
+        ("Short", "What is the speed of light?"),
+        ("Reasoning", "Explain why the sky appears blue in 2 sentences."),
+    ]
+
+    async def _run() -> None:
+        router = ModelRouter(cfg)
+
+        table = Table(
+            title=f"Cloud Benchmark: {model_name} ({runs} runs/prompt)", show_header=True
+        )
+        table.add_column("Prompt Category", style="bold cyan")
+        table.add_column("Prompt", style="dim")
+        table.add_column("TTFT (mean ± stdev)", justify="right")
+        table.add_column("Total Time (mean ± stdev)", justify="right")
+        table.add_column("Tokens (est)", justify="right")
+        table.add_column("Throughput (tok/s)", justify="right", style="green")
+
+        for label, text in prompts:
+            ttfts: list[float] = []
+            totals: list[float] = []
+            token_counts: list[int] = []
+
+            for _ in range(max(1, runs)):
+                t0 = time.perf_counter()
+                ttft_ms: float | None = None
+                tokens = 0
+                from noxai.taint import Content
+
+                msg = Message(role="user", content=Content.chat(text))
+                try:
+                    async for chunk in router.chat(
+                        role="heavy",
+                        messages=[msg],
+                        stream=True,
+                        max_tokens=128,
+                    ):
+                        if chunk.text:
+                            if ttft_ms is None:
+                                ttft_ms = (time.perf_counter() - t0) * 1000.0
+                            tokens += len(chunk.text.split())
+
+                    total_ms = (time.perf_counter() - t0) * 1000.0
+                    if ttft_ms is not None:
+                        ttfts.append(ttft_ms)
+                    totals.append(total_ms)
+                    token_counts.append(tokens)
+                except Exception as exc:
+                    console.print(f"[red]Error benchmarking {label}:[/] {exc}")
+
+            if not totals:
+                continue
+
+            mean_ttft = statistics.mean(ttfts) if ttfts else 0.0
+            std_ttft = statistics.stdev(ttfts) if len(ttfts) > 1 else 0.0
+            mean_total = statistics.mean(totals)
+            std_total = statistics.stdev(totals) if len(totals) > 1 else 0.0
+            avg_toks = statistics.mean(token_counts) if token_counts else 0.0
+            tok_per_sec = (avg_toks / (mean_total / 1000.0)) if mean_total > 0 else 0.0
+
+            table.add_row(
+                label,
+                text[:30] + ("..." if len(text) > 30 else ""),
+                f"{mean_ttft:.0f}ms ± {std_ttft:.0f}ms" if ttfts else "N/A",
+                f"{mean_total:.0f}ms ± {std_total:.0f}ms",
+                f"{avg_toks:.0f}",
+                f"{tok_per_sec:.1f} t/s",
+            )
+
+        console.print(table)
+
+    asyncio.run(_run())

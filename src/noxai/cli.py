@@ -31,6 +31,7 @@ from rich.table import Table
 
 from noxai.commands.audit import audit_app
 from noxai.commands.briefings import briefings_app
+from noxai.commands.cloud import cloud_app
 from noxai.commands.jobs import jobs_app
 from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app
@@ -47,6 +48,7 @@ app = typer.Typer(
 console = Console()
 
 app.add_typer(models_app, name="models")
+app.add_typer(cloud_app, name="cloud")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(memory_app, name="memory")
 app.add_typer(reminders_app, name="reminders")
@@ -506,3 +508,13 @@ def bench_chat_cmd(
     from noxai.commands.bench_chat import run_chat_bench
 
     asyncio.run(run_chat_bench(console=console, runs_per_case=runs))
+
+
+@bench_app.command(name="cloud")
+def bench_cloud_cmd(
+    runs: int = typer.Option(3, "--runs", "-r", help="Number of benchmark runs per prompt."),
+) -> None:
+    """Benchmark cloud provider TTFT, throughput, and total latency across standard prompts."""
+    from noxai.commands.models import models_bench_cloud
+
+    models_bench_cloud(runs=runs)

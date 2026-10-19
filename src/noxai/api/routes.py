@@ -138,6 +138,8 @@ class SystemStatusResponse(BaseModel):
     active_runs_count: int
     db_size_bytes: int
     vector_backend: str
+    cloud_health: dict[str, Any] | None = None
+    cloud_budget: dict[str, Any] | None = None
 
 
 class MessageResponse(BaseModel):
@@ -333,6 +335,10 @@ async def get_system_status() -> SystemStatusResponse:
     db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
 
     has_nvidia_key = bool(cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
+    from noxai.models.cloud_health import get_cloud_health
+
+    ch = get_cloud_health(has_key=has_nvidia_key)
+    cloud_is_available = has_nvidia_key and ch.is_active()
 
     return SystemStatusResponse(
         status="ok",
@@ -340,11 +346,12 @@ async def get_system_status() -> SystemStatusResponse:
         gate_mode=cfg.gate.mode,
         ollama_reachable=ollama_ok,
         loaded_models=loaded_models,
-        cloud_available=has_nvidia_key,
+        cloud_available=cloud_is_available,
         cloud_key_configured=has_nvidia_key,
         active_runs_count=len(active_runs),
         db_size_bytes=db_size_bytes,
         vector_backend=VECTOR_BACKEND,
+        cloud_health=ch.to_dict(),
     )
 
 

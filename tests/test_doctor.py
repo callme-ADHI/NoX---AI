@@ -396,6 +396,22 @@ def test_check_config_loads() -> None:
         assert cfg is None
 
 
+def test_check_cloud_health_state() -> None:
+    from noxai.models.cloud_health import reset_cloud_health
+
+    # 1. With key -> PASS (Active)
+    reset_cloud_health(has_key=True)
+    c = doctor.check_cloud_health_state(has_key=True)
+    assert c.status == "PASS"
+    assert "Active" in c.hint
+
+    # 2. Without key -> WARN (No key)
+    reset_cloud_health(has_key=False)
+    c = doctor.check_cloud_health_state(has_key=False)
+    assert c.status == "WARN"
+    assert "no API key" in c.hint
+
+
 def test_run_all_checks() -> None:
     checks = doctor.run_all_checks()
     assert len(checks) >= 15
