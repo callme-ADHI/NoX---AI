@@ -305,6 +305,19 @@ class AuditLogResponse(BaseModel):
     ok: bool
 
 
+class EgressRecordResponse(BaseModel):
+    id: int
+    timestamp: str
+    provider: str
+    model: str
+    prompt_tokens_est: int
+    data_class: str
+    decision: str
+    reason: str
+    sha256_hash: str
+    created_at: str
+
+
 class SourceResponse(BaseModel):
     id: int
     name: str
@@ -481,8 +494,34 @@ async def _run_chat_pipeline(
             )
             await db.commit()
 
+            trace_data: dict[str, Any] = {
+                "intent": intent_res.to_dict(),
+            }
+            duration_sec = 0.0
+            if not gate_res.is_complex and "loop_res" in locals():
+                duration_sec = getattr(loop_res, "duration_seconds", 0.0)
+                trace_data["steps"] = getattr(loop_res, "steps", 1)
+                trace_data["tool_calls_count"] = getattr(loop_res, "tool_calls_count", 0)
+                trace_data["trace"] = getattr(loop_res, "trace", {})
+            latency_ms = int(duration_sec * 1000)
+            model_info = "nemotron-super-49b" if allow_cloud else "qwen2.5:14b"
+            lane_info = "cloud" if allow_cloud else (
+                "complex" if gate_res.is_complex else "front_desk"
+            )
+
             await global_event_bus.publish(
-                make_event("message_done", {"text": final_text}, run_id=run_id),
+                make_event(
+                    "message_done",
+                    {
+                        "text": final_text,
+                        "lane": lane_info,
+                        "model_name": model_info,
+                        "is_cloud": allow_cloud,
+                        "latency_ms": latency_ms,
+                        "trace": trace_data,
+                    },
+                    run_id=run_id,
+                ),
                 db=db,
             )
             await global_event_bus.publish(
@@ -1380,6 +1419,31 @@ async def get_audit_log(
             )
             for r in rows
         ]
+
+
+@api_router.get("/egress", response_model=list[EgressRecordResponse], dependencies=READ_DEPS)
+async def get_egress_ledger(
+    limit: int = Query(50, ge=1, le=200),
+) -> list[EgressRecordResponse]:
+    """Get recent egress ledger audit entries (zero payload text stored)."""
+    from noxai.security.egress_filter import get_recent_egress_records
+
+    records = await get_recent_egress_records(limit=limit)
+    return [
+        EgressRecordResponse(
+            id=int(r["id"]),
+            timestamp=str(r["timestamp"]),
+            provider=str(r["provider"] or ""),
+            model=str(r["model"] or ""),
+            prompt_tokens_est=int(r["prompt_tokens_est"] or 0),
+            data_class=str(r["data_class"] or ""),
+            decision=str(r["decision"] or ""),
+            reason=str(r["reason"] or ""),
+            sha256_hash=str(r["sha256_hash"] or ""),
+            created_at=str(r["created_at"] or ""),
+        )
+        for r in records
+    ]
 
 
 # ---------------------------------------------------------------------------

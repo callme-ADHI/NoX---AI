@@ -8,10 +8,11 @@ import {
   Settings as SettingsIcon,
   Wifi,
   WifiOff,
+  ListTodo,
 } from 'lucide-react';
 import { SystemStatus } from '../types';
 
-export type TabType = 'chat' | 'briefings' | 'jobs' | 'memory' | 'activity' | 'settings';
+export type TabType = 'chat' | 'briefings' | 'jobs' | 'tasks' | 'memory' | 'activity' | 'settings';
 
 interface NavRailProps {
   activeTab: TabType;
@@ -30,6 +31,7 @@ export const NavRail: React.FC<NavRailProps> = ({
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'briefings', label: 'Briefings', icon: Newspaper },
     { id: 'jobs', label: 'Jobs', icon: Calendar },
+    { id: 'tasks', label: 'Tasks', icon: ListTodo },
     { id: 'memory', label: 'Memory', icon: Database },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },

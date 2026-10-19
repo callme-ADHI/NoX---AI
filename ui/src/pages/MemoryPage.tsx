@@ -217,6 +217,7 @@ export const MemoryPage: React.FC = () => {
                   <th className="py-3 px-4">Key</th>
                   <th className="py-3 px-4">Value</th>
                   <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Visibility</th>
                   <th className="py-3 px-4">Confidence</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -224,7 +225,7 @@ export const MemoryPage: React.FC = () => {
               <tbody className="divide-y divide-border/40">
                 {filteredFacts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-muted text-xs">
+                    <td colSpan={7} className="py-8 text-center text-muted text-xs">
                       No facts found matching your criteria.
                     </td>
                   </tr>
@@ -284,6 +285,17 @@ export const MemoryPage: React.FC = () => {
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-raised border border-border text-muted">
                             {fact.category}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold border ${
+                              fact.visibility === 'cloud_allowed'
+                                ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                                : 'bg-raised text-muted border-border'
+                            }`}
+                          >
+                            {fact.visibility === 'cloud_allowed' ? 'cloud' : 'local'}
                           </span>
                         </td>
                         <td className="py-3 px-4 font-mono text-muted text-[11px]">

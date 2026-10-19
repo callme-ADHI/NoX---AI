@@ -5,18 +5,23 @@ import {
   Plus,
   Search,
   Cloud,
-  Cpu,
   Trash2,
   Sparkles,
   Info,
   Copy,
   Check,
+  Lock,
+  Unlock,
+  X,
+  ListTodo,
 } from 'lucide-react';
 import {
   ApprovalRequest,
   Conversation,
   Message,
   SubtaskNode,
+  SystemStatus,
+  Task,
   TaskPlan,
   ToolCallItem,
   WebSocketEvent,
@@ -27,6 +32,9 @@ import { LiveTaskPlan } from '../components/LiveTaskPlan';
 import { ApprovalCard } from '../components/ApprovalCard';
 import { ToolCallCard } from '../components/ToolCallCard';
 import { SafeMarkdown } from '../components/SafeMarkdown';
+import { RouteChip } from '../components/RouteChip';
+import { TraceDrawer } from '../components/TraceDrawer';
+import { CloudStatusIndicator } from '../components/CloudStatusIndicator';
 
 export const ChatPage: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -34,24 +42,44 @@ export const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [allowCloud, setAllowCloud] = useState(false);
+  const [isPrivateMode, setIsPrivateMode] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
-  // Streaming and execution state
+  // Streaming, execution and trace state
   const [currentPlan, setCurrentPlan] = useState<TaskPlan | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
   const [streamingText, setStreamingText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedTraceMessage, setSelectedTraceMessage] = useState<Message | null>(null);
+
+  // Background tasks & system status
+  const [activeTasks, setActiveTasks] = useState<Task[]>([]);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Load conversations on mount
+  // Load conversations, status and active tasks on mount
   useEffect(() => {
     loadConversations(true);
+    loadStatusAndTasks();
   }, []);
+
+  const loadStatusAndTasks = async () => {
+    try {
+      const [sData, tData] = await Promise.all([
+        api.getStatus().catch(() => null),
+        api.getTasks().catch(() => [] as Task[]),
+      ]);
+      if (sData) setSystemStatus(sData);
+      setActiveTasks(tData.filter((t) => ['queued', 'running'].includes(t.status)));
+    } catch (err) {
+      console.error('Failed to load status and tasks:', err);
+    }
+  };
 
   // Subscribe to live WebSocket events
   useEffect(() => {
@@ -59,7 +87,7 @@ export const ChatPage: React.FC = () => {
       handleWsEvent(event);
     });
     return unsubscribe;
-  }, []);
+  }, [isPrivateMode, allowCloud, activeConvId, currentPlan]);
 
   // Scroll to bottom when messages or streaming text change
   useEffect(() => {
@@ -99,6 +127,10 @@ export const ChatPage: React.FC = () => {
 
   const handleWsEvent = (event: WebSocketEvent) => {
     const { type, data, run_id } = event;
+
+    if (type.startsWith('task_')) {
+      loadStatusAndTasks();
+    }
 
     switch (type) {
       case 'run_started':
@@ -227,13 +259,17 @@ export const ChatPage: React.FC = () => {
 
       case 'message_done':
         if (typeof data.text === 'string') {
+          const effectiveCloud = isPrivateMode ? false : (typeof data.is_cloud === 'boolean' ? data.is_cloud : allowCloud);
           const newMsg: Message = {
             id: `msg_${Date.now()}`,
             conversation_id: activeConvId || '',
             role: 'assistant',
             content: data.text,
-            is_cloud: allowCloud,
-            model_name: allowCloud ? 'nemotron-super-49b' : 'qwen2.5:14b',
+            is_cloud: effectiveCloud,
+            model_name: (data.model_name as string) || (effectiveCloud ? 'nemotron-super-49b' : 'qwen2.5:14b'),
+            lane: (data.lane as string) || (effectiveCloud ? 'cloud' : 'front_desk'),
+            latency_ms: typeof data.latency_ms === 'number' ? data.latency_ms : undefined,
+            trace: (data.trace as Record<string, unknown>) || undefined,
           };
           setMessages((prev) => [...prev, newMsg]);
           setStreamingText('');
@@ -258,7 +294,7 @@ export const ChatPage: React.FC = () => {
     const trimmed = inputMessage.trim();
     setInputMessage('');
 
-    // Handle slash commands per Section 9
+    // Handle slash commands per Section 9 and Phase F7
     if (trimmed.startsWith('/')) {
       const parts = trimmed.split(' ');
       const cmd = parts[0].toLowerCase();
@@ -267,8 +303,30 @@ export const ChatPage: React.FC = () => {
         return;
       }
       if (cmd === '/cloud') {
-        if (parts[1] === 'on') setAllowCloud(true);
-        else if (parts[1] === 'off') setAllowCloud(false);
+        if (parts[1] === 'on') {
+          setIsPrivateMode(false);
+          setAllowCloud(true);
+        } else if (parts[1] === 'off') {
+          setAllowCloud(false);
+        }
+        return;
+      }
+      if (cmd === '/local') {
+        const nextPrivate = !isPrivateMode;
+        setIsPrivateMode(nextPrivate);
+        if (nextPrivate) setAllowCloud(false);
+        const noticeMsg: Message = {
+          id: `local_${Date.now()}`,
+          conversation_id: activeConvId || '',
+          role: 'assistant',
+          content: nextPrivate
+            ? '**Private Mode Active**: Zero cloud egress guaranteed (§F2). All future turns, memory operations, and tools will execute 100% locally on your machine.'
+            : '**Private Mode Disabled**: Cloud models may be used if cloud requests are permitted.',
+          is_cloud: false,
+          model_name: 'System',
+          lane: 'system',
+        };
+        setMessages((prev) => [...prev, noticeMsg]);
         return;
       }
     }
@@ -285,8 +343,9 @@ export const ChatPage: React.FC = () => {
     setActiveRunId(null);
     setStreamingText('');
 
+    const effectiveCloud = isPrivateMode ? false : allowCloud;
     try {
-      const resp = await api.startChat(trimmed, activeConvId || undefined, allowCloud);
+      const resp = await api.startChat(trimmed, activeConvId || undefined, effectiveCloud);
       setActiveRunId(resp.run_id);
       sessionStorage.setItem('nox_active_conv', resp.conversation_id);
       if (!activeConvId) {
@@ -305,6 +364,15 @@ export const ChatPage: React.FC = () => {
       await api.cancelRun(activeRunId);
     } catch (err) {
       console.error('Cancel run error:', err);
+    }
+  };
+
+  const handleCancelActiveTask = async (taskId: string) => {
+    try {
+      await api.cancelTask(taskId);
+      loadStatusAndTasks();
+    } catch (err) {
+      console.error('Cancel task error:', err);
     }
   };
 
@@ -418,6 +486,71 @@ export const ChatPage: React.FC = () => {
 
       {/* Main Chat Area */}
       <main className="flex-1 flex flex-col bg-background overflow-hidden relative">
+        {/* Top Header Bar: Active Tasks, Private Mode, Cloud Health (§F7) */}
+        <header className="px-4 py-2 border-b border-border bg-surface/50 flex items-center justify-between gap-3 shrink-0">
+          {/* Active Tasks Chips (§F7.5) */}
+          <div className="flex items-center gap-2 overflow-x-auto py-0.5 max-w-lg scrollbar-none">
+            {activeTasks.length === 0 ? (
+              <span className="text-[11px] text-muted flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-success/70" />
+                No active background tasks
+              </span>
+            ) : (
+              activeTasks.map((t) => (
+                <div
+                  key={t.id}
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-raised border border-border text-text shrink-0 animate-pulse"
+                >
+                  <ListTodo className="w-3 h-3 text-accent" />
+                  <span className="font-semibold truncate max-w-[100px]">{t.title}</span>
+                  <span className="text-muted">{Math.round(t.progress * 100)}%</span>
+                  <button
+                    onClick={() => handleCancelActiveTask(t.id)}
+                    className="p-0.5 hover:text-danger rounded"
+                    title="Cancel background task"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Controls: Private Mode Toggle and Cloud Status (§F7.3, §F7.4) */}
+          <div className="flex items-center gap-2.5">
+            {/* Private Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextPrivate = !isPrivateMode;
+                setIsPrivateMode(nextPrivate);
+                if (nextPrivate) setAllowCloud(false);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                isPrivateMode
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm'
+                  : 'bg-surface hover:bg-raised text-muted hover:text-text border-border'
+              }`}
+              title="Private Mode (zero cloud egress guaranteed per §F2)"
+            >
+              {isPrivateMode ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline font-mono text-[11px]">
+                {isPrivateMode ? 'Private Mode' : 'Standard Mode'}
+              </span>
+            </button>
+
+            {/* Cloud Status Indicator */}
+            <CloudStatusIndicator
+              cloudHealth={systemStatus?.cloud_health}
+              isCloudEnabled={!isPrivateMode && allowCloud}
+              onToggleCloud={(en) => {
+                if (en && isPrivateMode) setIsPrivateMode(false);
+                setAllowCloud(en);
+              }}
+            />
+          </div>
+        </header>
+
         {/* Messages scroll area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           {messages.length === 0 && !streamingText && (
@@ -464,22 +597,16 @@ export const ChatPage: React.FC = () => {
                   isUser ? 'ml-auto' : 'mr-auto'
                 } w-full`}
               >
-                {/* Model badge */}
+                {/* Route chip on assistant messages (§F7.1) */}
                 {!isUser && (
-                  <div className="flex items-center gap-2 mb-1 pl-1">
-                    <span className="text-[10px] font-mono text-muted flex items-center gap-1">
-                      {msg.is_cloud ? (
-                        <>
-                          <Cloud className="w-3 h-3 text-sky-400" />
-                          <span className="text-sky-400">Cloud ({msg.model_name || 'Nemotron'})</span>
-                        </>
-                      ) : (
-                        <>
-                          <Cpu className="w-3 h-3 text-accent" />
-                          <span className="text-accent">Local ({msg.model_name || 'qwen2.5:14b'})</span>
-                        </>
-                      )}
-                    </span>
+                  <div className="flex items-center gap-2 mb-1.5 pl-1">
+                    <RouteChip
+                      lane={msg.lane || (msg.is_cloud ? 'cloud' : 'front_desk')}
+                      modelName={msg.model_name}
+                      isCloud={msg.is_cloud}
+                      latencyMs={msg.latency_ms}
+                      onOpenTrace={() => setSelectedTraceMessage(msg)}
+                    />
                   </div>
                 )}
 
@@ -520,7 +647,7 @@ export const ChatPage: React.FC = () => {
             </div>
           )}
 
-          {/* Pending Approval Cards */}
+          {/* Pending Approval Cards (§F7.6) */}
           {pendingApprovals.map((approval) => (
             <div key={approval.id} className="max-w-3xl mr-auto w-full">
               <ApprovalCard
@@ -560,10 +687,11 @@ export const ChatPage: React.FC = () => {
             {/* Input Options bar */}
             <div className="flex items-center justify-between text-xs text-muted px-1">
               <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <label className={`flex items-center gap-1.5 cursor-pointer select-none ${isPrivateMode ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <input
                     type="checkbox"
-                    checked={allowCloud}
+                    disabled={isPrivateMode}
+                    checked={!isPrivateMode && allowCloud}
                     onChange={(e) => setAllowCloud(e.target.checked)}
                     className="rounded border-border text-accent focus:ring-accent bg-background"
                   />
@@ -574,7 +702,7 @@ export const ChatPage: React.FC = () => {
                 </label>
                 <div
                   className="cursor-help text-muted hover:text-text"
-                  title="Declares request text public and enables heavy cloud model for deep planning. Memory injection is disabled for cloud requests per §6.2."
+                  title="Enables heavy cloud model for deep planning. Memory injection is disabled for cloud requests per §6.2. Type /local to lock local."
                 >
                   <Info className="w-3.5 h-3.5" />
                 </div>
@@ -591,8 +719,12 @@ export const ChatPage: React.FC = () => {
               )}
             </div>
 
-            {/* Input textarea box */}
-            <div className="flex items-end gap-2 bg-background border border-border rounded-xl p-2 focus-within:border-accent transition-colors">
+            {/* Input textarea box with Private Mode visual glow (§F7.4) */}
+            <div className={`flex items-end gap-2 bg-background border rounded-xl p-2 transition-all ${
+              isPrivateMode
+                ? 'border-amber-500/60 ring-1 ring-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.12)]'
+                : 'border-border focus-within:border-accent'
+            }`}>
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -604,7 +736,7 @@ export const ChatPage: React.FC = () => {
                     handleSend();
                   }
                 }}
-                placeholder="Ask NoX a question, /deep for autonomous plan, /jobs..."
+                placeholder={isPrivateMode ? "[Private Mode Active] Ask NoX (100% local CPU/Ollama)..." : "Ask NoX a question, /local to lock privacy, /deep..."}
                 aria-label="Message NoX"
                 className="flex-1 bg-transparent text-xs text-text placeholder:text-muted resize-none focus:outline-none max-h-32 min-h-[36px] py-1.5 px-2 font-sans"
               />
@@ -626,6 +758,18 @@ export const ChatPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Slide-out Trace Drawer (§F7.2) */}
+      <TraceDrawer
+        isOpen={!!selectedTraceMessage}
+        onClose={() => setSelectedTraceMessage(null)}
+        messageId={selectedTraceMessage?.id}
+        lane={selectedTraceMessage?.lane}
+        modelName={selectedTraceMessage?.model_name}
+        isCloud={selectedTraceMessage?.is_cloud}
+        latencyMs={selectedTraceMessage?.latency_ms}
+        trace={selectedTraceMessage?.trace}
+      />
     </div>
   );
 };

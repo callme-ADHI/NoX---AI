@@ -8,10 +8,12 @@ import {
   Briefing,
   Conversation,
   Fact,
+  EgressRecord,
   Episode,
   Job,
   JobVersion,
   SystemStatus,
+  Task,
 } from '../types';
 
 const API_BASE = '/api';
@@ -202,4 +204,30 @@ export const api = {
     request<{ ok: boolean }>(`/sources/${id}`, {
       method: 'DELETE',
     }),
+
+  // Tasks (Task Center)
+  getTasks: (lane?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (lane) params.set('lane', lane);
+    if (status) params.set('status', status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<Task[]>(`/tasks${qs}`);
+  },
+
+  getTask: (id: string) => request<Task>(`/tasks/${id}`),
+
+  createTask: (task: { title: string; prompt: string; lane?: string; priority?: string }) =>
+    request<Task>('/tasks', {
+      method: 'POST',
+      body: JSON.stringify(task),
+    }),
+
+  cancelTask: (id: string) =>
+    request<{ ok: boolean; status: string }>(`/tasks/${id}/cancel`, {
+      method: 'POST',
+    }),
+
+  // Egress Ledger
+  getEgressLedger: (limit = 50) =>
+    request<EgressRecord[]>(`/egress?limit=${limit}`),
 };

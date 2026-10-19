@@ -134,7 +134,7 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
       )}
 
       {/* Action buttons */}
-      <div className="mt-4 flex items-center justify-end gap-2.5">
+      <div className="mt-4 flex items-center justify-end gap-2.5 flex-wrap">
         <button
           onClick={() => onDecision(approval.id, 'deny')}
           className="px-3 py-1.5 rounded-lg bg-raised hover:bg-border text-muted hover:text-text border border-border text-xs font-medium flex items-center gap-1.5 transition-colors"
@@ -142,6 +142,19 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
           <X className="w-3.5 h-3.5" />
           Deny
         </button>
+
+        {!isDangerous && (
+          <button
+            onClick={() => {
+              sessionStorage.setItem(`nox_allow_session_${approval.tool_name}`, 'true');
+              onDecision(approval.id, 'approve');
+            }}
+            title="Automatically approve this tool for the rest of this browser session"
+            className="px-3 py-1.5 rounded-lg bg-surface hover:bg-raised text-muted hover:text-text border border-border text-xs font-medium transition-colors"
+          >
+            Always Allow for Session
+          </button>
+        )}
 
         <button
           disabled={!canApprove}

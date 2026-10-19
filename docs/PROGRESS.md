@@ -123,7 +123,7 @@ Environment:
 
 - [x] **F6** — Resident small model and Ollama tuning
   - Status: Done
-  - Commit: Pending (F6 commit: `feat: resident model, bench-local, keep-alive tuning, doctor perf`)
+  - Commit: `d79d3ed` (`feat: resident model, bench-local, keep-alive tuning, doctor perf`)
   - Evidence:
     - Configuration: added `resident_num_ctx: int = 4096` and `resident_allow_tool_loops: bool = False` to `OllamaModelConfig` in `src/noxai/config.py`.
     - Model Router & Providers: updated `src/noxai/models/router.py` to support `role == "resident"`, falling back to `brain` if unassigned; default `keep_alive = "-1"` and `num_ctx = 4096` for resident role; enforced refusal of multi-turn tool loops for resident model unless `resident_allow_tool_loops=True`.
@@ -135,7 +135,20 @@ Environment:
     - Quality gates: 448 passed in 92.51s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 81 source files.
   - NEXT: Phase F7 (UI for the new architecture)
 
-- [ ] **F7** — UI for the new architecture
+- [x] **F7** — UI for the new architecture
+  - Status: Done
+  - Commit: Pending (F7 commit: `feat(ui): route chips, trace drawer, cloud health indicator, task center`)
+  - Evidence:
+    - Route Chips & Trace Drawer: implemented `RouteChip` and `TraceDrawer` components displaying execution lane, model name, local/cloud badge, latency, and full slide-out drawer with intent analysis (<5ms zero-LLM), taint flags, tool executions, and raw JSON trace.
+    - Cloud Health & Popover: implemented `CloudStatusIndicator` showing live state dot (active, rate_limited, no_key, offline) and interactive popover with circuit breaker state (`CLOSED`), token-bucket rate budget (30 RPM, 10 RPM interactive reserve), and cloud enable/disable switch.
+    - Private Mode Controls: added top-bar Private Mode padlock toggle, chat slash command `/local`, and ambient amber/accent glow on prompt textarea enforcing 100% local CPU execution with zero cloud egress.
+    - Task Center UI: implemented dedicated `TasksPage` and navigation rail item showing active background queue, lane, priority, progress bars, approve button for parked actions, and cancel button; added real-time task chips to chat header.
+    - Cloud Activity & Egress Ledger: updated `ActivityPage` with tab toggle for Egress Ledger displaying model, token estimates, data class, rationale, and SHA-256 payload hash with zero prompt text storage. Added `GET /api/egress` in `src/noxai/api/routes.py`.
+    - Memory Page: added `Visibility` column (`local_only` vs `cloud_allowed`) to `MemoryPage`.
+    - Verification & testing: 10 test suites (41 tests) passing in Vitest (`RouteChip.test.tsx`, `TraceDrawer.test.tsx`, `CloudStatusIndicator.test.tsx`, `TasksPage.test.tsx`), TypeScript typecheck 0 errors, Vite production build clean. Backend tests (448 passed) and quality gates (0 ruff, 0 mypy) completely clean.
+  - NEXT: Phase F8 (Integration, latency proof and M10 acceptance)
+
 - [ ] **F8** — Integration, latency proof and M10 acceptance
 - [ ] **F9** — Resume remaining verification (Session E phases E7–E11)
+
 
