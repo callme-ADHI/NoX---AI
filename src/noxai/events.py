@@ -39,6 +39,9 @@ EVENT_TYPES = {
     "reminder_fired",
     "briefing_ready",
     "trace",
+    "intent_detected",
+    "task_dispatched",
+    "reminder_dispatched",
 }
 
 

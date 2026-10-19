@@ -7,7 +7,7 @@ and PII, along with heuristic sensitivity detection for user prompts (§1.2, §1
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -124,17 +124,42 @@ def mask_secrets(text: str, mask: str = "[REDACTED_SECRET]") -> str:
     return result
 
 
+@dataclass
+class SensitivityResult:
+    """Outcome of sensitivity detection on user input."""
+
+    is_sensitive: bool
+    reason: str | None = None
+    secrets_found: list[str] = field(default_factory=list)
+    sensitive_categories: list[str] = field(default_factory=list)
+
+
+def detect_sensitivity(text: str) -> SensitivityResult:
+    """Analyze text for secrets or sensitive personal/financial/medical topics."""
+    secrets = scan_for_secrets(text)
+    secret_names = [s.pattern_name for s in secrets]
+    topics: list[str] = []
+    for topic, pattern in SENSITIVE_TOPIC_PATTERNS.items():
+        if pattern.search(text):
+            topics.append(topic)
+    is_sens = bool(secrets or topics)
+    reason = None
+    if secrets:
+        reason = f"Contains secret token ({secrets[0].pattern_name})"
+    elif topics:
+        reason = f"Contains sensitive topic ({topics[0]})"
+    return SensitivityResult(
+        is_sensitive=is_sens,
+        reason=reason,
+        secrets_found=secret_names,
+        sensitive_categories=topics,
+    )
+
+
 def is_sensitive_prompt(text: str) -> tuple[bool, str | None]:
     """Evaluate whether a prompt is sensitive and should run on the local lane.
 
     Returns ``(True, reason)`` if sensitive, or ``(False, None)`` if safe for cloud.
     """
-    secrets = scan_for_secrets(text)
-    if secrets:
-        return True, f"Contains secret token ({secrets[0].pattern_name})"
-
-    for topic, pattern in SENSITIVE_TOPIC_PATTERNS.items():
-        if pattern.search(text):
-            return True, f"Contains sensitive topic ({topic})"
-
-    return False, None
+    res = detect_sensitivity(text)
+    return res.is_sensitive, res.reason

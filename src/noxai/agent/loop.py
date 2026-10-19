@@ -25,6 +25,7 @@ from noxai.events import EventBus, global_event_bus, make_event
 from noxai.memory.recall import recall_memories
 from noxai.models.base import Message, ToolCall, ToolSpec
 from noxai.models.router import ModelRouter
+from noxai.router.intent import IntentType, analyze_intent
 from noxai.taint import Content, TaintFlag
 from noxai.tools.registry import ToolContext, ToolRegistry
 from noxai.tools.registry import registry as default_registry
@@ -154,8 +155,20 @@ CHAT_LANE_TOOLS = {
     "preference_get",
     "preference_set",
     "run_shell",
+    "dispatch_task",
+    "dispatch_reminder",
+    "dispatch_job_edit",
+    "request_approval",
 }
-FRONT_DESK_CLOUD_TOOLS = {"web_search", "fetch_page"}
+FRONT_DESK_TOOLS = {
+    "web_search",
+    "fetch_page",
+    "dispatch_task",
+    "dispatch_reminder",
+    "dispatch_job_edit",
+    "request_approval",
+}
+FRONT_DESK_CLOUD_TOOLS = FRONT_DESK_TOOLS
 
 
 class AgentLoop:
@@ -195,12 +208,20 @@ class AgentLoop:
         start_time = time.perf_counter()
         actual_run_id = run_id or uuid.uuid4().hex
 
+        # Reflex router intent analysis (<50ms)
+        user_text_for_intent = (
+            user_message if isinstance(user_message, str) else user_message.get_text()
+        )
+        intent_res = analyze_intent(user_text_for_intent)
+        if intent_res.intent == IntentType.SENSITIVE:
+            allow_cloud = False
+
         if tools is not None:
             valid_tools = list(tools)
-        elif lane == "chat":
-            if allow_cloud:
+        elif lane in ("chat", "front_desk"):
+            if allow_cloud or lane == "front_desk":
                 filtered = [
-                    t for t in self.registry.get_specs() if t.name in FRONT_DESK_CLOUD_TOOLS
+                    t for t in self.registry.get_specs() if t.name in FRONT_DESK_TOOLS
                 ]
             else:
                 filtered = [t for t in self.registry.get_specs() if t.name in CHAT_LANE_TOOLS]
@@ -220,6 +241,10 @@ class AgentLoop:
                 },
                 run_id=actual_run_id,
             ),
+            db=db,
+        )
+        await self.event_bus.publish(
+            make_event("intent_detected", intent_res.to_dict(), run_id=actual_run_id),
             db=db,
         )
 
@@ -399,6 +424,7 @@ class AgentLoop:
                 "total": round(total_elapsed_ms, 2),
                 "prompt_tokens_est": prompt_tokens_est,
                 "model_used": model_used_name or "brain",
+                "intent": intent_res.intent.value,
             }
 
         async def _persist_trace(t_data: dict[str, Any]) -> None:

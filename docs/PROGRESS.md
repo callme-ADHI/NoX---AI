@@ -95,7 +95,19 @@ Environment:
     - Quality gates: 411 passed in 61.39s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 74 source files.
   - NEXT: Phase F4 (Reflex router, Front Desk, intent analysis)
 
-- [ ] **F4** — Reflex router, Front Desk, intent analysis
+- [x] **F4** — Reflex router, Front Desk, intent analysis
+  - Status: Done
+  - Commit: Pending (F4 commit: `feat(router): reflex intent analysis, front desk, dispatch tools`)
+  - Evidence:
+    - Zero-LLM Intent Analysis: implemented `src/noxai/router/intent.py` classifying turns into 10 intents (`reply_now`, `reminder`, `schedule`, `job_edit`, `background_task`, `deep_research`, `memory_op`, `system_action`, `sensitive`, `ambiguous`) with 3 reply modes (`instant`, `background`, `both`) and sub-millisecond execution (<5ms average, guaranteed <50ms per §1.4).
+    - Front Desk Dispatch Tools: implemented `src/noxai/tools/builtin/dispatch.py` containing `@tool` definitions for `dispatch_task`, `dispatch_reminder`, `dispatch_job_edit`, and `request_approval` with registry delegation via `record_pending_approval`.
+    - Tool Registry Integration: updated `src/noxai/agent/loop.py` to define `FRONT_DESK_TOOLS` (`{"web_search", "fetch_page", "dispatch_task", "dispatch_reminder", "dispatch_job_edit", "request_approval"}`), expose only allowlisted tools when `lane="front_desk"` or cloud-eligible, and record intent in run trace.
+    - Security & Pipeline Wiring: wired `analyze_intent` into `_run_chat_pipeline` in `src/noxai/api/routes.py` and `AgentLoop.run` to emit `"intent_detected"` events and automatically enforce local execution for sensitive requests.
+    - Event Bus: added `"intent_detected"`, `"task_dispatched"`, `"reminder_dispatched"` to standard `EVENT_TYPES`.
+    - Comprehensive Test Suite: 18 unit and integration tests in `tests/test_reflex_intent.py` verifying all 10 intent categories, latency guarantees, tool filtering, dispatch tool execution, and local isolation.
+    - Quality gates: 429 passed in 72.78s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 77 source files.
+  - NEXT: Phase F5 (Task Center)
+
 - [ ] **F5** — Task Center
 - [ ] **F6** — Resident small model and Ollama tuning
 - [ ] **F7** — UI for the new architecture

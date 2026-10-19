@@ -376,8 +376,19 @@ async def _run_chat_pipeline(
 
     async with get_db() as db:
         try:
+            # Reflex router intent analysis (<50ms zero-LLM)
+            from noxai.router.intent import IntentType, analyze_intent
+
+            intent_res = analyze_intent(message)
+            if intent_res.intent == IntentType.SENSITIVE:
+                allow_cloud = False
+
             await global_event_bus.publish(
                 make_event("run_started", {"message": message}, run_id=run_id),
+                db=db,
+            )
+            await global_event_bus.publish(
+                make_event("intent_detected", intent_res.to_dict(), run_id=run_id),
                 db=db,
             )
 

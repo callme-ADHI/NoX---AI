@@ -9,6 +9,7 @@ import importlib.util
 import json
 import logging
 import time
+import uuid
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -172,6 +173,7 @@ class ToolRegistry:
             "noxai.tools.builtin.web",
             "noxai.tools.builtin.memory_tools",
             "noxai.tools.builtin.scheduler_tools",
+            "noxai.tools.builtin.dispatch",
         ]
         for mod_name in builtin_modules:
             try:
@@ -632,13 +634,6 @@ def tool(
     return decorator
 
 
-# Auto-discover built-in tools on startup
-try:
-    default_registry.auto_discover()
-except Exception as _exc:
-    log.warning("Tool auto-discovery on startup failed: %s", _exc)
-
-
 async def approve_approval(
     approval_id: int,
     decided_by: str = "owner",
@@ -705,3 +700,56 @@ async def deny_approval(
         return await _do(db)
     async with get_db() as conn:
         return await _do(conn)
+
+
+async def record_pending_approval(
+    db: Any,
+    tool_name: str,
+    args: dict[str, Any],
+    reason: str,
+    run_id: str | None = None,
+    expires_in_minutes: int = 15,
+) -> int | str:
+    """Record a pending approval request in the database (owned by registry pipeline)."""
+    approval_id: int | str = f"appr_{uuid.uuid4().hex[:8]}"
+    if db is None:
+        return approval_id
+    try:
+        expires_at = (datetime.now(UTC) + timedelta(minutes=expires_in_minutes)).isoformat()
+        args_raw = json.dumps(args, sort_keys=True)
+        args_hash = hashlib.sha256(args_raw.encode("utf-8")).hexdigest()
+        target_run_id = run_id if run_id else None
+        if target_run_id:
+            run_exists = await fetch_one(db, "SELECT id FROM runs WHERE id = ?", (target_run_id,))
+            if not run_exists:
+                try:
+                    await execute(
+                        db,
+                        "INSERT INTO runs (id, kind, status) VALUES (?, 'chat', 'running')",
+                        (target_run_id,),
+                    )
+                except Exception:
+                    target_run_id = None
+        cursor = await execute(
+            db,
+            """
+            INSERT INTO approvals
+            (tool_name, args_json, args_hash, reason, expires_at, status, run_id)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (tool_name, redact_secrets(args_raw), args_hash, reason, expires_at, target_run_id),
+        )
+        if hasattr(db, "commit"):
+            await db.commit()
+        if cursor.lastrowid is not None:
+            approval_id = cursor.lastrowid
+    except Exception as exc:
+        log.warning("Approvals table insert error: %s", exc)
+    return approval_id
+
+
+# Auto-discover built-in tools on startup
+try:
+    default_registry.auto_discover()
+except Exception as _exc:
+    log.warning("Tool auto-discovery on startup failed: %s", _exc)
