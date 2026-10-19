@@ -116,15 +116,59 @@ User → POST /api/chat
        Memory extraction (background, local model only)
 ```
 
-## Privacy Routing
+## Privacy Routing (Privacy Policy v2)
 
-Every piece of content carries `TaintFlag` bits (`PRIVATE`, `UNTRUSTED`).
-The router enforces:
+Every piece of content carries `TaintFlag` bits (`PRIVATE`, `UNTRUSTED`) and belongs
+to a `DataClass`:
+- `SECRET`: API keys, passwords, credentials — **never sent to cloud**. Egress filter masks even inside chat.
+- `LOCAL_ONLY`: File contents, local memories, shell output — **never sent to cloud**. Plain unlabeled strings fail closed as `LOCAL_ONLY`.
+- `CHAT`: Conversation history and user prompts — cloud allowed only when `privacy.chat_to_cloud = true`, private mode is disabled, and no sensitive patterns are detected.
+- `PUBLIC`: Web search results, fetched pages, RSS items — cloud allowed.
 
-- `PRIVATE` content → **local Ollama only**. Never sent to NVIDIA. Hard-coded
-  in `models/router.py`, tested with a fake cloud provider.
-- `UNTRUSTED` content → wrapped in `<untrusted_content>` tags before the model
-  sees it. Escalates approval requirements for write/dangerous tool calls.
+The router (`src/noxai/models/router.py`) and Egress Filter (`src/noxai/security/egress_filter.py`)
+strictly block any request containing `SECRET` or `LOCAL_ONLY` content from leaving the machine,
+logging decisions to the zero-data Egress Ledger.
+
+## Milestone 10 Architecture: Fast Front Desk & Task Center
+
+### 1. Reflex Router (< 0.1ms zero-LLM decision)
+Interactive chat turns pass through a zero-LLM regex-based Reflex Router (`src/noxai/router/intent.py`)
+operating with < 0.1ms mean latency (< 50ms hard threshold). The router classifies turns into 10 intent categories:
+- `reply_now`: immediate direct conversation -> instant front desk.
+- `reminder`: timer or reminder request -> instant acknowledgment + scheduled reminder tool.
+- `schedule`: recurring job or cron schedule -> instant acknowledgment + job creation tool.
+- `job_edit`: modifying or disabling scheduled jobs -> instant acknowledgment + job edit tool.
+- `background_task`: long-running scripts, batch scans -> instant acknowledgment + Task Center queue.
+- `deep_research`: comprehensive multi-source investigation -> queued to cloud or local deep research lane.
+- `memory_op`: storing, searching, or forgetting facts -> instant local memory tool execution.
+- `system_action`: file/system writes or commands -> approval required + local execution.
+- `sensitive`: credentials, medical, or financial inputs -> 100% isolated to local lane.
+- `ambiguous`: underspecified requests -> front desk prompts user for clarification.
+
+### 2. Cloud Fallback State Machine & Rate Budget
+Proactive health monitor (`src/noxai/models/cloud_health.py`) tracks cloud availability:
+- `ACTIVE`: normal operation through cloud model (e.g., NVIDIA Nemotron).
+- `NO_KEY`: missing API key -> immediate fallback to local brain with UI notice.
+- `INVALID_KEY`: HTTP 401/403 -> automatic transition and local fallback.
+- `RATE_LIMITED`: HTTP 429 or budget depletion -> automatic cooldown and local fallback.
+- `DEGRADED`: high TTFT or intermittent timeouts -> hysteresis thresholding.
+- `OFFLINE`: DNS or network failure -> circuit breaker opens after 3 consecutive failures.
+- Circuit breaker automatically probes with half-open single request after cooldown.
+- Token-bucket rate budget manager (`src/noxai/models/budget.py`) enforces 30 RPM capacity with a dedicated 10 RPM reserve protecting interactive front-desk turns from background depletion.
+
+### 3. Task Center & Worker Pool
+The Task Center (`src/noxai/tasks/center.py`) orchestrates asynchronous workloads:
+- Persisted in SQLite `tasks` table (`schema_migrations/006_tasks.sql`).
+- Priority queueing: `URGENT` (10), `HIGH` (20), `NORMAL` (30), `LOW` (40).
+- Independent worker pools for local lane (`max_concurrent_local=2`) and cloud lane (`max_concurrent_cloud=2`).
+- Cooperative cancellation tokens via `asyncio.Event` and database status tracking.
+- Approval parking: when a tool requires human confirmation, background tasks suspend into `WAITING_APPROVAL` status until resolved via `/api/tasks/{id}/approve` or `/api/tasks/{id}/reject`.
+
+### 4. UI Architecture & Observability
+- `RouteChip`: Attached to assistant messages showing lane (local/cloud), model name, provider badge, and latency. Clicking opens the slide-out `TraceDrawer`.
+- `TraceDrawer`: Slide-out panel detailing intent classification latency, data class, taint flags, tool calls, and event stream.
+- `CloudStatusIndicator`: Status badge in header displaying live health state, with a popover revealing circuit breaker state, token budget gauges, interactive reserve, and cloud toggle.
+- `TasksPage` (`/tasks`): Dashboard for viewing active and queued background jobs, progress bars, cancellation triggers, and parked approvals.
 
 ## File Layout
 

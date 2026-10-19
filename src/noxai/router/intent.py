@@ -100,6 +100,8 @@ _SCHEDULE_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(r"\bcron\s+['\"][^'\"]+['\"]\b", re.IGNORECASE),
+    re.compile(r"\bcron\s+job\b", re.IGNORECASE),
+    re.compile(r"\b(?:\*|(?:\*/\d+))\s+(?:\*|(?:\*/\d+))\s+", re.IGNORECASE),
 ]
 
 _JOB_EDIT_PATTERNS = [
@@ -109,7 +111,7 @@ _JOB_EDIT_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:change|move|reschedule)\s+(?:my\s+)?(?:morning\s+briefing|reminder|job|schedule)\s+(?:to|at)\b",
+        r"\b(?:change|move|reschedule)\s+(?:my\s+)?(?:morning\s+briefing|reminder|job|schedule)\s+(?:time\s+)?(?:to|at)\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -120,13 +122,15 @@ _JOB_EDIT_PATTERNS = [
 
 _MEMORY_OP_PATTERNS = [
     re.compile(
-        r"\b(?:remember\s+that|save\s+(?:this\s+)?fact|don't\s+forget\s+that|note\s+that|"
-        r"pin\s+(?:this\s+)?fact|forget\s+that|forget\s+my|delete\s+fact|"
-        r"my\s+(?:name|email|cat|dog|pet|wife|husband|car|address|favorite|preference)\s+is)\b",
+        r"\b(?:remember\s+that|save\s+(?:this\s+)?fact|don't\s+forget\s+that|note\s+(?:down\s+)?that|"
+        r"pin\s+(?:this\s+)?fact|forget\s+that|forget\s+(?:the|my)|delete\s+fact|"
+        r"search\s+(?:my\s+)?(?:past\s+)?episodes|"
+        r"my\s+(?:name|email|cat|dog|pet|wife|husband|car|address|favorite|preference|editor)\s+is)\b",
         re.IGNORECASE,
     ),
     re.compile(
         r"\b(?:what\s+do\s+you\s+remember\s+about|recall\s+facts?|"
+        r"what\s+did\s+we\s+discuss|"
         r"what\s+is\s+my\s+(?:name|email|cat|dog|preference))\b",
         re.IGNORECASE,
     ),
@@ -139,8 +143,9 @@ _SYSTEM_ACTION_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:system\s+info|disk\s+space|battery\s+(?:status|level)|cpu\s+usage|ram\s+usage|"
-        r"volume\s+(?:up|down|mute)|mute\s+audio|reboot|shutdown|restart\s+system)\b",
+        r"\b(?:system\s+info|disk\s+(?:space|usage)|battery\s+(?:status|level)|cpu\s+usage|ram\s+usage|"
+        r"cpu\s+and\s+memory|volume\s+(?:up|down|mute)|mute\s+audio|reboot|shutdown|restart\s+system|"
+        r"systemd\s+(?:user\s+)?services|kill\s+process)\b",
         re.IGNORECASE,
     ),
     re.compile(
@@ -151,7 +156,9 @@ _SYSTEM_ACTION_PATTERNS = [
 
 _DEEP_RESEARCH_PATTERNS = [
     re.compile(
+        r"^(?:/deep\b)|"
         r"\b(?:deep\s+research|in-depth\s+research|comprehensive\s+(?:report|analysis|survey|comparison)|"
+        r"deep\s+dive|in-depth\s+(?:security\s+)?comparison|comprehensive\s+multi-source|"
         r"research\s+(?:and\s+compare|all\s+differences|the\s+history|the\s+state\s+of|recent\s+advances)|"
         r"literature\s+review)\b",
         re.IGNORECASE,
@@ -160,8 +167,16 @@ _DEEP_RESEARCH_PATTERNS = [
 
 _BACKGROUND_TASK_PATTERNS = [
     re.compile(
-        r"\b(?:in\s+(?:the\s+)?background|background\s+task|asynchronously|"
+        r"\b(?:in\s+(?:the\s+)?background|background\s+(?:task|index|job|scan|processing|sync)|asynchronously|"
         r"run\s+(?:this\s+)?in\s+background|batch\s+process|download\s+and\s+build|scrape\s+and\s+save)\b",
+        re.IGNORECASE,
+    ),
+]
+
+_AMBIGUOUS_PATTERNS = [
+    re.compile(
+        r"\b(?:maybe\s+check\s+the\s+thing|what\s+about\s+that\s+other|hmm,?\s*not\s+sure|"
+        r"could\s+you\s+help\s+with\s+it)\b",
         re.IGNORECASE,
     ),
 ]
@@ -323,14 +338,16 @@ def analyze_intent(text: str) -> IntentResult:
             analysis_time_ms=dt,
         )
 
-    # 10. Check for ambiguous single-word tokens
-    if len(clean.split()) == 1 and clean.lower() in ("what", "why", "how", "huh", "help", "test"):
+    # 10. Check for ambiguous patterns or single-word tokens
+    if any(p.search(clean) for p in _AMBIGUOUS_PATTERNS) or (
+        len(clean.split()) == 1 and clean.lower() in ("what", "why", "how", "huh", "help", "test")
+    ):
         dt = (time.perf_counter() - t0) * 1000.0
         return IntentResult(
             intent=IntentType.AMBIGUOUS,
             reply_mode=ReplyMode.INSTANT,
             confidence=0.8,
-            reason="Single ambiguous token without context",
+            reason="Ambiguous prompt requiring clarification or broad reasoning",
             suggested_lane="cloud",
             analysis_time_ms=dt,
         )

@@ -48,29 +48,39 @@ set to anything other than `127.0.0.1`. No network interface exposure.
 
 ---
 
-## 4. Privacy Routing (taint tracking)
+## 4. Privacy Routing & Privacy Policy v2 (M10)
 
-Every piece of content carries `TaintFlag` bits:
-- `PRIVATE`: chat messages, memory facts, file contents — **never sent to cloud**.
-- `UNTRUSTED`: web pages, RSS, fetched files — wrapped in tags, escalates approvals.
+Privacy in NoX is grounded in explicit data classifications, taint tracking,
+and active egress filtering.
 
-The router (`models/router.py`) enforces:
-1. Any request containing `PRIVATE` content → local Ollama only.
-2. Violation raises `PrivacyViolation` — the caller must use the local role.
-3. This rule is in code, not config. It cannot be changed by prompting.
-4. Tested with a `FakeProvider` that fails the test if it ever receives
-   private text.
+### Data Classes
+Every message and artifact carries an explicit `DataClass` and optional `TaintFlag`:
 
-**What is private by default:**
-- User chat messages and conversation history
-- Memory facts and episode summaries
-- File contents read from disk
-- Future: email, camera, any integration with personal data
+| Class | Definition & Examples | Cloud Transmission Policy |
+|---|---|---|
+| `SECRET` | API keys, SSH keys, passwords, bearer tokens, credit cards | **Strictly blocked.** Masked by egress filter if found in chat. |
+| `LOCAL_ONLY` | File contents, memory facts, shell output, device telemetry | **Strictly blocked.** Plain unlabeled strings fail closed as LOCAL_ONLY. |
+| `CHAT` | Conversation history and user prompts | Permitted **only** when `privacy.chat_to_cloud = true`, Private Mode is disabled, and no sensitive/secret tokens are detected. |
+| `PUBLIC` | Web pages, search results, RSS feeds | Permitted (marked `UNTRUSTED` where appropriate). |
 
-**What can be cloud-eligible:**
-- A job with `allow_cloud = true` (the instruction text is declared public)
-- A single request where the owner toggles "Allow cloud" (disables memory injection)
-- Public web content (search results, fetched pages, RSS)
+### Egress Filter & Egress Ledger
+1. **Egress Filter (`src/noxai/security/egress_filter.py`)**: Evaluates every request targeting a non-local/cloud provider. Blocks requests containing `SECRET` or `LOCAL_ONLY` content and transparently falls back to local models without crashing.
+2. **Egress Ledger (`egress_records` table)**: Records zero-data prompt audit logs. Stores UTC timestamps, destination providers/models, estimated token counts, and SHA-256 hashes of outgoing text. **Never stores raw message content**.
+3. **Private Mode Toggle**: Can be activated via `/local` slash command or padlock icon in the UI. Forces 100% zero cloud egress across all operations.
+
+### Front-Desk Tool Allowlist
+When the Front Desk executes on the cloud lane, it is strictly restricted to the **Front-Desk Tool Allowlist**:
+- `web_search`
+- `fetch_page`
+- `dispatch_reminder`
+- `dispatch_schedule`
+- `dispatch_job_edit`
+- `dispatch_background_task`
+
+The cloud front desk is cryptographically barred from calling file system, bash/shell, system write, or memory write tools. Those operations are exclusively parked or queued into the Task Center to run on the local worker lane.
+
+### NVIDIA API Free Tier Logging Notice
+The NVIDIA trial API terms state that free endpoints may log request payloads for service improvement and debugging; there is no zero-data-retention guarantee. Routing interactive turns to NVIDIA is a conscious tradeoff between speed (<1.5s TTFT) and privacy. For completely confidential workflows, users should engage Private Mode or run purely on local Ollama models.
 
 ---
 

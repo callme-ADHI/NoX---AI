@@ -385,6 +385,24 @@ def eval_tools(
         asyncio.run(run_tool_eval(m, console=console))
 
 
+@app.command(name="eval-routing")
+def eval_routing_cmd(
+    offline: bool = typer.Option(True, "--offline/--live", help="Run offline intent evaluation."),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON results."),
+) -> None:
+    """Evaluate Reflex Router intent classification accuracy, latency, and privacy (§1.4, §F8)."""
+    import asyncio
+    import json
+
+    from noxai.router.eval import run_routing_eval
+
+    res = asyncio.run(
+        run_routing_eval(offline=offline, console=None if json_output else console)
+    )
+    if json_output:
+        print(json.dumps(res, indent=2))
+
+
 # ---------------------------------------------------------------------------
 # nx tools (approvals and tool management)
 # ---------------------------------------------------------------------------

@@ -46,7 +46,7 @@ SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
         re.DOTALL,
     ),
     "password_assignment": re.compile(
-        r"(?i)\b(?:password|passwd|pwd|client_secret)\s*[:=]\s*['\"]?([^\s'\"]{6,})['\"]?"
+        r"(?i)\b(?:password|passwd|pwd|root\s+password|client_secret)\s*(?:for\s+[^:=]+)?\s*(?:is\s*[:=]|is\s+|[:=])\s*['\"]?([^\s'\"]{6,})['\"]?"
     ),
     "credit_card": re.compile(r"\b(?:\d{4}[ -]?){3}\d{4}\b"),
     "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
@@ -58,8 +58,9 @@ SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
 
 SENSITIVE_TOPIC_PATTERNS: dict[str, re.Pattern[str]] = {
     "health_medical": re.compile(
-        r"(?i)\b(?:my (?:medical records?|diagnosis|prescription|doctor|"
-        r"blood test|symptoms?)|prescribed to me|health condition)\b"
+        r"(?i)\b(?:(?:my|the)\s+(?:medical\s+|confidential\s+)?"
+        r"(?:records?|diagnosis|prescription|doctor|blood test|symptoms?|report)|"
+        r"confidential\s+medical|medical\s+diagnosis|prescribed to me|health condition)\b"
     ),
     "financial_banking": re.compile(
         r"(?i)\b(?:my (?:bank account|routing number|credit card|"

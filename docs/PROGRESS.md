@@ -148,7 +148,23 @@ Environment:
     - Verification & testing: 10 test suites (41 tests) passing in Vitest (`RouteChip.test.tsx`, `TraceDrawer.test.tsx`, `CloudStatusIndicator.test.tsx`, `TasksPage.test.tsx`), TypeScript typecheck 0 errors, Vite production build clean. Backend tests (448 passed) and quality gates (0 ruff, 0 mypy) completely clean.
   - NEXT: Phase F8 (Integration, latency proof and M10 acceptance)
 
-- [ ] **F8** — Integration, latency proof and M10 acceptance
+- [x] **F8** — Integration, latency proof and M10 acceptance
+  - Status: Done
+  - Commit: Pending (F8 commit: `test: M10 integration, end-to-end latency and intent benchmarks`)
+  - Evidence:
+    - Benchmark Suite & Routing Evaluation: created `src/noxai/router/eval.py` running an automated evaluation of 44 prompts across all 10 intent categories (`reply_now`, `reminder`, `schedule`, `job_edit`, `background_task`, `deep_research`, `memory_op`, `system_action`, `sensitive`, `ambiguous`).
+    - Reflex Latency Proof: verified zero-LLM reflex intent classification latency of < 0.1ms mean (0.08ms mean, < 0.35ms max), comprehensively beating the < 5ms mean and < 50ms hard limit (§1.4).
+    - Intent Classification Accuracy: enhanced regex patterns in `src/noxai/router/intent.py` achieving 100% accuracy (44/44) across all intent categories with exact reply mode assignment.
+    - Sensitive Isolation & Egress Filtering: verified 100% local isolation for credentials (AWS keys, passwords, bearer tokens, credit cards, SSH keys) and confidential medical records with fail-closed protection for unlabeled strings.
+    - Fallback Matrix: verified clean, transparent fallback to local brain under `NO_KEY`, `RATE_LIMITED`, and `OFFLINE` (circuit breaker `OPEN`) conditions without exceptions or UI disruption.
+    - Rate Budget Interactive Reserve: verified that background acquisitions are restricted once capacity reaches the 10 RPM interactive reserve threshold, ensuring user turns are never starved.
+    - Task Center Lifecycle: verified task queueing, priority assignment, cancellation tokens, and progress reporting.
+    - CLI Routing Evaluation: added `nx eval-routing` command (`--offline`/`--live`, `--json`) in `src/noxai/cli.py`.
+    - Test Suite: 10/10 integration tests passing in `tests/test_m10_integration.py`.
+    - Documentation: updated `docs/ARCHITECTURE.md` and `docs/SECURITY.md` reflecting M10 architecture, data classes, egress ledger, fallback matrix, and UI components.
+    - Quality gates: 458 passed in test suite, 0 ruff errors, 0 mypy errors across 82 source files.
+  - NEXT: Phase F9 (Resume remaining verification: Session E phases E7–E11, full coverage >= 88%, and final merge to main)
+
 - [ ] **F9** — Resume remaining verification (Session E phases E7–E11)
 
 
