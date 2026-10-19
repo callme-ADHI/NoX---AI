@@ -68,7 +68,20 @@ Environment:
     - Code quality & tests: 366 passed in 80.56s, 0 failures, 0 ruff errors, 0 mypy errors across 68 files.
   - NEXT: Phase F2 (Privacy policy v2: data classes, egress filter, ledger, private mode)
 
-- [ ] **F2** — Privacy policy v2 (data classes, egress filter, ledger, private mode)
+- [x] **F2** — Privacy policy v2 (data classes, egress filter, ledger, private mode)
+  - Status: Done
+  - Commit: Pending (F2 commit: `feat(privacy): data classes, egress filter, ledger, private mode`)
+  - Evidence:
+    - Data classification: extended `src/noxai/taint.py` with `DataClass` (`SECRET`, `LOCAL_ONLY`, `CHAT`, `PUBLIC`) with severity ranking and `is_cloud_allowed()` evaluation.
+    - Content wrapper enhanced: added `data_class` field, convenience constructors (`secret()`, `local_only()`, `chat()`, `public()`, `untrusted()`), and taint-preserving merge semantics ensuring `TaintFlag.PRIVATE` cannot be downgraded.
+    - Sensitivity & secret scanner: created `src/noxai/security/sensitivity.py` with regex scanning for 11 secret and credential patterns (OpenAI, Anthropic, NVIDIA, GitHub, AWS, bearer tokens, generic keys, private keys, password assignments, credit cards, SSNs) and heuristic sensitive prompt detection (medical, financial, auth).
+    - Egress filter choke point: implemented `src/noxai/security/egress_filter.py` with `EgressFilter.evaluate()` gating all non-local model requests, fail-closed handling for plain unlabeled strings, secret masking in chat text, private mode zero-egress enforcement, and sensitive prompt rerouting.
+    - Migration 005 & audit ledger: added `src/noxai/migrations/005_privacy_v2.sql` with `visibility` column on `facts` (default `'local_only'`) and `egress_ledger` audit table tracking provider, model, tokens, data class, decision, reason, and sha256 hash.
+    - Memory & settings integration: updated `src/noxai/memory/store.py` (`Fact.visibility`), `src/noxai/tools/builtin/memory_tools.py` (`SaveFactParams.visibility`), `src/noxai/config.py` (`PrivacyConfig`), `config.example.toml`, and `src/noxai/models/router.py`.
+    - Test validation: 28 tests in `tests/test_privacy_v2.py` including a 500-iteration random permutation property test verifying zero secrets or local-only data can ever egress to cloud.
+    - Quality gates: 0 ruff errors, 0 mypy errors across 71 source files.
+  - NEXT: Phase F3 (Cloud health, fallback and rate-limit budget)
+
 - [ ] **F3** — Cloud health, fallback and rate-limit budget
 - [ ] **F4** — Reflex router, Front Desk, intent analysis
 - [ ] **F5** — Task Center

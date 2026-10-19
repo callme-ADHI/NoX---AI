@@ -101,6 +101,8 @@ class Fact:
     embedding: list[float] | None = None
     provenance: str = "user_stated"  # user_stated | agent_derived | manual
     needs_review: int = 0  # 1 if awaiting owner review
+    visibility: str = "local_only"  # local_only | cloud_ok
+
 
 
 @dataclass
@@ -154,6 +156,7 @@ def _row_to_fact(row: aiosqlite.Row) -> Fact:
         embedding=bytes_to_vector(emb_blob) if emb_blob else None,
         provenance=row["provenance"] if "provenance" in row.keys() else "user_stated",
         needs_review=int(row["needs_review"]) if "needs_review" in row.keys() else 0,
+        visibility=row["visibility"] if "visibility" in row.keys() else "local_only",
     )
 
 
@@ -184,6 +187,7 @@ async def create_fact(
     embedding: list[float] | None = None,
     provenance: str = "user_stated",
     needs_review: int = 0,
+    visibility: str = "local_only",
 ) -> Fact:
     """Insert a new fact into memory."""
     valid_categories = {"profile", "preference", "project", "person", "device", "other"}
@@ -191,27 +195,41 @@ async def create_fact(
     conf = max(0.0, min(1.0, float(confidence)))
     src = source if source in {"chat", "job", "manual"} else "chat"
     prov = provenance if provenance in {"user_stated", "agent_derived", "manual"} else "user_stated"
+    vis = visibility if visibility in {"local_only", "cloud_ok"} else "local_only"
 
     try:
         cursor = await execute(
             db,
             """
             INSERT INTO facts (
-                key, value, category, confidence, source, pinned, provenance, needs_review
+                key, value, category, confidence, source, pinned,
+                provenance, needs_review, visibility
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (key, value, cat, conf, src, 1 if pinned else 0, prov, 1 if needs_review else 0),
+            (key, value, cat, conf, src, 1 if pinned else 0, prov, 1 if needs_review else 0, vis),
         )
     except Exception:
-        cursor = await execute(
-            db,
-            """
-            INSERT INTO facts (key, value, category, confidence, source, pinned)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (key, value, cat, conf, src, 1 if pinned else 0),
-        )
+        try:
+            cursor = await execute(
+                db,
+                """
+                INSERT INTO facts (
+                    key, value, category, confidence, source, pinned, provenance, needs_review
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (key, value, cat, conf, src, 1 if pinned else 0, prov, 1 if needs_review else 0),
+            )
+        except Exception:
+            cursor = await execute(
+                db,
+                """
+                INSERT INTO facts (key, value, category, confidence, source, pinned)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (key, value, cat, conf, src, 1 if pinned else 0),
+            )
     fid = await lastrowid(cursor)
     if fid is None:
         raise RuntimeError("Failed to retrieve fact ID after insert")
@@ -265,6 +283,7 @@ async def update_fact(
     pinned: bool | None = None,
     changed_by: str = "agent",
     embedding: list[float] | None = None,
+    visibility: str | None = None,
 ) -> Fact | None:
     """Update a fact, saving a historical snapshot if value or key changed."""
     existing = await get_fact(db, fact_id)
@@ -291,17 +310,34 @@ async def update_fact(
         max(0.0, min(1.0, float(confidence))) if confidence is not None else existing.confidence
     )
     new_pinned = pinned if pinned is not None else existing.pinned
-
-    await execute(
-        db,
-        """
-        UPDATE facts
-        SET key = ?, value = ?, category = ?, confidence = ?, pinned = ?,
-            updated_at = datetime('now')
-        WHERE id = ?
-        """,
-        (new_key, new_value, new_cat, new_conf, 1 if new_pinned else 0, fact_id),
+    new_vis = (
+        (visibility if visibility in {"local_only", "cloud_ok"} else existing.visibility)
+        if visibility is not None
+        else existing.visibility
     )
+
+    try:
+        await execute(
+            db,
+            """
+            UPDATE facts
+            SET key = ?, value = ?, category = ?, confidence = ?, pinned = ?, visibility = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (new_key, new_value, new_cat, new_conf, 1 if new_pinned else 0, new_vis, fact_id),
+        )
+    except Exception:
+        await execute(
+            db,
+            """
+            UPDATE facts
+            SET key = ?, value = ?, category = ?, confidence = ?, pinned = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (new_key, new_value, new_cat, new_conf, 1 if new_pinned else 0, fact_id),
+        )
 
     if embedding is not None:
         await save_fact_vector(db, fact_id, embedding)

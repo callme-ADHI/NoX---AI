@@ -41,6 +41,10 @@ class SaveFactParams(BaseModel):
     )
     confidence: float = Field(1.0, ge=0.0, le=1.0, description="Confidence score 0.0 to 1.0.")
     pinned: bool = Field(False, description="Whether to pin this fact to the top of memory.")
+    visibility: str = Field(
+        "local_only",
+        description="Privacy visibility: 'local_only' (default) or 'cloud_ok'.",
+    )
 
 
 @tool(
@@ -85,10 +89,11 @@ async def save_fact(params: SaveFactParams, ctx: ToolContext) -> ToolResult:
                 pinned=params.pinned,
                 embedding=emb,
                 changed_by="agent",
+                visibility=params.visibility,
             )
             return ToolResult(
                 ok=True,
-                output=f"Updated fact '{key}' ({params.category}): {value}",
+                output=f"Updated fact '{key}' ({params.category}, {params.visibility}): {value}",
                 summary=f"Updated fact '{key}'.",
             )
         else:
@@ -101,10 +106,11 @@ async def save_fact(params: SaveFactParams, ctx: ToolContext) -> ToolResult:
                 pinned=params.pinned,
                 source="chat",
                 embedding=emb,
+                visibility=params.visibility,
             )
             return ToolResult(
                 ok=True,
-                output=f"Remembered fact '{key}' ({params.category}): {value}",
+                output=f"Remembered fact '{key}' ({params.category}, {params.visibility}): {value}",
                 summary=f"Saved fact '{key}'.",
             )
 

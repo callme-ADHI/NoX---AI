@@ -177,6 +177,14 @@ class UIConfig(_StrictModel):
     launcher_cmd: list[str] = ["chromium", "--app={url}"]
 
 
+class PrivacyConfig(_StrictModel):
+    """Privacy configuration for Milestone 10 (§1.2, §1.3)."""
+
+    chat_to_cloud: bool = True
+    cloud_profile_card: bool = False
+    private_mode: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Root config model
 # ---------------------------------------------------------------------------
@@ -196,6 +204,7 @@ class Settings(BaseModel):
     safety: SafetyConfig = SafetyConfig()
     gate: GateConfig = GateConfig()
     ui: UIConfig = UIConfig()
+    privacy: PrivacyConfig = PrivacyConfig()
 
     # Secrets (loaded separately, not from TOML)
     nvidia_api_key: SecretStr | None = None

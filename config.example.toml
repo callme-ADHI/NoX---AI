@@ -57,3 +57,9 @@ command = []                # e.g. ["facelock", "verify"]; exit code 0 = authent
 
 [ui]
 launcher_cmd = ["chromium", "--app={url}"]
+
+[privacy]
+chat_to_cloud = true          # send interactive chat turns to cloud when active
+cloud_profile_card = false     # keep cloud-safe memory profile empty by default
+private_mode = false           # toggle zero-egress private mode on demand
+

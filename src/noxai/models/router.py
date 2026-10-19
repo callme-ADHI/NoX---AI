@@ -19,6 +19,7 @@ from noxai.models.base import (
 )
 from noxai.models.nvidia import NvidiaProvider
 from noxai.models.ollama import OllamaProvider
+from noxai.security.egress_filter import EgressFilter, record_egress_decision
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class ModelRouter:
         providers: dict[str, Provider] | None = None,
     ) -> None:
         self.config = config
+        self.egress_filter = EgressFilter(config=self.config)
 
         if providers is not None:
             self.providers = providers
@@ -91,8 +93,8 @@ class ModelRouter:
         """Enforce that PRIVATE content never routes to a non-local/cloud provider.
 
         Raises:
-            PrivacyViolation: If any message in the request carries PRIVATE taint
-                              and the target provider is non-local.
+            PrivacyViolation: If any message in the request carries PRIVATE taint,
+                              SECRET/LOCAL_ONLY data class, or violates egress policy.
         """
         if provider.is_local:
             return  # Local processing is always permitted
@@ -103,6 +105,17 @@ class ModelRouter:
                     f"Privacy violation: Attempted to route content with PRIVATE taint "
                     f"to non-local provider '{provider.name}' for role '{role}'."
                 )
+
+        decision = self.egress_filter.evaluate(
+            messages,
+            provider_name=provider.name,
+            model="",
+            is_local=False,
+        )
+        if not decision.allowed:
+            raise PrivacyViolation(
+                f"Privacy violation: {decision.reason} for role '{role}'."
+            )
 
     async def chat(
         self,
@@ -121,10 +134,7 @@ class ModelRouter:
         """Execute chat completion for the specified role with privacy check and cloud fallback."""
         provider, model = self.resolve_role(role)
 
-        # 1. Enforce privacy rule
-        self.check_privacy(role, provider, messages)
-
-        # 2. Local execution path
+        # 1. Local execution path
         if provider.is_local:
             if on_model_used:
                 on_model_used(
@@ -148,6 +158,61 @@ class ModelRouter:
                 yield chunk
             return
 
+        # 2. Cloud execution path — evaluate through egress filter
+        egress_decision = self.egress_filter.evaluate(
+            messages,
+            provider_name=provider.name,
+            model=model,
+            is_local=False,
+        )
+
+        try:
+            await record_egress_decision(
+                decision=egress_decision,
+                provider=provider.name,
+                model=model,
+            )
+        except Exception as exc:
+            log.debug("record_egress_decision note: %s", exc)
+
+        if not egress_decision.allowed:
+            if egress_decision.decision == "rerouted_local":
+                notice = f"[Privacy notice] {egress_decision.reason} — routing to local model."
+                if on_notice:
+                    on_notice(notice)
+                log.info(notice)
+                local_provider, local_model = self.resolve_role("brain")
+                if on_model_used:
+                    on_model_used(
+                        {
+                            "role": role,
+                            "provider": local_provider.name,
+                            "model": local_model,
+                            "is_local": True,
+                            "rerouted_reason": egress_decision.reason,
+                        }
+                    )
+                async for chunk in local_provider.chat(
+                    model=local_model,
+                    messages=messages,
+                    tools=tools,
+                    stream=stream,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    num_ctx=num_ctx,
+                    keep_alive=keep_alive,
+                ):
+                    yield chunk
+                return
+            else:
+                raise PrivacyViolation(f"Privacy violation: {egress_decision.reason}")
+
+        cloud_messages = (
+            egress_decision.sanitized_messages
+            if egress_decision.sanitized_messages is not None
+            else messages
+        )
+
         # 3. Cloud execution path with automatic fallback
         try:
             if on_model_used:
@@ -162,7 +227,7 @@ class ModelRouter:
 
             async for chunk in provider.chat(
                 model=model,
-                messages=messages,
+                messages=cloud_messages,
                 tools=tools,
                 stream=stream,
                 temperature=temperature,
