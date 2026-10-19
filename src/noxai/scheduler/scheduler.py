@@ -185,13 +185,16 @@ class JobScheduler:
             channels = cfg.get("delivery") or ["ui", "desktop"]
             title = f"Reminder: {job_name}"
 
-            await self.delivery_router.deliver(
-                channel_names=channels,
-                title=title,
-                message=message,
-                payload={"kind": "reminder", "job_id": job_id, "job_name": job_name},
-                db=db,
-            )
+            try:
+                await self.delivery_router.deliver(
+                    channel_names=channels,
+                    title=title,
+                    message=message,
+                    payload={"kind": "reminder", "job_id": job_id, "job_name": job_name},
+                    db=db,
+                )
+            except Exception as exc:
+                log.warning("Reminder delivery error: %s", exc)
             output_text = message
 
         elif job_name == "memory-consolidation":
@@ -223,58 +226,76 @@ class JobScheduler:
             formatted_instruction = instruction.replace("{today}", today_str)
 
             allow_cloud = bool(cfg.get("allow_cloud", False))
+            max_runtime = cfg.get("max_runtime_seconds")
+            timeout_sec = float(max_runtime) if max_runtime is not None else None
+
+            async def _execute_agent_job() -> str:
+                nonlocal status
+                from noxai.agent.gate import evaluate_complexity
+
+                gate_res = await evaluate_complexity(
+                    formatted_instruction,
+                    router=self.router,
+                )
+
+                if gate_res.is_complex:
+                    from noxai.agent.executor import DAGExecutor
+
+                    executor = DAGExecutor(
+                        router=self.router,
+                        registry=self.registry,
+                        config=self.config,
+                        event_bus=self.event_bus,
+                    )
+                    exec_res = await executor.execute_plan(
+                        goal=formatted_instruction,
+                        allow_cloud=allow_cloud,
+                        db=db,
+                    )
+                    status = "ok" if exec_res.status == "done" else "failed"
+                    return exec_res.final_text
+                else:
+                    from noxai.agent.loop import AgentLoop
+
+                    loop = AgentLoop(
+                        router=self.router,
+                        registry=self.registry,
+                        config=self.config,
+                        event_bus=self.event_bus,
+                    )
+                    loop_res = await loop.run(
+                        formatted_instruction,
+                        allow_cloud=allow_cloud,
+                        db=db,
+                    )
+                    status = "ok" if loop_res.status == "done" else "failed"
+                    return loop_res.text
 
             async with self._local_job_sem:
                 try:
-                    from noxai.agent.gate import evaluate_complexity
-
-                    gate_res = await evaluate_complexity(
-                        formatted_instruction,
-                        router=self.router,
-                    )
-
-                    if gate_res.is_complex:
-                        from noxai.agent.executor import DAGExecutor
-
-                        executor = DAGExecutor(
-                            router=self.router,
-                            registry=self.registry,
-                            config=self.config,
-                            event_bus=self.event_bus,
+                    if timeout_sec is not None:
+                        output_text = await asyncio.wait_for(
+                            _execute_agent_job(), timeout=timeout_sec
                         )
-                        exec_res = await executor.execute_plan(
-                            goal=formatted_instruction,
-                            allow_cloud=allow_cloud,
-                            db=db,
-                        )
-                        output_text = exec_res.final_text
-                        status = "ok" if exec_res.status == "done" else "failed"
                     else:
-                        from noxai.agent.loop import AgentLoop
+                        output_text = await _execute_agent_job()
 
-                        loop = AgentLoop(
-                            router=self.router,
-                            registry=self.registry,
-                            config=self.config,
-                            event_bus=self.event_bus,
-                        )
-                        loop_res = await loop.run(
-                            formatted_instruction,
-                            allow_cloud=allow_cloud,
+                    # Deliver output - delivery channel failure never fails the job
+                    channels = cfg.get("delivery") or ["ui"]
+                    try:
+                        await self.delivery_router.deliver(
+                            channel_names=channels,
+                            title=f"Briefing: {job_name}",
+                            message=output_text[:300],
+                            payload={
+                                "kind": "briefing",
+                                "job_id": job_id,
+                                "job_run_id": job_run_id,
+                            },
                             db=db,
                         )
-                        output_text = loop_res.text
-                        status = "ok" if loop_res.status == "done" else "failed"
-
-                    # Deliver output
-                    channels = cfg.get("delivery") or ["ui"]
-                    await self.delivery_router.deliver(
-                        channel_names=channels,
-                        title=f"Briefing: {job_name}",
-                        message=output_text[:300],
-                        payload={"kind": "briefing", "job_id": job_id, "job_run_id": job_run_id},
-                        db=db,
-                    )
+                    except Exception as deliv_exc:
+                        log.warning("Delivery error for job '%s': %s", job_name, deliv_exc)
 
                     # Store in outputs table for Briefings view
                     await execute(
@@ -286,6 +307,15 @@ class JobScheduler:
                         (job_run_id, job_name, output_text),
                     )
 
+                except TimeoutError:
+                    log.error(
+                        "Job '%s' cancelled: exceeded max_runtime_seconds (%.1fs)",
+                        job_name,
+                        timeout_sec,
+                    )
+                    status = "failed"
+                    error_msg = f"Job cancelled: exceeded max_runtime_seconds ({timeout_sec}s)"
+                    output_text = f"Execution timed out after {timeout_sec}s"
                 except Exception as exc:
                     log.error("Agent job '%s' execution error: %s", job_name, exc)
                     status = "failed"

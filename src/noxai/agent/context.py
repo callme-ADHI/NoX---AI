@@ -97,9 +97,9 @@ async def assemble_system_prompt(
             pref_lines.append(f"- {k}: {v}")
         sections.append("\n".join(pref_lines))
 
-    # 4. Relevant skills (at most 3)
-    skills = relevant_skills or []
-    if not skills and db is not None:
+    # 4. Relevant skills (at most 3; omitted for cloud-eligible runs)
+    skills = [] if allow_cloud else (relevant_skills or [])
+    if not skills and not allow_cloud and db is not None:
         try:
             async with db.execute("SELECT name, description FROM skills_index LIMIT 3") as cursor:
                 async for row in cursor:

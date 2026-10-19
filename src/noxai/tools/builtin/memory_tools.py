@@ -184,6 +184,7 @@ async def recall_facts(params: RecallFactsParams, ctx: ToolContext) -> ToolResul
 
 class ForgetFactParams(BaseModel):
     key: str = Field(..., description="The key or description of the fact to forget.")
+    confirmed: bool = Field(False, description="Confirmation flag if >5 episodes match.")
 
 
 @tool(
@@ -213,16 +214,55 @@ async def forget_fact(params: ForgetFactParams, ctx: ToolContext) -> ToolResult:
                 summary=f"Fact '{key}' not found.",
             )
 
-        res = await hard_delete_fact(db, existing.id)
+        res = await hard_delete_fact(db, existing.id, confirmed=params.confirmed)
+        if res.get("status") == "requires_approval":
+            preview_lines = [f"- #{p['id']}: {p['preview']}..." for p in res.get("preview", [])]
+            preview_text = "\n".join(preview_lines)
+            if ctx.request_approval:
+                reason = (
+                    f"Deleting fact '{existing.key}' would purge {res['matching_count']} episodes (>5).\n"
+                    f"Preview of episodes:\n{preview_text}"
+                )
+                approved = await ctx.request_approval(
+                    "forget_fact",
+                    {"key": key, "confirmed": True},
+                    "write",
+                    reason,
+                )
+                if approved:
+                    res = await hard_delete_fact(db, existing.id, confirmed=True)
+                else:
+                    return ToolResult(
+                        ok=False,
+                        output=f"Purge was denied. Matched {res['matching_count']} episodes.\nPreview:\n{preview_text}",
+                        summary="Purge denied: >5 episodes matched.",
+                    )
+            else:
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        f"Approval required: deleting fact '{existing.key}' matches {res['matching_count']} episodes (>5).\n"
+                        f"Preview:\n{preview_text}\n"
+                        f"Re-run with confirmed=True or approve to proceed."
+                    ),
+                    summary=f"Requires approval: {res['matching_count']} episodes matched.",
+                )
+
+        fact_info = res.get("fact", {})
         msg = (
-            f"Permanently forgot fact '{existing.key}'. "
-            f"Purged {res.get('history_rows_removed', 0)} history snapshot(s) "
-            f"and {res.get('episodes_removed', 0)} related episode entry/entries."
+            f"Permanently forgot fact '{existing.key}' (id={existing.id}).\n"
+            f"- Deleted fact: {fact_info.get('key', existing.key)} = {fact_info.get('value', existing.value)}\n"
+            f"- Deleted history rows: {res.get('history_rows', [])}\n"
+            f"- Deleted vectors: fact={res.get('vectors', {}).get('fact_vector')}, "
+            f"episodes={res.get('vectors', {}).get('episode_vectors', [])}\n"
+            f"- Rebuilt FTS: facts={res.get('fts_entries', {}).get('facts_rebuilt')}, "
+            f"episodes={res.get('fts_entries', {}).get('episodes_rebuilt')}\n"
+            f"- Deleted episode IDs: {res.get('episode_ids', [])}"
         )
         return ToolResult(
             ok=True,
             output=msg,
-            summary=f"Hard-deleted fact '{existing.key}'.",
+            summary=f"Hard-deleted fact '{existing.key}'. Purged {len(res.get('episode_ids', []))} episode(s).",
         )
 
     if ctx.db is not None:

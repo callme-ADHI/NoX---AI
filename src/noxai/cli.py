@@ -327,8 +327,6 @@ def chat_cmd(
     asyncio.run(_run())
 
 
-
-
 @app.command(name="eval-tools")
 def eval_tools(
     models: list[str] = typer.Argument(..., help="Model names to evaluate."),
@@ -340,7 +338,6 @@ def eval_tools(
 
     for m in models:
         asyncio.run(run_tool_eval(m, console=console))
-
 
 
 # ---------------------------------------------------------------------------

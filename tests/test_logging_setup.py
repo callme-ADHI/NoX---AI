@@ -112,6 +112,7 @@ def test_json_formatter_exception_traceback() -> None:
         raise ValueError("Failed connecting to https://api.com with ghp_secrettoken1234567")
     except ValueError:
         import sys
+
         exc_info = sys.exc_info()
 
     record = logging.LogRecord(

@@ -51,8 +51,10 @@ SECRET_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ghp_[A-Za-z0-9]{30,}"),
     # Generic bearer authorization header
     re.compile(r"Bearer\s+[A-Za-z0-9._~+/-]{16,}"),
-    # Passwords or secrets in key-value formats
-    re.compile(r"(?i)\b(?:password|passwd|pwd|secret_key)\s*[:=]\s*\S+"),
+    # Passwords or secrets in key-value formats or 'password is ...'
+    re.compile(r"(?i)\b(?:password|passwd|pwd|secret_key)\s*(?:[:=]|is)\s*\S+"),
+    # Credential key names (e.g. owner_pwd, password, secret_key)
+    re.compile(r"(?i)\b\w*(?:password|passwd|pwd|secret_key)\w*\b"),
     # Private keys (PEM / OpenSSH)
     re.compile(r"-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----"),
     # Credit card numbers (Luhn candidate regex)
@@ -100,6 +102,7 @@ async def extract_and_store_turn(
     router: ModelRouter,
     db: aiosqlite.Connection | None = None,
     task_id: str | None = None,
+    is_untrusted: bool = False,
 ) -> ExtractionResult:
     """Execute background extraction on a completed conversation turn."""
     if db is None:
@@ -110,6 +113,7 @@ async def extract_and_store_turn(
                 router=router,
                 db=conn,
                 task_id=task_id,
+                is_untrusted=is_untrusted,
             )
 
     result = ExtractionResult()
@@ -214,6 +218,19 @@ async def extract_and_store_turn(
                     if updated:
                         result.facts_updated.append(updated)
             else:
+                # Provenance determination:
+                val_lower = val.lower()
+                key_lower = key.lower()
+                user_lower = user_text.lower()
+                is_user_stated = (val_lower in user_lower) or any(
+                    part in user_lower for part in key_lower.split("_") if len(part) >= 4
+                )
+                provenance = "user_stated" if is_user_stated else "agent_derived"
+
+                # In a run with UNTRUSTED taint:
+                # only user_stated facts auto-save; agent_derived facts are stored with needs_review = 1
+                needs_review = 1 if (is_untrusted and provenance == "agent_derived") else 0
+
                 # Insert novel fact
                 created = await create_fact(
                     db,
@@ -223,6 +240,8 @@ async def extract_and_store_turn(
                     confidence=conf,
                     source="chat",
                     embedding=fact_emb,
+                    provenance=provenance,
+                    needs_review=needs_review,
                 )
                 result.facts_created.append(created)
 
@@ -243,6 +262,7 @@ async def extract_and_store_turn(
                 task_id=task_id,
                 importance=importance,
                 embedding=ep_emb,
+                untrusted_origin=1 if is_untrusted else 0,
             )
             result.episode = ep
 

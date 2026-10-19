@@ -167,13 +167,15 @@ def create_app(
 
             fake_brain = FakeProvider("ollama", is_local=True)
             fake_cloud = FakeProvider("nvidia", is_local=False)
-            fake_brain.queue_response([
-                ChatChunk(delta_text="Hello from NoX local model! ", finish_reason=None),
-                ChatChunk(
-                    delta_text="Everything is working smoothly in test mode.",
-                    finish_reason="stop",
-                ),
-            ])
+            fake_brain.queue_response(
+                [
+                    ChatChunk(delta_text="Hello from NoX local model! ", finish_reason=None),
+                    ChatChunk(
+                        delta_text="Everything is working smoothly in test mode.",
+                        finish_reason="stop",
+                    ),
+                ]
+            )
             from noxai.models.router import set_default_router
 
             router = ModelRouter(
@@ -216,9 +218,7 @@ def create_app(
                 cfg.models.ollama.base_url,
             )
 
-        ollama_task = asyncio.create_task(
-            _poll_ollama_readiness(cfg.models.ollama.base_url, app)
-        )
+        ollama_task = asyncio.create_task(_poll_ollama_readiness(cfg.models.ollama.base_url, app))
 
         # 8. Start background JobScheduler
         scheduler: JobScheduler | None = None

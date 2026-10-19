@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,62 @@ from noxai.memory.embed import (
 )
 
 log = logging.getLogger(__name__)
+
+# Stoplist for episode purging: weak/common words that must never trigger episode deletion
+EPISODE_PURGE_STOPLIST: set[str] = {
+    "this",
+    "that",
+    "with",
+    "from",
+    "have",
+    "been",
+    "will",
+    "would",
+    "there",
+    "their",
+    "about",
+    "which",
+    "when",
+    "what",
+    "more",
+    "some",
+    "like",
+    "into",
+    "time",
+    "them",
+    "other",
+    "than",
+    "then",
+    "also",
+    "only",
+    "were",
+    "they",
+    "your",
+    "mine",
+    "ours",
+    "very",
+    "much",
+    "many",
+    "good",
+    "well",
+    "just",
+    "make",
+    "made",
+    "user",
+    "agent",
+    "done",
+    "test",
+    "true",
+    "false",
+    "none",
+    "null",
+}
+
+
+def is_qualifying_purge_term(term: str) -> bool:
+    """A term qualifies for episode purging only if >= 4 chars and not in the stoplist."""
+    t = term.strip().lower()
+    return len(t) >= 4 and t not in EPISODE_PURGE_STOPLIST
 
 
 @dataclass
@@ -42,6 +99,8 @@ class Fact:
     use_count: int = 0
     deleted_at: str | None = None
     embedding: list[float] | None = None
+    provenance: str = "user_stated"  # user_stated | agent_derived | manual
+    needs_review: int = 0  # 1 if awaiting owner review
 
 
 @dataclass
@@ -69,6 +128,7 @@ class Episode:
     importance: float = 0.5
     archived_at: str | None = None
     embedding: list[float] | None = None
+    untrusted_origin: int = 0  # 1 if generated from a run with UNTRUSTED taint
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +152,8 @@ def _row_to_fact(row: aiosqlite.Row) -> Fact:
         use_count=int(row["use_count"]),
         deleted_at=row["deleted_at"],
         embedding=bytes_to_vector(emb_blob) if emb_blob else None,
+        provenance=row["provenance"] if "provenance" in row.keys() else "user_stated",
+        needs_review=int(row["needs_review"]) if "needs_review" in row.keys() else 0,
     )
 
 
@@ -106,6 +168,7 @@ def _row_to_episode(row: aiosqlite.Row) -> Episode:
         importance=float(row["importance"]),
         archived_at=row["archived_at"],
         embedding=bytes_to_vector(emb_blob) if emb_blob else None,
+        untrusted_origin=int(row["untrusted_origin"]) if "untrusted_origin" in row.keys() else 0,
     )
 
 
@@ -119,21 +182,34 @@ async def create_fact(
     source: str = "chat",
     pinned: bool = False,
     embedding: list[float] | None = None,
+    provenance: str = "user_stated",
+    needs_review: int = 0,
 ) -> Fact:
     """Insert a new fact into memory."""
     valid_categories = {"profile", "preference", "project", "person", "device", "other"}
     cat = category if category in valid_categories else "other"
     conf = max(0.0, min(1.0, float(confidence)))
     src = source if source in {"chat", "job", "manual"} else "chat"
+    prov = provenance if provenance in {"user_stated", "agent_derived", "manual"} else "user_stated"
 
-    cursor = await execute(
-        db,
-        """
-        INSERT INTO facts (key, value, category, confidence, source, pinned)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (key, value, cat, conf, src, 1 if pinned else 0),
-    )
+    try:
+        cursor = await execute(
+            db,
+            """
+            INSERT INTO facts (key, value, category, confidence, source, pinned, provenance, needs_review)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (key, value, cat, conf, src, 1 if pinned else 0, prov, 1 if needs_review else 0),
+        )
+    except Exception:
+        cursor = await execute(
+            db,
+            """
+            INSERT INTO facts (key, value, category, confidence, source, pinned)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (key, value, cat, conf, src, 1 if pinned else 0),
+        )
     fid = await lastrowid(cursor)
     if fid is None:
         raise RuntimeError("Failed to retrieve fact ID after insert")
@@ -247,51 +323,105 @@ async def soft_delete_fact(db: aiosqlite.Connection, fact_id: int) -> bool:
     return True
 
 
-async def hard_delete_fact(db: aiosqlite.Connection, fact_id: int) -> dict[str, Any]:
-    """Hard-delete fact, history, embedding, and matching episode text per Section 6.6."""
+async def hard_delete_fact(
+    db: aiosqlite.Connection,
+    fact_id: int,
+    confirmed: bool = False,
+) -> dict[str, Any]:
+    """Hard-delete fact, history, embedding, and matching episode text per Section 6.6.
+
+    Rules:
+    - Episode purge only on exact key or full value with word boundaries.
+    - Terms must be >= 4 characters and not in stoplist. Weak terms never delete episodes.
+    - More than 5 episodes or borderline match requires approval (preview first 100 chars of each).
+    - Returns exact list of what was deleted (fact, history rows, vectors, FTS entries, episode ids).
+    """
     existing = await get_fact(db, fact_id)
     if existing is None:
         return {"status": "not_found", "fact_id": fact_id}
 
-    # Count history rows and collect previous values for episode purging
     hist_rows = await fetch_all(
         db, "SELECT id, value FROM facts_history WHERE fact_id = ?", (fact_id,)
     )
-    terms: set[str] = {existing.key, existing.value}
+
+    # Collect candidate terms
+    candidate_terms: set[str] = {existing.key, existing.value}
     for hr in hist_rows:
         val_str = str(hr["value"]).strip()
         if val_str:
-            terms.add(val_str)
+            candidate_terms.add(val_str)
+
+    qualifying_terms = [t for t in candidate_terms if is_qualifying_purge_term(t)]
+
+    # Find matching episodes with word boundaries
+    matching_episodes: list[dict[str, Any]] = []
+    if qualifying_terms:
+        patterns = [re.compile(rf"\b{re.escape(t)}\b", re.IGNORECASE) for t in qualifying_terms]
+        all_eps = await fetch_all(db, "SELECT id, summary FROM episodes")
+        for ep in all_eps:
+            ep_summary = str(ep["summary"])
+            if any(p.search(ep_summary) for p in patterns):
+                matching_episodes.append(
+                    {
+                        "id": ep["id"],
+                        "summary": ep_summary,
+                    }
+                )
+
+    # More than 5 episodes requires approval with preview
+    if len(matching_episodes) > 5 and not confirmed:
+        return {
+            "status": "requires_approval",
+            "fact_id": fact_id,
+            "key": existing.key,
+            "matching_count": len(matching_episodes),
+            "preview": [
+                {"id": ep["id"], "preview": str(ep["summary"])[:100]} for ep in matching_episodes
+            ],
+            "matching_episode_ids": [ep["id"] for ep in matching_episodes],
+        }
 
     # 1. Delete history
+    history_row_ids = [hr["id"] for hr in hist_rows]
     await execute(db, "DELETE FROM facts_history WHERE fact_id = ?", (fact_id,))
 
     # 2. Delete vector
-    await delete_fact_vector(db, fact_id)
+    fact_vec_deleted = False
+    try:
+        await delete_fact_vector(db, fact_id)
+        fact_vec_deleted = True
+    except Exception as exc:
+        log.debug("delete_fact_vector note: %s", exc)
 
     # 3. Delete from facts
     await execute(db, "DELETE FROM facts WHERE id = ?", (fact_id,))
 
     # 4. Rebuild FTS
+    facts_fts_rebuilt = False
     try:
         await execute(db, "INSERT INTO fts_facts (fts_facts) VALUES ('rebuild')")
+        facts_fts_rebuilt = True
     except Exception as exc:
         log.debug("FTS facts rebuild note: %s", exc)
 
     # 5. Purge matching episodes containing the key, value, or any historical values
-    episodes_removed = 0
-    all_eps = await fetch_all(db, "SELECT id, summary FROM episodes")
-    for ep in all_eps:
-        ep_summary = str(ep["summary"])
-        if any(term in ep_summary for term in terms):
-            ep_id = ep["id"]
+    deleted_episode_ids: list[int] = []
+    deleted_ep_vectors: list[int] = []
+    for ep in matching_episodes:
+        ep_id = ep["id"]
+        try:
             await delete_episode_vector(db, ep_id)
-            await execute(db, "DELETE FROM episodes WHERE id = ?", (ep_id,))
-            episodes_removed += 1
+            deleted_ep_vectors.append(ep_id)
+        except Exception:
+            pass
+        await execute(db, "DELETE FROM episodes WHERE id = ?", (ep_id,))
+        deleted_episode_ids.append(ep_id)
 
-    if episodes_removed > 0:
+    episodes_fts_rebuilt = False
+    if deleted_episode_ids:
         try:
             await execute(db, "INSERT INTO fts_episodes (fts_episodes) VALUES ('rebuild')")
+            episodes_fts_rebuilt = True
         except Exception as exc:
             log.debug("FTS episodes rebuild note: %s", exc)
 
@@ -299,16 +429,31 @@ async def hard_delete_fact(db: aiosqlite.Connection, fact_id: int) -> dict[str, 
         "Hard deleted fact id=%d key='%s': %d history rows and %d episodes removed",
         fact_id,
         existing.key,
-        len(hist_rows),
-        episodes_removed,
+        len(history_row_ids),
+        len(deleted_episode_ids),
     )
 
     return {
         "status": "deleted",
         "fact_id": fact_id,
         "key": existing.key,
-        "history_rows_removed": len(hist_rows),
-        "episodes_removed": episodes_removed,
+        "fact": {
+            "id": existing.id,
+            "key": existing.key,
+            "value": existing.value,
+        },
+        "history_rows": history_row_ids,
+        "history_rows_removed": len(history_row_ids),
+        "vectors": {
+            "fact_vector": fact_vec_deleted,
+            "episode_vectors": deleted_ep_vectors,
+        },
+        "fts_entries": {
+            "facts_rebuilt": facts_fts_rebuilt,
+            "episodes_rebuilt": episodes_fts_rebuilt,
+        },
+        "episode_ids": deleted_episode_ids,
+        "episodes_removed": len(deleted_episode_ids),
     }
 
 
@@ -397,20 +542,31 @@ async def create_episode(
     task_id: str | None = None,
     importance: float = 0.5,
     embedding: list[float] | None = None,
+    untrusted_origin: int = 0,
 ) -> Episode:
     """Insert a new episode summary."""
     valid_kinds = {"conversation", "job", "daily_summary", "consolidation", "manual"}
     k = kind if kind in valid_kinds else "conversation"
     imp = max(0.0, min(1.0, float(importance)))
 
-    cursor = await execute(
-        db,
-        """
-        INSERT INTO episodes (summary, kind, task_id, importance)
-        VALUES (?, ?, ?, ?)
-        """,
-        (summary, k, task_id, imp),
-    )
+    try:
+        cursor = await execute(
+            db,
+            """
+            INSERT INTO episodes (summary, kind, task_id, importance, untrusted_origin)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (summary, k, task_id, imp, 1 if untrusted_origin else 0),
+        )
+    except Exception:
+        cursor = await execute(
+            db,
+            """
+            INSERT INTO episodes (summary, kind, task_id, importance)
+            VALUES (?, ?, ?, ?)
+            """,
+            (summary, k, task_id, imp),
+        )
     eid = await lastrowid(cursor)
     if eid is None:
         raise RuntimeError("Failed to retrieve episode ID after insert")

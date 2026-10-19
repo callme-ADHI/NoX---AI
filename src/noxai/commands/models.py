@@ -134,8 +134,7 @@ def models_test(
                 path_str = f"    Path: {exec_note} | TTFT: [bold]{ttft:.1f}ms[/] | "
                 path_str += f"Total: [bold]{total_t:.1f}ms[/]"
                 console.print(
-                    f"[green]✓[/] Role '{r}' reply: [italic]'{reply_txt[:30]}'[/italic]\n"
-                    f"{path_str}"
+                    f"[green]✓[/] Role '{r}' reply: [italic]'{reply_txt[:30]}'[/italic]\n{path_str}"
                 )
             except Exception as exc:
                 console.print(f"[red]✗ Chat test for role '{r}' failed:[/] {exc}")

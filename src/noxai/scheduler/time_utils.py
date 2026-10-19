@@ -121,7 +121,10 @@ def parse_natural_time(
 
     if raw.tzinfo is None:
         raw = raw.replace(tzinfo=tz)
-    return raw.astimezone(UTC)
+    res_utc = raw.astimezone(UTC)
+    if res_utc < base_dt:
+        return None
+    return res_utc
 
 
 def format_human_time(dt: datetime, tz_name: str = DEFAULT_TIMEZONE) -> str:

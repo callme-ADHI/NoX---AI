@@ -470,4 +470,3 @@ if __name__ == "__main__":
 
     populate_realistic_db(args.db)
     print(f"Successfully populated {args.db}")
-

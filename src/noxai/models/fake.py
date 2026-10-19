@@ -160,10 +160,12 @@ class FakeProvider(Provider):
                     import json
 
                     yield ChatChunk(
-                        delta_text=json.dumps({
-                            "complex": False,
-                            "reason": "Evaluated as simple task in test mode",
-                        }),
+                        delta_text=json.dumps(
+                            {
+                                "complex": False,
+                                "reason": "Evaluated as simple task in test mode",
+                            }
+                        ),
                         finish_reason="stop",
                     )
                     return
@@ -172,30 +174,32 @@ class FakeProvider(Provider):
                     import json
 
                     yield ChatChunk(
-                        delta_text=json.dumps({
-                            "goal": "Autonomous breakdown",
-                            "subtasks": [
-                                {
-                                    "id": "t1",
-                                    "title": "Gather research sources",
-                                    "objective": "Query web feeds and fetch news",
-                                    "kind": "fetch",
-                                    "depends_on": [],
-                                    "suggested_tools": [],
-                                    "expected_output": "Fetched sources",
-                                },
-                                {
-                                    "id": "t2",
-                                    "title": "Analyze findings",
-                                    "objective": "Extract facts and summarize",
-                                    "kind": "research",
-                                    "depends_on": ["t1"],
-                                    "suggested_tools": [],
-                                    "expected_output": "Filtered report",
-                                },
-                            ],
-                            "synthesis_instructions": "Synthesize summary report",
-                        }),
+                        delta_text=json.dumps(
+                            {
+                                "goal": "Autonomous breakdown",
+                                "subtasks": [
+                                    {
+                                        "id": "t1",
+                                        "title": "Gather research sources",
+                                        "objective": "Query web feeds and fetch news",
+                                        "kind": "fetch",
+                                        "depends_on": [],
+                                        "suggested_tools": [],
+                                        "expected_output": "Fetched sources",
+                                    },
+                                    {
+                                        "id": "t2",
+                                        "title": "Analyze findings",
+                                        "objective": "Extract facts and summarize",
+                                        "kind": "research",
+                                        "depends_on": ["t1"],
+                                        "suggested_tools": [],
+                                        "expected_output": "Filtered report",
+                                    },
+                                ],
+                                "synthesis_instructions": "Synthesize summary report",
+                            }
+                        ),
                         finish_reason="stop",
                     )
                     return
@@ -204,11 +208,13 @@ class FakeProvider(Provider):
                     import json
 
                     yield ChatChunk(
-                        delta_text=json.dumps({
-                            "findings": "Subtask completed successfully with verified citations.",
-                            "verified_sources": ["https://example.com/verified-news"],
-                            "data": {},
-                        }),
+                        delta_text=json.dumps(
+                            {
+                                "findings": "Subtask completed successfully with verified citations.",
+                                "verified_sources": ["https://example.com/verified-news"],
+                                "data": {},
+                            }
+                        ),
                         finish_reason="stop",
                     )
                     return

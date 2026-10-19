@@ -25,6 +25,9 @@ class ModelNotAvailable(ProviderError):
     """Requested model is not pulled or does not exist."""
 
 
+ModelNotFound = ModelNotAvailable
+
+
 class RateLimitError(ProviderError):
     """Provider rate limit reached and could not be satisfied."""
 
@@ -45,6 +48,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    taint: TaintFlag = TaintFlag.NONE
 
 
 @dataclass
@@ -79,9 +83,16 @@ class Message:
         return str(self.content)
 
     def is_private(self) -> bool:
-        """Check if message content carries PRIVATE taint."""
-        if isinstance(self.content, Content):
-            return self.content.is_private()
+        """Check if message content or its tool calls/arguments carry PRIVATE taint."""
+        if isinstance(self.content, Content) and self.content.is_private():
+            return True
+        for tc in self.tool_calls:
+            if getattr(tc, "taint", TaintFlag.NONE) & TaintFlag.PRIVATE:
+                return True
+            if isinstance(tc.arguments, dict):
+                for val in tc.arguments.values():
+                    if isinstance(val, Content) and val.is_private():
+                        return True
         return False
 
     def is_untrusted(self) -> bool:

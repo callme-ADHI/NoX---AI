@@ -172,7 +172,7 @@ async def recall_memories(
 
     for fid in candidate_fact_ids:
         fact = await get_fact(db, fid)
-        if fact is None or fact.deleted_at is not None:
+        if fact is None or fact.deleted_at is not None or getattr(fact, "needs_review", 0) == 1:
             continue
 
         cos = fact_vec_scores.get(fid, 0.0)
@@ -294,6 +294,11 @@ def format_memory_block(facts: list[Fact], episodes: list[Episode]) -> str:
         lines.append("#### Recent episodes")
         for e in episodes:
             date_prefix = e.ts[:10] if len(e.ts) >= 10 else e.ts
-            lines.append(f"- ({date_prefix}) {e.summary}")
+            if getattr(e, "untrusted_origin", 0) == 1:
+                lines.append(
+                    f"- ({date_prefix}) <untrusted_content>{e.summary}</untrusted_content>"
+                )
+            else:
+                lines.append(f"- ({date_prefix}) {e.summary}")
 
     return "\n".join(lines)

@@ -39,18 +39,23 @@ class OllamaProvider(Provider):
         num_ctx: int = 8192,
         connect_timeout: float = 10.0,
         request_timeout: float = 300.0,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.keep_alive = keep_alive
         self.num_ctx = num_ctx
         self.connect_timeout = connect_timeout
         self.request_timeout = request_timeout
+        self.transport = transport
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=httpx.Timeout(self.request_timeout, connect=self.connect_timeout),
-        )
+        kwargs: dict[str, Any] = {
+            "base_url": self.base_url,
+            "timeout": httpx.Timeout(self.request_timeout, connect=self.connect_timeout),
+        }
+        if self.transport is not None:
+            kwargs["transport"] = self.transport
+        return httpx.AsyncClient(**kwargs)
 
     def _format_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         formatted: list[dict[str, Any]] = []

@@ -78,11 +78,10 @@ async def memory_db() -> aiosqlite.Connection:
     # Initialize tables directly
     from pathlib import Path
 
-    migration_sql = (
-        Path(__file__).parent.parent / "src" / "noxai" / "migrations" / "001_initial.sql"
-    ).read_text(encoding="utf-8")
+    mig_dir = Path(__file__).parent.parent / "src" / "noxai" / "migrations"
+    for sql_file in sorted(mig_dir.glob("*.sql")):
+        await conn.executescript(sql_file.read_text(encoding="utf-8"))
 
-    await conn.executescript(migration_sql)
     await conn.commit()
     yield conn
     await conn.close()

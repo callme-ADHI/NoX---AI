@@ -211,11 +211,17 @@ class AgentLoop:
             allow_cloud=allow_cloud,
             recalled_memories=recalled_mem_list,
         )
-        system_message = Message(role="system", content=system_text)
+        system_message = Message(
+            role="system",
+            content=Content(
+                text=system_text,
+                taint=TaintFlag.PRIVATE if recalled_mem_list else TaintFlag.NONE,
+            ),
+        )
         messages.append(system_message)
 
-        # Load existing conversation messages from DB if conversation_id provided
-        if conversation_id and db is not None:
+        # Load existing conversation messages from DB if conversation_id provided (local runs only)
+        if not allow_cloud and conversation_id and db is not None:
             try:
                 async with db.execute(
                     """
@@ -429,6 +435,7 @@ class AgentLoop:
                                 if isinstance(user_message, str)
                                 else user_message.get_text()
                             )
+                            is_untrusted = bool(current_context_taint & TaintFlag.UNTRUSTED)
                             t = asyncio.create_task(
                                 extract_and_store_turn(
                                     user_text=user_str,
@@ -436,6 +443,7 @@ class AgentLoop:
                                     router=self.router,
                                     db=None,
                                     task_id=actual_run_id,
+                                    is_untrusted=is_untrusted,
                                 )
                             )
                             background_tasks.add(t)

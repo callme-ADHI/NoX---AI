@@ -639,7 +639,6 @@ except Exception as _exc:
     log.warning("Tool auto-discovery on startup failed: %s", _exc)
 
 
-
 async def approve_approval(
     approval_id: int,
     decided_by: str = "owner",

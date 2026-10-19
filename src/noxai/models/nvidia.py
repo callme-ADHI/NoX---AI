@@ -8,6 +8,7 @@ import logging
 import random
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC
 from typing import Any
 
 import httpx
@@ -68,6 +69,26 @@ class TokenBucket:
         }
 
 
+def _parse_retry_after(header_val: str | None, default: float) -> float:
+    if not header_val:
+        return default
+    try:
+        return max(0.0, float(header_val))
+    except ValueError:
+        pass
+    try:
+        import email.utils
+        from datetime import datetime
+
+        dt = email.utils.parsedate_to_datetime(header_val)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        diff = (dt - datetime.now(UTC)).total_seconds()
+        return max(0.0, diff)
+    except Exception:
+        return default
+
+
 class NvidiaProvider(Provider):
     """NVIDIA hosted model provider using OpenAI-compatible endpoints."""
 
@@ -81,12 +102,18 @@ class NvidiaProvider(Provider):
         requests_per_minute: int = 30,
         max_retries: int = 4,
         timeout: float = 60.0,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self.timeout = timeout
+        self.transport = transport
         self.rate_limiter = TokenBucket(requests_per_minute=requests_per_minute)
+
+    def __repr__(self) -> str:
+        masked = f"{self.api_key[:6]}...***" if self.api_key else "None"
+        return f"NvidiaProvider(base_url={self.base_url!r}, api_key={masked!r})"
 
     @property
     def is_enabled(self) -> bool:
@@ -172,7 +199,7 @@ class NvidiaProvider(Provider):
 
                 if resp.status_code == 429:
                     retry_after_header = resp.headers.get("Retry-After")
-                    wait_sec = float(retry_after_header) if retry_after_header else backoff
+                    wait_sec = _parse_retry_after(retry_after_header, backoff)
                     jitter = random.uniform(0.1, 0.5)  # noqa: S311
                     total_wait = wait_sec + jitter
                     log.warning(
@@ -249,7 +276,10 @@ class NvidiaProvider(Provider):
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
-        client = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=10.0))
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            transport=self.transport,
+        )
         try:
             resp = await self._request_with_retry(client, payload, stream=stream)
 
@@ -358,7 +388,10 @@ class NvidiaProvider(Provider):
 
         start = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            kwargs: dict[str, Any] = {"timeout": 5.0}
+            if self.transport is not None:
+                kwargs["transport"] = self.transport
+            async with httpx.AsyncClient(**kwargs) as client:
                 resp = await client.get(
                     f"{self.base_url}/models",
                     headers=self._headers(),

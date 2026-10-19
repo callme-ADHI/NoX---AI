@@ -9,9 +9,9 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
-from noxai.config import get_config
+from noxai.config import ModelRoleConfig, get_config
 from noxai.models.base import Message
-from noxai.models.ollama import OllamaProvider
+from noxai.models.router import ModelRouter
 from noxai.tools.registry import default_registry
 
 log = logging.getLogger(__name__)
@@ -92,7 +92,8 @@ async def run_tool_eval(
     """Execute the nine-task tool calling evaluation against a model."""
     c = console or Console()
     cfg = get_config()
-    provider = OllamaProvider(base_url=cfg.models.ollama.base_url)
+    cfg.models.roles["eval"] = ModelRoleConfig(provider="ollama", model=model_name)
+    router = ModelRouter(cfg)
     tools = default_registry.get_specs()
 
     table = Table(
@@ -125,8 +126,8 @@ async def run_tool_eval(
         assistant_text = ""
 
         try:
-            async for chunk in provider.chat(
-                model=model_name,
+            async for chunk in router.chat(
+                role="eval",
                 messages=messages,
                 tools=tools,
             ):
