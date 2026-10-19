@@ -41,6 +41,13 @@ EVENT_TYPES = {
     "trace",
     "intent_detected",
     "task_dispatched",
+    "task_created",
+    "task_started",
+    "task_progress",
+    "task_waiting_approval",
+    "task_done",
+    "task_failed",
+    "task_cancelled",
     "reminder_dispatched",
 }
 

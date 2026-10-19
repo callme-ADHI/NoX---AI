@@ -20,6 +20,7 @@ from noxai.config import Settings, get_config
 from noxai.db import VECTOR_BACKEND, execute, fetch_all, fetch_one, get_db
 from noxai.events import global_event_bus, make_event
 from noxai.models.router import get_default_router
+from noxai.tasks.center import TaskCenter
 from noxai.tools.registry import (
     approve_approval,
     default_registry,
@@ -66,6 +67,32 @@ class ChatResponse(BaseModel):
 
 class ApprovalDecision(BaseModel):
     decision: str = Field(..., description="'approve' or 'deny'")
+
+
+class CreateTaskRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    prompt: str = Field(..., min_length=1)
+    lane: str = Field(default="local")
+    priority: str = Field(default="normal")
+    run_id: str | None = None
+
+
+class TaskResponse(BaseModel):
+    id: str
+    title: str
+    prompt: str
+    lane: str
+    priority: str
+    status: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    result_json: str | None = None
+    progress: float = 0.0
+    approval_id: int | None = None
+    cancellation_token: str | None = None
+    run_id: str | None = None
 
 
 class BriefingFeedback(BaseModel):
@@ -553,6 +580,14 @@ async def resolve_approval_endpoint(approval_id: int, body: ApprovalDecision) ->
     else:
         raise HTTPException(status_code=400, detail="Decision must be 'approve' or 'deny'")
 
+    # Unpark or cancel any task waiting for this approval in TaskCenter
+    try:
+        cfg = get_config()
+        tc = TaskCenter(config=cfg)
+        await tc.handle_approval_resolved(approval_id, approved=(body.decision == "approve"))
+    except Exception as exc:
+        log.warning("Failed to notify TaskCenter of approval %s: %s", approval_id, exc)
+
     await global_event_bus.publish(
         make_event(
             "approval_resolved",
@@ -560,6 +595,67 @@ async def resolve_approval_endpoint(approval_id: int, body: ApprovalDecision) ->
         )
     )
     return {"ok": ok}
+
+
+# ---------------------------------------------------------------------------
+# Task Center (Background Tasks §1.4, §G3)
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/tasks", response_model=list[TaskResponse], dependencies=READ_DEPS)
+async def list_tasks_endpoint(
+    status: str | None = Query(None),
+    lane: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[TaskResponse]:
+    """List background tasks with optional filtering."""
+    cfg = get_config()
+    tc = TaskCenter(config=cfg)
+    tasks = await tc.list_tasks(status=status, lane=lane, limit=limit)
+    return [TaskResponse(**t.to_dict()) for t in tasks]
+
+
+@api_router.post("/tasks", response_model=TaskResponse, dependencies=WRITE_DEPS)
+async def create_task_endpoint(body: CreateTaskRequest) -> TaskResponse:
+    """Create and enqueue a background task."""
+    cfg = get_config()
+    tc = TaskCenter(config=cfg)
+    try:
+        task = await tc.create_task(
+            title=body.title,
+            prompt=body.prompt,
+            lane=body.lane,
+            priority=body.priority,
+            run_id=body.run_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return TaskResponse(**task.to_dict())
+
+
+@api_router.get("/tasks/{task_id}", response_model=TaskResponse, dependencies=READ_DEPS)
+async def get_task_endpoint(task_id: str) -> TaskResponse:
+    """Retrieve details of a background task."""
+    cfg = get_config()
+    tc = TaskCenter(config=cfg)
+    task = await tc.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    return TaskResponse(**task.to_dict())
+
+
+@api_router.post("/tasks/{task_id}/cancel", dependencies=WRITE_DEPS)
+async def cancel_task_endpoint(task_id: str) -> dict[str, Any]:
+    """Cancel a queued or running background task."""
+    cfg = get_config()
+    tc = TaskCenter(config=cfg)
+    cancelled = await tc.cancel_task(task_id)
+    if not cancelled:
+        task = await tc.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+        return {"ok": False, "task_id": task_id, "status": task.status.value}
+    return {"ok": True, "task_id": task_id, "status": "cancelled"}
 
 
 # ---------------------------------------------------------------------------

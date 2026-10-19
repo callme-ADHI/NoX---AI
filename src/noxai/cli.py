@@ -38,6 +38,7 @@ from noxai.commands.models import models_app
 from noxai.commands.reminders import remind_command, reminders_app
 from noxai.commands.service import service_app, session_env_command
 from noxai.commands.sources import sources_app
+from noxai.commands.tasks import tasks_app
 
 app = typer.Typer(
     name="nx",
@@ -50,6 +51,7 @@ console = Console()
 app.add_typer(models_app, name="models")
 app.add_typer(cloud_app, name="cloud")
 app.add_typer(jobs_app, name="jobs")
+app.add_typer(tasks_app, name="tasks")
 app.add_typer(memory_app, name="memory")
 app.add_typer(reminders_app, name="reminders")
 app.add_typer(sources_app, name="sources")

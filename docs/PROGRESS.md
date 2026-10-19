@@ -108,7 +108,19 @@ Environment:
     - Quality gates: 429 passed in 72.78s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 77 source files.
   - NEXT: Phase F5 (Task Center)
 
-- [ ] **F5** — Task Center
+- [x] **F5** — Task Center
+  - Status: Done
+  - Commit: Pending (F5 commit: `feat(tasks): task center, background worker, approval parking`)
+  - Evidence:
+    - Database Migration 006: added `src/noxai/migrations/006_task_center.sql` defining `tasks` table with execution lanes (`local`, `cloud`, `scheduler`), priority levels (`low`, `normal`, `high`, `urgent`), statuses (`queued`, `running`, `paused`, `waiting_approval`, `done`, `failed`, `cancelled`), progress (0.0–1.0), `approval_id`, and `cancellation_token`.
+    - Task Center Orchestrator: implemented `src/noxai/tasks/center.py` and `src/noxai/tasks/models.py` with priority queueing (`urgent` prioritized over `high`, `normal`, `low`), state transition handling, background worker loop with cancellation tokens (`asyncio.Event`), and approval parking (`park_for_approval` and `handle_approval_resolved`).
+    - Event Bus: added `task_created`, `task_started`, `task_progress`, `task_waiting_approval`, `task_done`, `task_failed`, `task_cancelled` events in `src/noxai/events.py`.
+    - Daemon REST API: implemented `GET /api/tasks`, `POST /api/tasks`, `GET /api/tasks/{task_id}`, `POST /api/tasks/{task_id}/cancel`, and wired approval unparking/cancellation into `POST /api/approvals/{approval_id}` in `src/noxai/api/routes.py`.
+    - CLI Commands: implemented `nx tasks list`, `nx tasks show`, `nx tasks cancel`, and `nx tasks create` in `src/noxai/commands/tasks.py` and registered sub-app in `src/noxai/cli.py`.
+    - Verification & testing: 9 comprehensive unit and integration tests in `tests/test_task_center.py` verifying schema, priority ordering, lane filtering, worker lifecycle, cancellation, approval parking/resumption, API endpoints, and CLI commands.
+    - Quality gates: 438 passed in 133.49s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 81 source files.
+  - NEXT: Phase F6 (Resident small model and Ollama tuning)
+
 - [ ] **F6** — Resident small model and Ollama tuning
 - [ ] **F7** — UI for the new architecture
 - [ ] **F8** — Integration, latency proof and M10 acceptance
