@@ -17,12 +17,9 @@ The full daemon is wired up in M7.
 from __future__ import annotations
 
 import os
-import shutil
-import socket
 import sqlite3
 import stat
 import subprocess
-import sys
 from datetime import UTC
 from pathlib import Path
 from typing import Any
@@ -32,6 +29,15 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from noxai.commands.audit import audit_app
+from noxai.commands.briefings import briefings_app
+from noxai.commands.jobs import jobs_app
+from noxai.commands.memory import memory_app
+from noxai.commands.models import models_app
+from noxai.commands.reminders import remind_command, reminders_app
+from noxai.commands.service import service_app, session_env_command
+from noxai.commands.sources import sources_app
+
 app = typer.Typer(
     name="nx",
     help="NoX personal AI agent — command-line interface.",
@@ -39,6 +45,18 @@ app = typer.Typer(
 )
 
 console = Console()
+
+app.add_typer(models_app, name="models")
+app.add_typer(jobs_app, name="jobs")
+app.add_typer(memory_app, name="memory")
+app.add_typer(reminders_app, name="reminders")
+app.add_typer(sources_app, name="sources")
+app.add_typer(briefings_app, name="briefings")
+app.add_typer(audit_app, name="audit")
+app.add_typer(service_app, name="service")
+
+app.command(name="remind")(remind_command)
+app.command(name="session-env")(session_env_command)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -188,145 +206,17 @@ def status(
 
 
 @app.command()
-def doctor() -> None:
-    """Run health checks and print PASS/FAIL with fix hints."""
-    console.rule("[bold blue]NoX Doctor[/bold blue]")
+def doctor(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output doctor results as JSON."),
+) -> None:
+    """Run all health checks and print PASS/WARN/FAIL with fix hints."""
+    from noxai.doctor import run_doctor
 
-    checks: list[tuple[str, bool, str]] = []  # (label, passed, hint)
-
-    # 1. Python version
-    major, minor = sys.version_info[:2]
-    py_ok = (major, minor) >= (3, 11)
-    checks.append(
-        (
-            f"Python ≥ 3.11  (found {major}.{minor})",
-            py_ok,
-            "Install Python 3.11+ — on Arch: pacman -S python",
-        )
-    )
-
-    # 2. Ollama reachable
-    ollama_ok, ollama_hint, ollama_data = _check_ollama()
-    checks.append(("Ollama reachable at :11434", ollama_ok, ollama_hint))
-
-    # 3. qwen2.5:14b model present
-    qwen_ok = _model_present("qwen2.5:14b", ollama_data)
-    checks.append(
-        (
-            "qwen2.5:14b model in Ollama",
-            qwen_ok,
-            "Pull it: ollama pull qwen2.5:14b",
-        )
-    )
-
-    # 4. nomic-embed-text present
-    embed_ok = _model_present("nomic-embed-text", ollama_data)
-    checks.append(
-        (
-            "nomic-embed-text model in Ollama",
-            embed_ok,
-            "Pull it: ollama pull nomic-embed-text",
-        )
-    )
-
-    # 5. sqlite-vec or numpy fallback
-    vec_ok, vec_hint = _check_sqlite_vec()
-    checks.append(("sqlite-vec (or numpy fallback active)", vec_ok, vec_hint))
-
-    # 6. DB migrations applied
-    db_ok, db_hint = _check_db()
-    checks.append(("DB migrations applied", db_ok, db_hint))
-
-    # 7. Secrets file permissions
-    sec_ok, sec_hint = _check_secrets()
-    checks.append(("Secrets file permissions (0600)", sec_ok, sec_hint))
-
-    # 8. NVIDIA API key present
-    key_ok = _check_nvidia_key()
-    checks.append(
-        (
-            "NVIDIA API key configured",
-            key_ok,
-            "Add NVIDIA_API_KEY=nvapi-... to ~/.config/nox/secrets.env then chmod 600",
-        )
-    )
-
-    # 9. NVIDIA endpoint reachable (only if key present)
-    if key_ok:
-        nv_reach, nv_hint = _check_nvidia_reachable()
-        checks.append(("NVIDIA API endpoint reachable", nv_reach, nv_hint))
-
-    # 10. Server port free
     try:
-        from noxai.config import get_config
-
-        cfg = get_config()
-        srv_host = cfg.server.host
-        srv_port = cfg.server.port
-    except Exception:
-        srv_host = "127.0.0.1"
-        srv_port = 7777
-    port_ok = _port_free(srv_host, srv_port)
-    checks.append(
-        (
-            f"Port {srv_port} free (daemon not yet running)",
-            port_ok,
-            f"Stop any process using port {srv_port}: ss -tlnp | grep {srv_port}",
-        )
-    )
-
-    # 11. notify-send present
-    ns_ok = shutil.which("notify-send") is not None
-    checks.append(
-        (
-            "notify-send in PATH",
-            ns_ok,
-            "Install libnotify: sudo pacman -S libnotify",
-        )
-    )
-
-    # 12. systemd user unit
-    unit_ok, unit_hint = _check_systemd_unit()
-    checks.append(("systemd user unit noxd.service", unit_ok, unit_hint))
-
-    # 13. Gate mode
-    gate_mode, gate_hint = _check_gate()
-    checks.append((f"Gate mode: {gate_mode}", True, gate_hint))  # always pass, just info
-
-    # 14. UI build present
-    ui_ok = UI_BUILD.exists()
-    checks.append(
-        (
-            "UI build present (ui/dist/index.html)",
-            ui_ok,
-            "Build UI: cd ui && npm install && npm run build",
-        )
-    )
-
-    # Print results table
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Check", style="bold", no_wrap=True)
-    table.add_column("Status", justify="center")
-    table.add_column("Fix", style="dim")
-
-    all_pass = True
-    for label, passed, hint in checks:
-        status_str = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
-        if not passed:
-            all_pass = False
-        table.add_row(label, status_str, "" if passed else hint)
-
-    console.print(table)
-
-    if all_pass:
-        console.print("\n[bold green]All checks passed.[/bold green] NoX is ready.")
-    else:
-        n_fail = sum(1 for _, p, _ in checks if not p)
-        console.print(
-            f"\n[bold red]{n_fail} check(s) failed.[/bold red] "
-            "Fix the issues above, then run [bold]nx doctor[/bold] again."
-        )
-        raise typer.Exit(1)
+        run_doctor(console=console, json_output=json_output)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else (1 if exc.code else 0)
+        raise typer.Exit(code) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +248,6 @@ def token() -> None:
 @app.command()
 def open() -> None:
     """Open the NoX web UI."""
-    import subprocess
     import webbrowser
 
     from noxai.api.auth import generate_session_token, load_session_token
@@ -438,178 +327,6 @@ def chat_cmd(
     asyncio.run(_run())
 
 
-jobs_app = typer.Typer(help="Job management commands (M6).")
-app.add_typer(jobs_app, name="jobs")
-
-
-@jobs_app.command(name="list")
-def jobs_list() -> None:
-    """List all scheduled jobs."""
-    import asyncio
-
-    from rich.table import Table
-
-    from noxai.db import get_db, run_migrations
-    from noxai.scheduler.seeds import seed_database
-
-    async def _list() -> None:
-        await run_migrations()
-        async with get_db() as db:
-            await seed_database(db)
-            rows = await db.execute_fetchall(
-                "SELECT id, name, schedule_type, schedule_expr, timezone, enabled, next_run_at "
-                "FROM jobs ORDER BY name ASC"
-            )
-            if not rows:
-                console.print("[dim]No jobs found.[/dim]")
-                return
-
-            table = Table(title="NoX Scheduled Jobs")
-            table.add_column("ID", style="dim")
-            table.add_column("Name", style="bold cyan")
-            table.add_column("Schedule", style="green")
-            table.add_column("Timezone", style="dim")
-            table.add_column("Enabled", style="bold")
-            table.add_column("Next Run", style="yellow")
-
-            for r in rows:
-                en_str = "[green]yes[/]" if r[5] else "[red]no[/]"
-                next_str = str(r[6]) if r[6] else "[dim]none[/]"
-                table.add_row(
-                    str(r[0]),
-                    str(r[1]),
-                    f"{r[2]}: {r[3]}",
-                    str(r[4] or "local"),
-                    en_str,
-                    next_str,
-                )
-            console.print(table)
-
-    asyncio.run(_list())
-
-
-@jobs_app.command(name="run")
-def jobs_run(name: str = typer.Argument(..., help="Job name or ID to execute.")) -> None:
-    """Run a job immediately by name or ID."""
-    import asyncio
-
-    from noxai.db import get_db, run_migrations
-    from noxai.scheduler.scheduler import JobScheduler
-    from noxai.scheduler.seeds import seed_database
-
-    async def _run() -> None:
-        await run_migrations()
-        async with get_db() as db:
-            await seed_database(db)
-            cursor = await db.execute(
-                "SELECT * FROM jobs WHERE name = ? OR id = ?",
-                (name, name),
-            )
-            row = await cursor.fetchone()
-            if not row:
-                console.print(f"[red]Error:[/] Job '{name}' not found.")
-                raise typer.Exit(1)
-
-            col_names = [d[0] for d in cursor.description]
-            job_dict = dict(zip(col_names, row, strict=False))
-
-            console.print(f"[bold cyan]Running job:[/] {job_dict['name']} ({job_dict['id']})...")
-            scheduler = JobScheduler()
-            res = await scheduler.run_job(job_dict, db, run_context="cli")
-            status = res.get("status", "unknown")
-            if status == "ok":
-                console.print("[green]Job completed successfully![/]")
-                if res.get("output"):
-                    console.print(f"\n[dim]--- Output ---[/dim]\n{res['output'][:500]}")
-            else:
-                console.print(f"[red]Job failed with status: {status}[/]")
-                if res.get("error"):
-                    console.print(f"[red]Error:[/] {res['error']}")
-                raise typer.Exit(1)
-
-    asyncio.run(_run())
-
-
-memory_app = typer.Typer(help="Memory commands (M4).")
-app.add_typer(memory_app, name="memory")
-
-
-@memory_app.command(name="search")
-def memory_search(
-    query: str = typer.Argument(..., help="Query string to search memory."),
-    top_k: int = typer.Option(10, "--top-k", "-k", help="Maximum results to return."),
-) -> None:
-    """Search long-term memory for facts and episodes matching a query."""
-    import asyncio
-
-    from rich.table import Table
-
-    from noxai.config import get_config
-    from noxai.db import get_db, run_migrations
-    from noxai.memory.recall import recall_memories
-    from noxai.models.router import ModelRouter
-
-    async def _search() -> None:
-        await run_migrations()
-        cfg = get_config()
-        router = ModelRouter(cfg)
-
-        async with get_db() as db:
-            result = await recall_memories(
-                query=query,
-                db=db,
-                router=router,
-                config=cfg,
-                top_k=top_k,
-            )
-
-            if not result.facts and not result.episodes:
-                console.print(f"[dim]No memories found matching '{query}'.[/dim]")
-                return
-
-            if result.facts:
-                f_table = Table(
-                    title=f"Facts matching '{query}'",
-                    show_header=True,
-                    header_style="bold cyan",
-                )
-                f_table.add_column("Key", style="bold")
-                f_table.add_column("Category")
-                f_table.add_column("Value")
-                f_table.add_column("Pinned", justify="center")
-                f_table.add_column("Confidence", justify="right")
-
-                for f in result.facts:
-                    pinned_badge = "[bold green]YES[/]" if f.pinned else "[dim]no[/]"
-                    f_table.add_row(
-                        f.key,
-                        f.category,
-                        f.value,
-                        pinned_badge,
-                        f"{f.confidence:.2f}",
-                    )
-                console.print(f_table)
-
-            if result.episodes:
-                console.print("")
-                e_table = Table(
-                    title=f"Episodes matching '{query}'",
-                    show_header=True,
-                    header_style="bold magenta",
-                )
-                e_table.add_column("Date", style="dim")
-                e_table.add_column("Summary")
-                e_table.add_column("Importance", justify="right")
-
-                for ep in result.episodes:
-                    e_table.add_row(
-                        ep.ts[:16] if len(ep.ts) >= 16 else ep.ts,
-                        ep.summary,
-                        f"{ep.importance:.2f}",
-                    )
-                console.print(e_table)
-
-    asyncio.run(_search())
 
 
 @app.command(name="eval-tools")
@@ -624,158 +341,6 @@ def eval_tools(
     for m in models:
         asyncio.run(run_tool_eval(m, console=console))
 
-
-# ---------------------------------------------------------------------------
-# Doctor check helpers
-# ---------------------------------------------------------------------------
-
-
-def _check_ollama() -> tuple[bool, str, list[dict]]:
-    """Check if Ollama is reachable and return its model list."""
-    try:
-        resp = httpx.get("http://127.0.0.1:11434/api/tags", timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
-        return True, "", data.get("models", [])
-    except httpx.ConnectError:
-        return False, "Start Ollama: sudo systemctl start ollama", []
-    except Exception as exc:
-        return False, f"Ollama error: {exc}", []
-
-
-def _model_present(model_name: str, ollama_models: list[dict]) -> bool:
-    """Return True if a model name appears in Ollama's model list."""
-    names = {m.get("name", "") for m in ollama_models}
-    # Match either exact or with :latest suffix
-    return (
-        model_name in names
-        or f"{model_name}:latest" in names
-        or any(n.startswith(model_name + ":") for n in names)
-    )
-
-
-def _check_sqlite_vec() -> tuple[bool, str]:
-    """Return (ok, hint) for sqlite-vec availability."""
-    try:
-        import sqlite3
-
-        import sqlite_vec  # type: ignore[import-untyped]
-
-        conn = sqlite3.connect(":memory:")
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.close()
-        return True, ""
-    except Exception:
-        try:
-            import numpy  # noqa: F401
-
-            return True, "sqlite-vec missing; numpy fallback is active (PASS with note)"
-        except ImportError:
-            return False, "Install numpy: pip install numpy (or install sqlite-vec)"
-
-
-def _check_db() -> tuple[bool, str]:
-    """Return (ok, hint) for DB migration status."""
-    if not DB_PATH.exists():
-        return False, "Run migrations: python -m noxai (or start the daemon)"
-    try:
-        import sqlite3
-
-        conn = sqlite3.connect(str(DB_PATH))
-        rows = conn.execute("SELECT filename FROM schema_migrations ORDER BY id").fetchall()
-        conn.close()
-        n = len(rows)
-        if n == 0:
-            return False, "No migrations applied — start the daemon to apply them"
-        return True, f"{n} migration(s) applied"
-    except sqlite3.OperationalError:
-        return False, "schema_migrations table missing — start the daemon"
-    except Exception as exc:
-        return False, f"DB error: {exc}"
-
-
-def _check_secrets() -> tuple[bool, str]:
-    """Return (ok, hint) for secrets file permissions."""
-    if not SECRETS_FILE.exists():
-        return True, "No secrets file (NVIDIA disabled — OK)"
-    try:
-        file_stat = SECRETS_FILE.stat()
-        mode = stat.S_IMODE(file_stat.st_mode)
-        if mode & 0o177:
-            return False, f"chmod 600 {SECRETS_FILE}"
-        return True, ""
-    except Exception as exc:
-        return False, str(exc)
-
-
-def _check_nvidia_key() -> bool:
-    """Return True if an NVIDIA API key is configured in secrets."""
-    if not SECRETS_FILE.exists():
-        return False
-    try:
-        text = SECRETS_FILE.read_text()
-        return "NVIDIA_API_KEY=" in text and "nvapi-" in text
-    except Exception:
-        return False
-
-
-def _check_nvidia_reachable() -> tuple[bool, str]:
-    """Check if the NVIDIA API endpoint responds."""
-    try:
-        # A quick HEAD to the base URL — we don't have a key-less endpoint
-        # so we just check DNS/TCP connectivity to the host.
-        httpx.head("https://integrate.api.nvidia.com", timeout=5.0)
-        return True, ""
-    except httpx.ConnectError:
-        return False, "NVIDIA endpoint unreachable — check network / VPN"
-    except Exception as exc:
-        return True, f"Partial: {exc}"  # HTTP errors mean the host is up
-
-
-def _port_free(host: str, port: int) -> bool:
-    """Return True if the port is not in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(1.0)
-        try:
-            s.connect((host, port))
-            return False  # something is listening
-        except (TimeoutError, ConnectionRefusedError):
-            return True
-
-
-def _check_systemd_unit() -> tuple[bool, str]:
-    """Check the status of the noxd.service systemd user unit."""
-    try:
-        result = subprocess.run(
-            ["systemctl", "--user", "is-enabled", "noxd.service"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        state = result.stdout.strip()
-        if state == "enabled":
-            return True, ""
-        elif state in ("disabled", "static"):
-            return False, "Enable with: systemctl --user enable noxd.service"
-        else:
-            return False, f"Unit state: {state!r} — install systemd unit first"
-    except FileNotFoundError:
-        return False, "systemd not found — are you on a systemd system?"
-    except Exception as exc:
-        return False, str(exc)
-
-
-def _check_gate() -> tuple[str, str]:
-    """Return the configured gate mode."""
-    try:
-        from noxai.config import get_config
-
-        cfg = get_config()
-        mode = cfg.gate.mode
-        return mode, ""
-    except Exception:
-        return "unknown", "Could not read config"
 
 
 # ---------------------------------------------------------------------------

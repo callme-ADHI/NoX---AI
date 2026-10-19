@@ -7,7 +7,7 @@ import { ToolCallItem } from '../types';
 describe('ToolCallCard and Redaction', () => {
   it('redactSecrets function correctly masks API keys, tokens, and passwords', () => {
     const rawArgs = {
-      api_key: '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',
+      api_key: 'nvapi-abcdef1234567890abcdef1234',
       password: 'SuperSecretPassword123!',
       token: 'ghp_abcdefghijklmnopqrstuvwxyz123456',
       normal_arg: 'safe_value',
@@ -15,7 +15,7 @@ describe('ToolCallCard and Redaction', () => {
         authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz',
         auth_header: 'Bearer secret_token_value',
       },
-      text: 'My key is sk-1234567890abcdef and nvapi-abcde12345',
+      text: 'My key is sk-abcdef1234567890abcdef1234 and nvapi-abcde12345',
     };
 
     const redacted = redactSecrets(rawArgs) as Record<string, unknown>;
@@ -28,7 +28,7 @@ describe('ToolCallCard and Redaction', () => {
     expect(nested.authorization).toBe('[REDACTED]');
     expect(nested.auth_header as string).toContain('Bearer [REDACTED]');
     expect(redacted.text as string).toContain('[REDACTED_API_KEY]');
-    expect(redacted.text as string).not.toContain('sk-1234567890abcdef');
+    expect(redacted.text as string).not.toContain('sk-abcdef1234567890abcdef1234');
     expect(redacted.text as string).not.toContain('nvapi-abcde12345');
   });
 
@@ -39,7 +39,7 @@ describe('ToolCallCard and Redaction', () => {
       tier: 'read',
       arguments: {
         endpoint: 'https://api.nvidia.com/v1/chat',
-        api_key: 'nvapi-REAL_SECRET_KEY_HERE_123',
+        api_key: 'nvapi-secret1234567890abcdef1234',
         token: 'secret_jwt_token',
       },
       result_summary: 'Success: fetched status with authorization Bearer secret123',
@@ -57,7 +57,7 @@ describe('ToolCallCard and Redaction', () => {
     // The rendered arguments pre-block must contain [REDACTED] and NOT the raw secret
     const argsBlock = screen.getByText(/"api_key": "\[REDACTED\]"/i);
     expect(argsBlock).toBeInTheDocument();
-    expect(screen.queryByText(/REAL_SECRET_KEY_HERE_123/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret1234567890abcdef1234/)).not.toBeInTheDocument();
 
     // The result output must also be redacted
     expect(screen.getByText(/Bearer \[REDACTED\]/)).toBeInTheDocument();

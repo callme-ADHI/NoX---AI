@@ -38,7 +38,7 @@ class OllamaProvider(Provider):
         keep_alive: str = "30m",
         num_ctx: int = 8192,
         connect_timeout: float = 10.0,
-        request_timeout: float = 120.0,
+        request_timeout: float = 300.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.keep_alive = keep_alive

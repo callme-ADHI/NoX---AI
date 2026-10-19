@@ -38,6 +38,7 @@ EXPLICIT_KEY_ALLOWLIST = {
     "nvapi-1234567890abcdef12345678",
     "nvapi-abc12345678901234567890xyz",
     "-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----",
+    "ghp_abcdefghijklmnopqrstuvwxyz123456",
 }
 
 

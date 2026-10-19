@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 
 import aiosqlite
 
-from noxai.agent.json_repair import repair_json
 from noxai.db import get_db
 from noxai.memory.embed import embed_text, search_fact_vectors
 from noxai.memory.store import (
@@ -152,6 +151,8 @@ async def extract_and_store_turn(
     except Exception:
         # Heuristic repair pass
         try:
+            from noxai.agent.json_repair import repair_json
+
             parsed = repair_json(cleaned)
         except Exception:
             log.warning("Failed to parse extractor JSON: %s", raw_response[:200])
