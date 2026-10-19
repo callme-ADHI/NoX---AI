@@ -441,6 +441,7 @@ class NvidiaProvider(Provider):
         *,
         model: str,
         texts: list[str],
+        keep_alive: str | None = None,
     ) -> list[list[float]]:
         """NVIDIA embedding is not used in Phase 1 (local nomic-embed-text only)."""
         raise NotImplementedError("Embeddings via NVIDIA provider are not used in Phase 1.")

@@ -78,6 +78,8 @@ class FakeProvider(Provider):
         stream: bool = True,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        num_ctx: int | None = None,
+        keep_alive: str | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Record the call, check privacy rules, and yield scripted chunks."""
@@ -99,6 +101,8 @@ class FakeProvider(Provider):
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "num_ctx": num_ctx,
+                "keep_alive": keep_alive,
             }
         )
 
@@ -280,9 +284,12 @@ class FakeProvider(Provider):
         *,
         model: str,
         texts: list[str],
+        keep_alive: str | None = None,
     ) -> list[list[float]]:
         """Return scripted embeddings or a default 8-dim vector per text."""
-        self.calls.append({"model": model, "texts": texts, "action": "embed"})
+        self.calls.append(
+            {"model": model, "texts": texts, "action": "embed", "keep_alive": keep_alive}
+        )
         if self.embed_responses:
             return self.embed_responses.pop(0)
         # Default mock vector

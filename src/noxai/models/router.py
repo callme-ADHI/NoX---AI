@@ -64,6 +64,9 @@ class ModelRouter:
     def resolve_role(self, role: str) -> tuple[Provider, str]:
         """Resolve a logical role to (Provider, model_name)."""
         if role not in self.config.models.roles:
+            # Fallback for resident role: if not explicitly configured, fall back to brain
+            if role == "resident" and "brain" in self.config.models.roles:
+                return self.resolve_role("brain")
             raise KeyError(
                 f"Role '{role}' is not configured in models.roles. "
                 f"Configured roles: {list(self.config.models.roles.keys())}"
@@ -143,6 +146,20 @@ class ModelRouter:
     ) -> AsyncIterator[ChatChunk]:
         """Execute chat completion for the specified role with privacy check and cloud fallback."""
         provider, model = self.resolve_role(role)
+
+        # Resident model tuning & tool constraints (Phase F6.2, F6.3)
+        if role == "resident":
+            if tools and not getattr(
+                self.config.models.ollama, "resident_allow_tool_loops", False
+            ):
+                raise ValueError(
+                    "Resident model is reserved for fast non-tool operations and cannot "
+                    "execute tool loops without resident_allow_tool_loops=True."
+                )
+            if keep_alive is None:
+                keep_alive = "-1"
+            if num_ctx is None:
+                num_ctx = getattr(self.config.models.ollama, "resident_num_ctx", 4096)
 
         # 1. Local execution path
         if provider.is_local:

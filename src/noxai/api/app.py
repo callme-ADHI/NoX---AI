@@ -220,6 +220,45 @@ def create_app(
 
         ollama_task = asyncio.create_task(_poll_ollama_readiness(cfg.models.ollama.base_url, app))
 
+        # 7b. Resident model and embedder warm-up (background, non-blocking, §F6.5)
+        warmup_task: asyncio.Task[None] | None = None
+        if not test_mode and getattr(app.state, "ollama_reachable", False):
+
+            async def _warmup_worker() -> None:
+                import time
+
+                t0 = time.monotonic()
+                try:
+                    router = getattr(app.state, "model_router", None)
+                    if router:
+                        # Warm resident model
+                        res_prov, res_model = router.resolve_role("resident")
+                        if res_prov.is_local:
+                            from noxai.models.base import Message
+
+                            log.info("Warming up resident model '%s'...", res_model)
+                            async for _ in res_prov.chat(
+                                model=res_model,
+                                messages=[Message(role="user", content="ping")],
+                                max_tokens=1,
+                                keep_alive="-1",
+                            ):
+                                pass
+
+                        # Warm embedder
+                        emb_prov, emb_model = router.resolve_role("embed")
+                        if emb_prov.is_local:
+                            log.info("Warming up embed model '%s'...", emb_model)
+                            await emb_prov.embed(model=emb_model, texts=["ping"], keep_alive="-1")
+
+                    elapsed = round(time.monotonic() - t0, 3)
+                    app.state.warmup_time_seconds = elapsed
+                    log.info("Resident and embed model warm-up completed in %.2fs.", elapsed)
+                except Exception as exc:
+                    log.debug("Warm-up task notice: %s", exc)
+
+            warmup_task = asyncio.create_task(_warmup_worker())
+
         # 8. Start background JobScheduler
         scheduler: JobScheduler | None = None
         if start_scheduler:
@@ -269,6 +308,8 @@ def create_app(
         # 1. Cancel background tasks
         if ollama_task is not None:
             ollama_task.cancel()
+        if warmup_task is not None:
+            warmup_task.cancel()
         sweeper_task.cancel()
         if gate_task is not None:
             gate_task.cancel()

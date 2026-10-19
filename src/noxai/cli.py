@@ -34,7 +34,7 @@ from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.jobs import jobs_app
 from noxai.commands.memory import memory_app
-from noxai.commands.models import models_app
+from noxai.commands.models import models_app, models_bench_local
 from noxai.commands.reminders import remind_command, reminders_app
 from noxai.commands.service import service_app, session_env_command
 from noxai.commands.sources import sources_app
@@ -60,6 +60,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(service_app, name="service")
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
+bench_app.command(name="local")(models_bench_local)
 app.add_typer(bench_app, name="bench")
 
 app.command(name="remind")(remind_command)
@@ -215,9 +216,16 @@ def status(
 @app.command()
 def doctor(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output doctor results as JSON."),
+    perf: bool = typer.Option(
+        False, "--perf", help="Show Ollama performance tuning recommendations."
+    ),
 ) -> None:
     """Run all health checks and print PASS/WARN/FAIL with fix hints."""
-    from noxai.doctor import run_doctor
+    from noxai.doctor import run_doctor, run_doctor_perf
+
+    if perf:
+        run_doctor_perf(console=console, json_output=json_output)
+        return
 
     try:
         run_doctor(console=console, json_output=json_output)

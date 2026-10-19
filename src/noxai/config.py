@@ -100,6 +100,8 @@ class OllamaModelConfig(_StrictModel):
     base_url: str = "http://127.0.0.1:11434"
     keep_alive: str = "30m"
     num_ctx: int = 8192
+    resident_num_ctx: int = 4096
+    resident_allow_tool_loops: bool = False
 
 
 class NvidiaModelConfig(_StrictModel):

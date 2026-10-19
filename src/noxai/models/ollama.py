@@ -243,17 +243,19 @@ class OllamaProvider(Provider):
         *,
         model: str,
         texts: list[str],
+        keep_alive: str | None = None,
     ) -> list[list[float]]:
         """Generate vector embeddings for texts."""
         if not texts:
             return []
 
+        target_keep_alive = keep_alive if keep_alive is not None else "-1"
         client = self._client()
         try:
             # Modern Ollama standard: POST /api/embed
             resp = await client.post(
                 "/api/embed",
-                json={"model": model, "input": texts, "keep_alive": self.keep_alive},
+                json={"model": model, "input": texts, "keep_alive": target_keep_alive},
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -266,7 +268,7 @@ class OllamaProvider(Provider):
             for text in texts:
                 resp_single = await client.post(
                     "/api/embeddings",
-                    json={"model": model, "prompt": text, "keep_alive": self.keep_alive},
+                    json={"model": model, "prompt": text, "keep_alive": target_keep_alive},
                 )
                 if resp_single.status_code == 404:
                     raise ModelNotAvailable(

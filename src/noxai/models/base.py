@@ -173,6 +173,7 @@ class Provider(Protocol):
         *,
         model: str,
         texts: list[str],
+        keep_alive: str | None = None,
     ) -> list[list[float]]:
         """Generate vector embeddings for the provided texts."""
         ...

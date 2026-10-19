@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -432,6 +433,52 @@ def check_compositor() -> DoctorCheck:
     return DoctorCheck(f"Detected compositor: {desktop} ({session})", "PASS", "")
 
 
+def check_ram_budget(
+    meminfo_path: Path = Path("/proc/meminfo"),
+    ollama_base_url: str = "http://127.0.0.1:11434",
+) -> DoctorCheck:
+    """Check sum of loaded model sizes in Ollama against system MemAvailable (Spec §F6.3)."""
+    mem_avail_kb: int | None = None
+    if meminfo_path.exists():
+        with contextlib.suppress(Exception):
+            for line in meminfo_path.read_text().splitlines():
+                if line.startswith("MemAvailable:"):
+                    mem_avail_kb = int(line.split()[1])
+                    break
+
+    if mem_avail_kb is None:
+        return DoctorCheck("Ollama RAM budget", "PASS", "MemAvailable reading skipped")
+
+    loaded_bytes = 0
+    loaded_models_count = 0
+    try:
+        resp = httpx.get(f"{ollama_base_url}/api/ps", timeout=2.0)
+        if resp.status_code == 200:
+            models = resp.json().get("models", [])
+            loaded_models_count = len(models)
+            for m in models:
+                loaded_bytes += int(m.get("size", 0) or m.get("size_vram", 0))
+    except Exception:
+        return DoctorCheck("Ollama RAM budget", "PASS", "Ollama not running or unreachable")
+
+    loaded_kb = loaded_bytes // 1024
+    loaded_gb = loaded_bytes / (1024**3)
+    avail_gb = (mem_avail_kb * 1024) / (1024**3)
+    ratio = (loaded_kb / mem_avail_kb) if mem_avail_kb > 0 else 0.0
+
+    if ratio > 0.80:
+        return DoctorCheck(
+            f"Ollama RAM budget ({loaded_gb:.1f} GB loaded / {avail_gb:.1f} GB avail)",
+            "WARN",
+            f"Loaded models take {int(ratio * 100)}% of available RAM (> 80%). Risk of OOM.",
+        )
+    return DoctorCheck(
+        f"Ollama RAM budget ({loaded_gb:.1f} GB loaded / {avail_gb:.1f} GB avail)",
+        "PASS",
+        f"{loaded_models_count} model(s) loaded ({int(ratio * 100)}% of available RAM)",
+    )
+
+
 def run_all_checks() -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
 
@@ -448,6 +495,9 @@ def run_all_checks() -> list[DoctorCheck]:
 
     # 4. Models
     checks.extend(check_models(cfg, ollama_models))
+
+    # 4b. Ollama RAM budget check (F6.3)
+    checks.append(check_ram_budget())
 
     # 5. Vector backend
     checks.append(check_vector_backend())
@@ -549,3 +599,115 @@ def run_doctor(console: Console, json_output: bool = False) -> None:
         )
     else:
         console.print(f"\n[bold green]All {len(passed)} checks passed.[/bold green] NoX is ready.")
+
+
+def run_doctor_perf(
+    console: Console,
+    json_output: bool = False,
+    meminfo_path: Path = Path("/proc/meminfo"),
+    ollama_base_url: str = "http://127.0.0.1:11434",
+) -> None:
+    """Print performance tuning recommendations for Ollama without editing system files."""
+    mem_total_kb = 0
+    mem_avail_kb = 0
+    if meminfo_path.exists():
+        with contextlib.suppress(Exception):
+            for line in meminfo_path.read_text().splitlines():
+                if line.startswith("MemTotal:"):
+                    mem_total_kb = int(line.split()[1])
+                elif line.startswith("MemAvailable:"):
+                    mem_avail_kb = int(line.split()[1])
+    total_gb = mem_total_kb / (1024 * 1024) if mem_total_kb else 16.0
+    avail_gb = mem_avail_kb / (1024 * 1024) if mem_avail_kb else 12.0
+
+    running_models: list[dict[str, Any]] = []
+    partial_offload_flags: list[str] = []
+    with contextlib.suppress(Exception):
+        resp = httpx.get(f"{ollama_base_url}/api/ps", timeout=2.0)
+        if resp.status_code == 200:
+            running_models = resp.json().get("models", [])
+            for m in running_models:
+                name = m.get("name", "unknown")
+                details = m.get("details", {})
+                proc = str(
+                    m.get("processor", "")
+                    or details.get("processor", "")
+                    or details.get("format", "")
+                )
+                if "% CPU" in proc and "% GPU" in proc:
+                    partial_offload_flags.append(f"{name}: partial offload ({proc})")
+
+    # RAM-based max loaded models
+    max_models = 3 if total_gb >= 28.0 else 2
+
+    recommendations = [
+        (
+            f"OLLAMA_MAX_LOADED_MODELS={max_models}",
+            f"Keep resident model, embedder, and brain loaded in RAM without evictions "
+            f"(measured RAM: {total_gb:.1f} GB).",
+        ),
+        (
+            "OLLAMA_NUM_PARALLEL=1",
+            "Single concurrent request per model to minimize memory duplication on desktop.",
+        ),
+        (
+            "OLLAMA_FLASH_ATTENTION=1",
+            "Enable Flash Attention for faster token generation and reduced context memory.",
+        ),
+        (
+            "OLLAMA_KV_CACHE_TYPE=q8_0",
+            "Quantize KV cache to 8-bit (requires flash attention) to halve KV memory usage.",
+        ),
+    ]
+
+    if json_output:
+        payload = {
+            "total_ram_gb": round(total_gb, 1),
+            "avail_ram_gb": round(avail_gb, 1),
+            "loaded_models_count": len(running_models),
+            "partial_offload_flags": partial_offload_flags,
+            "recommended_env": {
+                "OLLAMA_MAX_LOADED_MODELS": str(max_models),
+                "OLLAMA_NUM_PARALLEL": "1",
+                "OLLAMA_FLASH_ATTENTION": "1",
+                "OLLAMA_KV_CACHE_TYPE": "q8_0",
+            },
+            "recommendations": [{"setting": k, "reason": r} for k, r in recommendations],
+        }
+        print(json.dumps(payload, indent=2))
+        return
+
+    console.rule("[bold blue]NoX Doctor — Ollama Performance Tuning (§F6.4)[/bold blue]")
+    console.print(f"[bold]System RAM:[/] {total_gb:.1f} GB total, {avail_gb:.1f} GB available")
+    console.print(f"[bold]Active Models (ollama ps):[/] {len(running_models)} loaded")
+
+    if partial_offload_flags:
+        for flag in partial_offload_flags:
+            console.print(
+                f"[yellow]⚠ Warning:[/] {flag} — consider reducing model size or context."
+            )
+
+    table = Table(title="Recommended Ollama Environment Settings", show_header=True)
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Rationale", style="dim")
+
+    for setting, reason in recommendations:
+        table.add_row(setting, reason)
+
+    console.print(table)
+    console.print(
+        "\n[bold yellow]To apply these settings (print only — NoX never modifies system units):[/]"
+    )
+    console.print("[dim]Run:[/] [bold]sudo systemctl edit ollama[/bold]")
+    console.print("[dim]Add the following under [Service]:[/]")
+    console.print(
+        "[bold cyan][Service]\n"
+        f'Environment="OLLAMA_MAX_LOADED_MODELS={max_models}"\n'
+        'Environment="OLLAMA_NUM_PARALLEL=1"\n'
+        'Environment="OLLAMA_FLASH_ATTENTION=1"\n'
+        'Environment="OLLAMA_KV_CACHE_TYPE=q8_0"[/bold cyan]'
+    )
+    console.print(
+        "[dim]Then reload and restart:[/] "
+        "[bold]sudo systemctl daemon-reload && sudo systemctl restart ollama[/bold]\n"
+    )

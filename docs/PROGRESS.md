@@ -121,7 +121,21 @@ Environment:
     - Quality gates: 438 passed in 133.49s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 81 source files.
   - NEXT: Phase F6 (Resident small model and Ollama tuning)
 
-- [ ] **F6** — Resident small model and Ollama tuning
+- [x] **F6** — Resident small model and Ollama tuning
+  - Status: Done
+  - Commit: Pending (F6 commit: `feat: resident model, bench-local, keep-alive tuning, doctor perf`)
+  - Evidence:
+    - Configuration: added `resident_num_ctx: int = 4096` and `resident_allow_tool_loops: bool = False` to `OllamaModelConfig` in `src/noxai/config.py`.
+    - Model Router & Providers: updated `src/noxai/models/router.py` to support `role == "resident"`, falling back to `brain` if unassigned; default `keep_alive = "-1"` and `num_ctx = 4096` for resident role; enforced refusal of multi-turn tool loops for resident model unless `resident_allow_tool_loops=True`.
+    - Embeddings & Keep-Alive: updated `Provider.embed`, `OllamaProvider.embed`, `FakeProvider.embed`, and `NvidiaNimProvider.embed` signatures to accept `keep_alive: str | None = None` defaulting to `"-1"`.
+    - Diagnostics & Tuning: added `check_ram_budget()` in `src/noxai/doctor.py` checking loaded models in Ollama vs system `MemAvailable` with WARN if ratio > 80%; added `run_doctor_perf()` printing systemd drop-in recommendations (`OLLAMA_MAX_LOADED_MODELS=2/3`, `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`) with partial offload warnings. Added `nx doctor --perf` to CLI in `src/noxai/cli.py`.
+    - Local Candidate Bake-Off: implemented `nx models bench-local` (and `nx bench local` alias) in `src/noxai/commands/models.py` measuring TTFT, TPS, 20 JSON prompt validations, tool evaluation, peak memory usage, composite score, and role recommendations.
+    - Non-blocking Warm-Up: added background task in daemon lifespan in `src/noxai/api/app.py` warming resident model and embedder at startup with `keep_alive="-1"`, recording `app.state.warmup_time_seconds`.
+    - Verification & testing: 10 tests in `tests/test_resident_model.py` and doctor tests passing.
+    - Quality gates: 448 passed in 92.51s across entire test suite, 0 failures, 0 ruff errors, 0 mypy errors across 81 source files.
+  - NEXT: Phase F7 (UI for the new architecture)
+
 - [ ] **F7** — UI for the new architecture
 - [ ] **F8** — Integration, latency proof and M10 acceptance
 - [ ] **F9** — Resume remaining verification (Session E phases E7–E11)
+
