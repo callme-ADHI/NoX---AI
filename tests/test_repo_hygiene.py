@@ -39,6 +39,8 @@ EXPLICIT_KEY_ALLOWLIST = {
     "nvapi-abc12345678901234567890xyz",
     "-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----",
     "ghp_abcdefghijklmnopqrstuvwxyz123456",
+    # Synthetic test fixture used in tests/test_providers_mock.py:366 to verify repr masking
+    "nvapi-secret1234567890abcdefghijklmnopqrstuvwxyz",
 }
 
 

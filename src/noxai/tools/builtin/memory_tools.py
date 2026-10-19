@@ -220,10 +220,12 @@ async def forget_fact(params: ForgetFactParams, ctx: ToolContext) -> ToolResult:
             preview_text = "\n".join(preview_lines)
             if ctx.request_approval:
                 reason = (
-                    f"Deleting fact '{existing.key}' would purge {res['matching_count']} episodes (>5).\n"
+                    f"Deleting fact '{existing.key}' would purge "
+                    f"{res['matching_count']} episodes (>5).\n"
                     f"Preview of episodes:\n{preview_text}"
                 )
                 approved = await ctx.request_approval(
+                    ctx.run_id or "run-forget-fact",
                     "forget_fact",
                     {"key": key, "confirmed": True},
                     "write",
@@ -234,14 +236,18 @@ async def forget_fact(params: ForgetFactParams, ctx: ToolContext) -> ToolResult:
                 else:
                     return ToolResult(
                         ok=False,
-                        output=f"Purge was denied. Matched {res['matching_count']} episodes.\nPreview:\n{preview_text}",
+                        output=(
+                            f"Purge was denied. Matched {res['matching_count']} episodes.\n"
+                            f"Preview:\n{preview_text}"
+                        ),
                         summary="Purge denied: >5 episodes matched.",
                     )
             else:
                 return ToolResult(
                     ok=False,
                     output=(
-                        f"Approval required: deleting fact '{existing.key}' matches {res['matching_count']} episodes (>5).\n"
+                        f"Approval required: deleting fact '{existing.key}' matches "
+                        f"{res['matching_count']} episodes (>5).\n"
                         f"Preview:\n{preview_text}\n"
                         f"Re-run with confirmed=True or approve to proceed."
                     ),
@@ -251,7 +257,8 @@ async def forget_fact(params: ForgetFactParams, ctx: ToolContext) -> ToolResult:
         fact_info = res.get("fact", {})
         msg = (
             f"Permanently forgot fact '{existing.key}' (id={existing.id}).\n"
-            f"- Deleted fact: {fact_info.get('key', existing.key)} = {fact_info.get('value', existing.value)}\n"
+            f"- Deleted fact: {fact_info.get('key', existing.key)} = "
+            f"{fact_info.get('value', existing.value)}\n"
             f"- Deleted history rows: {res.get('history_rows', [])}\n"
             f"- Deleted vectors: fact={res.get('vectors', {}).get('fact_vector')}, "
             f"episodes={res.get('vectors', {}).get('episode_vectors', [])}\n"
@@ -262,7 +269,10 @@ async def forget_fact(params: ForgetFactParams, ctx: ToolContext) -> ToolResult:
         return ToolResult(
             ok=True,
             output=msg,
-            summary=f"Hard-deleted fact '{existing.key}'. Purged {len(res.get('episode_ids', []))} episode(s).",
+            summary=(
+                f"Hard-deleted fact '{existing.key}'. "
+                f"Purged {len(res.get('episode_ids', []))} episode(s)."
+            ),
         )
 
     if ctx.db is not None:

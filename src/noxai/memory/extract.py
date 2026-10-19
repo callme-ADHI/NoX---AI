@@ -228,7 +228,7 @@ async def extract_and_store_turn(
                 provenance = "user_stated" if is_user_stated else "agent_derived"
 
                 # In a run with UNTRUSTED taint:
-                # only user_stated facts auto-save; agent_derived facts are stored with needs_review = 1
+                # only user_stated facts auto-save; agent_derived facts get needs_review = 1
                 needs_review = 1 if (is_untrusted and provenance == "agent_derived") else 0
 
                 # Insert novel fact

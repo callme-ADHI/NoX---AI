@@ -196,7 +196,9 @@ async def create_fact(
         cursor = await execute(
             db,
             """
-            INSERT INTO facts (key, value, category, confidence, source, pinned, provenance, needs_review)
+            INSERT INTO facts (
+                key, value, category, confidence, source, pinned, provenance, needs_review
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (key, value, cat, conf, src, 1 if pinned else 0, prov, 1 if needs_review else 0),
@@ -334,7 +336,7 @@ async def hard_delete_fact(
     - Episode purge only on exact key or full value with word boundaries.
     - Terms must be >= 4 characters and not in stoplist. Weak terms never delete episodes.
     - More than 5 episodes or borderline match requires approval (preview first 100 chars of each).
-    - Returns exact list of what was deleted (fact, history rows, vectors, FTS entries, episode ids).
+    - Returns exact list of what was deleted (fact, history rows, vectors, FTS, episode ids).
     """
     existing = await get_fact(db, fact_id)
     if existing is None:
@@ -407,13 +409,13 @@ async def hard_delete_fact(
     # 5. Purge matching episodes containing the key, value, or any historical values
     deleted_episode_ids: list[int] = []
     deleted_ep_vectors: list[int] = []
-    for ep in matching_episodes:
-        ep_id = ep["id"]
+    for match_ep in matching_episodes:
+        ep_id = match_ep["id"]
         try:
             await delete_episode_vector(db, ep_id)
             deleted_ep_vectors.append(ep_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("delete_episode_vector note: %s", exc)
         await execute(db, "DELETE FROM episodes WHERE id = ?", (ep_id,))
         deleted_episode_ids.append(ep_id)
 

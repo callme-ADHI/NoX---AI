@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
@@ -149,7 +150,11 @@ async def test_ui_delivery_channel() -> None:
     """UIDeliveryChannel publishes notification and reminder events."""
     bus = EventBus()
     received = []
-    bus.subscribe("*", lambda e: received.append(e))
+
+    async def on_event(e: Any) -> None:
+        received.append(e)
+
+    bus.subscribe(on_event)
 
     ch = UIDeliveryChannel(event_bus=bus)
     ok1 = await ch.deliver("Notice", "System updated")
@@ -210,6 +215,7 @@ async def test_delivery_router() -> None:
 
 async def _create_test_schema(db: aiosqlite.Connection) -> None:
     """Create minimal tables needed for scheduler test."""
+    db.row_factory = aiosqlite.Row
     await db.executescript(
         """
         CREATE TABLE IF NOT EXISTS runs (
@@ -271,7 +277,7 @@ async def _create_test_schema(db: aiosqlite.Connection) -> None:
 
 @pytest.mark.asyncio
 async def test_mark_interrupted_runs_at_start() -> None:
-    """mark_interrupted_runs transitions orphaned running runs, tasks, and job_runs to interrupted."""
+    """mark_interrupted_runs transitions orphaned running runs to interrupted."""
     db = await aiosqlite.connect(":memory:")
     await _create_test_schema(db)
 
@@ -446,24 +452,33 @@ async def test_scheduler_catchup_policies() -> None:
     # 1. Missed 2h ago, catchup=once -> caught up
     await db.execute(
         """
-        INSERT INTO jobs (id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at)
-        VALUES ('c1', 'catchup-me', 'interval', '1h', 'Remind', '{"kind": "reminder", "catchup": "once"}', ?)
+        INSERT INTO jobs (
+            id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at
+        )
+        VALUES ('c1', 'catchup-me', 'interval', '1h', 'Remind',
+                '{"kind": "reminder", "catchup": "once"}', ?)
         """,
         (miss_2h,),
     )
     # 2. Missed 2h ago, catchup=skip -> skipped
     await db.execute(
         """
-        INSERT INTO jobs (id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at)
-        VALUES ('c2', 'skip-me', 'interval', '1h', 'Remind', '{"kind": "reminder", "catchup": "skip"}', ?)
+        INSERT INTO jobs (
+            id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at
+        )
+        VALUES ('c2', 'skip-me', 'interval', '1h', 'Remind',
+                '{"kind": "reminder", "catchup": "skip"}', ?)
         """,
         (miss_2h,),
     )
     # 3. Missed 15h ago, catchup=once -> skipped
     await db.execute(
         """
-        INSERT INTO jobs (id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at)
-        VALUES ('c3', 'too-old', 'interval', '1h', 'Remind', '{"kind": "reminder", "catchup": "once"}', ?)
+        INSERT INTO jobs (
+            id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at
+        )
+        VALUES ('c3', 'too-old', 'interval', '1h', 'Remind',
+                '{"kind": "reminder", "catchup": "once"}', ?)
         """,
         (miss_15h,),
     )
@@ -496,8 +511,11 @@ async def test_scheduler_delivery_channel_failure_does_not_fail_job() -> None:
     due_iso = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     await db.execute(
         """
-        INSERT INTO jobs (id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at)
-        VALUES ('deliv_job', 'broken-delivery', 'interval', '1h', 'Msg', '{"kind": "reminder"}', ?)
+        INSERT INTO jobs (
+            id, name, schedule_type, schedule_expr, instruction, config_json, next_run_at
+        )
+        VALUES ('deliv_job', 'broken-delivery', 'interval', '1h', 'Msg',
+                '{"kind": "reminder"}', ?)
         """,
         (due_iso,),
     )

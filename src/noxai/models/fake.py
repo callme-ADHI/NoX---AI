@@ -210,7 +210,9 @@ class FakeProvider(Provider):
                     yield ChatChunk(
                         delta_text=json.dumps(
                             {
-                                "findings": "Subtask completed successfully with verified citations.",
+                                "findings": (
+                                    "Subtask completed successfully with verified citations."
+                                ),
                                 "verified_sources": ["https://example.com/verified-news"],
                                 "data": {},
                             }

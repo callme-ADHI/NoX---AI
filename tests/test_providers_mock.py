@@ -515,15 +515,27 @@ async def test_nvidia_5xx_and_timeout_backoff() -> None:
 
 @pytest.mark.asyncio
 async def test_nvidia_sse_stream_parsing_and_done() -> None:
-    """NvidiaProvider correctly parses SSE streams, tool call deltas, skips malformed lines, and stops at [DONE]."""
+    """NvidiaProvider parses SSE streams, tool deltas, skips malformed lines, stops at [DONE]."""
+    tc1 = (
+        'data: {"choices": [{"delta": {"tool_calls": [{"id": "call_1", '
+        '"function": {"name": "search", "arguments": "{\\"q\\": "}}]}}]}'
+    )
+    tc2 = (
+        'data: {"choices": [{"delta": {"tool_calls": [{"id": "call_1", '
+        '"function": {"name": "search", "arguments": "\\"ai\\"}"}}]}}]}'
+    )
+    stop_chunk = (
+        'data: {"choices": [{"delta": {"content": "world!"}, "finish_reason": "stop"}], '
+        '"usage": {"prompt_tokens": 10, "completion_tokens": 5}}'
+    )
     sse_lines = [
         "",  # empty line skipped
         ": keep-alive comment",  # comment line skipped
         "data: {malformed json",  # malformed JSON line skipped
         'data: {"choices": [{"delta": {"content": "Hello "}}]}',
-        'data: {"choices": [{"delta": {"tool_calls": [{"id": "call_1", "function": {"name": "search", "arguments": "{\\"q\\": "}}]}}]}',
-        'data: {"choices": [{"delta": {"tool_calls": [{"id": "call_1", "function": {"name": "search", "arguments": "\\"ai\\"}"}}]}}]}',
-        'data: {"choices": [{"delta": {"content": "world!"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}}',
+        tc1,
+        tc2,
+        stop_chunk,
         "data: [DONE]",
         'data: {"choices": [{"delta": {"content": "should not be reached"}}]}',
     ]

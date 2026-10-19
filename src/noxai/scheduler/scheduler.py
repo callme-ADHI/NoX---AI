@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,8 @@ class JobScheduler:
         delivery_router: DeliveryRouter | None = None,
         event_bus: EventBus | None = None,
         tick_seconds: float = 15.0,
+        clock: Callable[[], datetime] | None = None,
+        sleep_fn: Callable[[float], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         from noxai.config import get_config
         from noxai.models.router import get_default_router
@@ -55,6 +58,8 @@ class JobScheduler:
         self.delivery_router = delivery_router or DeliveryRouter()
         self.event_bus = event_bus or global_event_bus
         self.tick_seconds = tick_seconds
+        self.clock = clock or (lambda: datetime.now(UTC))
+        self.sleep_fn = sleep_fn or asyncio.sleep
 
         # Concurrency bound: exactly 1 local-model job at a time per Section 6.7
         self._local_job_sem = asyncio.Semaphore(1)
@@ -63,7 +68,7 @@ class JobScheduler:
 
     async def catch_up_missed_jobs(self, db: aiosqlite.Connection) -> int:
         """Scan enabled jobs on daemon startup and apply catchup policy per Section 6.7."""
-        now_utc = datetime.now(UTC)
+        now_utc = self.clock()
         now_iso = now_utc.isoformat()
 
         rows = await fetch_all(
@@ -120,7 +125,7 @@ class JobScheduler:
 
     async def tick(self, db: aiosqlite.Connection) -> list[str]:
         """Execute a single scheduler tick: find due jobs and run or fire them."""
-        now_utc = datetime.now(UTC)
+        now_utc = self.clock()
         now_iso = now_utc.isoformat()
 
         due_jobs = await fetch_all(
@@ -429,6 +434,6 @@ class JobScheduler:
                 log.error("Scheduler tick exception: %s", exc)
 
             try:
-                await asyncio.sleep(self.tick_seconds)
+                await self.sleep_fn(self.tick_seconds)
             except asyncio.CancelledError:
                 break

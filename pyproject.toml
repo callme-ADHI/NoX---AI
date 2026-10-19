@@ -50,6 +50,7 @@ dev = [
     "mypy>=1.13.0",
     "types-psutil>=6.1.0",
     "httpx",  # already in main, needed for test client
+    "pytest-timeout>=2.4.0",
 ]
 
 [project.scripts]
@@ -109,4 +110,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+timeout = 60
+markers = [
+    "live: marks tests that connect to live external APIs (skipped by default)",
+]
 addopts = ["-v", "--tb=short"]
