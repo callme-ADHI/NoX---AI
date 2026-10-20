@@ -45,6 +45,8 @@ EXPLICIT_KEY_ALLOWLIST = {
     "nvapi-1234567890abcdefghijklmnopqrstuvwxyz",
     "nvapi-randomkey1234567890abcdef12345",
     "ghp_1234567890abcdefghijklmnopqrstuvwxyz12",
+    # Synthetic test fixture used in tests/test_m10_integration.py and eval.py
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
 }
 
 

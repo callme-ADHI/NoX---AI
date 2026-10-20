@@ -197,6 +197,11 @@ class ToolRegistry:
                     if spec and spec.loader:
                         mod = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(mod)
+                        for attr_name in dir(mod):
+                            attr = getattr(mod, attr_name)
+                            if hasattr(attr, "tool_def"):
+                                attr.tool_def.is_user_tool = True
+                                self.register(attr)
                         log.info("Loaded custom user tool from %s", script)
                 except Exception as exc:
                     log.error("Failed to load user tool %s: %s", script, exc)

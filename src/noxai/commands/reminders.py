@@ -22,8 +22,12 @@ console = Console()
 def remind_command(
     text: str = typer.Argument(..., help="Reminder expression (e.g. 'in 2 minutes stretch')"),
 ) -> None:
-    """Schedule a desktop reminder immediately."""
-    pattern = r"^(in\s+[^,]+?|at\s+[^,]+?|tomorrow(?:\s+at)?\s+[^,]+?)\s+(?:to\s+)?(.+)$"
+    pattern = (
+        r"^(in\s+\d+\s+(?:minutes?|hours?|days?|secs?|seconds?)"
+        r"|at\s+\d{1,2}(?::\d{2})?(?:\s*[ap]m)?"
+        r"|tomorrow(?:\s+at\s+\d{1,2}(?::\d{2})?(?:\s*[ap]m)?)?)"
+        r"\s*(?:[:,]|\s+to\s+|\s+)\s*(.+)$"
+    )
     m = re.match(pattern, text, re.IGNORECASE)
 
     dt: datetime | None = None

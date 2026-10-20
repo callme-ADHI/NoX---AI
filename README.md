@@ -168,3 +168,4 @@ They can only be changed by editing the config file directly.
 | M7 | ✅ Done | REST API, WebSocket, session auth, gate |
 | M8 | ✅ Done | Web UI (React + TypeScript + Tailwind) |
 | M9 | ✅ Done | Autostart, install script, full docs |
+| M10 | ✅ Done | Fast Front Desk, Task Center, Privacy Policy v2, Resumed Verification |
