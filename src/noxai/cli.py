@@ -296,12 +296,11 @@ def chat_cmd(
     """Send a one-shot chat message to NoX."""
     import asyncio
 
-    from noxai.agent.loop import AgentLoop
     from noxai.config import get_config
     from noxai.db import get_db, run_migrations
     from noxai.events import global_event_bus
     from noxai.models.router import ModelRouter
-    from noxai.tools.registry import default_registry
+    from noxai.orchestrator import orchestrate_chat_turn
 
     async def _run() -> None:
         cfg = get_config()
@@ -309,23 +308,19 @@ def chat_cmd(
         router = ModelRouter(config=cfg)
 
         async with get_db() as db:
-            loop = AgentLoop(
-                config=cfg,
-                router=router,
-                registry=default_registry,
-                event_bus=global_event_bus,
-            )
-
             console.print(f"[bold cyan]You:[/] {message}\n")
             console.print("[bold green]NoX:[/] ", end="")
 
             def on_token(t: str) -> None:
                 console.print(t, end="")
 
-            result = await loop.run(
-                user_message=message,
+            result = await orchestrate_chat_turn(
+                message=message,
                 allow_cloud=allow_cloud,
                 db=db,
+                router=router,
+                config=cfg,
+                event_bus=global_event_bus,
                 on_token=on_token,
             )
 
@@ -334,11 +329,6 @@ def chat_cmd(
                 console.print("\n[bold dim]Sources / Citations:[/]")
                 for c in result.citations:
                     console.print(f"  [dim]- {c}[/]")
-            if result.tool_calls_count > 0:
-                console.print(
-                    f"\n[dim]({result.tool_calls_count} tool call(s), "
-                    f"{result.steps} step(s), {result.duration_seconds:.2f}s)[/dim]"
-                )
 
             if trace and result.trace:
                 from rich.table import Table
@@ -348,24 +338,16 @@ def chat_cmd(
                 t.add_column("Duration (ms)", justify="right", style="green")
 
                 t.add_row("route", f"{result.trace.get('route', 0.0):.1f}")
-                t.add_row("memory_recall", f"{result.trace.get('memory_recall', 0.0):.1f}")
                 t.add_row("prompt_build", f"{result.trace.get('prompt_build', 0.0):.1f}")
                 t.add_row("provider_connect", f"{result.trace.get('provider_connect', 0.0):.1f}")
                 t.add_row(
                     "time_to_first_token", f"{result.trace.get('time_to_first_token', 0.0):.1f}"
                 )
                 t.add_row("generation", f"{result.trace.get('generation', 0.0):.1f}")
-
-                tool_times = result.trace.get("tool_time", {})
-                for tool_name, ms in tool_times.items():
-                    t.add_row(f"tool_time[{tool_name}]", f"{ms:.1f}")
-
-                t.add_row(
-                    "post_run_extraction", f"{result.trace.get('post_run_extraction', 0.0):.1f}"
-                )
                 t.add_row("[bold]total[/]", f"[bold]{result.trace.get('total', 0.0):.1f}[/]")
                 t.add_row("prompt_tokens_est", str(result.trace.get("prompt_tokens_est", 0)))
                 t.add_row("model_used", str(result.trace.get("model_used", "")))
+                t.add_row("fallback_reason", str(result.trace.get("fallback_reason", "None")))
                 console.print()
                 console.print(t)
 
@@ -396,9 +378,7 @@ def eval_routing_cmd(
 
     from noxai.router.eval import run_routing_eval
 
-    res = asyncio.run(
-        run_routing_eval(offline=offline, console=None if json_output else console)
-    )
+    res = asyncio.run(run_routing_eval(offline=offline, console=None if json_output else console))
     if json_output:
         print(json.dumps(res, indent=2))
 

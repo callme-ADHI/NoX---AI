@@ -181,3 +181,19 @@ def cloud_test(
             raise typer.Exit(1) from exc
 
     asyncio.run(_run_test())
+
+
+@cloud_app.command(name="reload")
+def cloud_reload() -> None:
+    """Force reload secrets.env and update cloud health state without daemon restart."""
+    health = get_cloud_health()
+    reloaded = health.check_secrets_file(force=True)
+    if reloaded and health.is_active():
+        console.print(
+            f"[bold green]✓ Secrets reloaded:[/] Cloud state is [green]{health.state.value}[/]."
+        )
+    else:
+        console.print(
+            f"[bold yellow]! Secrets reloaded:[/] Cloud state is [yellow]{health.state.value}[/] "
+            f"({health.reason})."
+        )

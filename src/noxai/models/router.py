@@ -40,9 +40,7 @@ class ModelRouter:
         else:
             from noxai.models.cloud_health import get_cloud_health
 
-            has_nv_key = bool(
-                config.nvidia_api_key and config.nvidia_api_key.get_secret_value()
-            )
+            has_nv_key = bool(config.nvidia_api_key and config.nvidia_api_key.get_secret_value())
             ch = get_cloud_health(has_key=has_nv_key)
             self.providers = {
                 "ollama": OllamaProvider(
@@ -64,9 +62,22 @@ class ModelRouter:
     def resolve_role(self, role: str) -> tuple[Provider, str]:
         """Resolve a logical role to (Provider, model_name)."""
         if role not in self.config.models.roles:
+            # Fallback for front role: if not explicitly configured, fall back to heavy or cloud
+            if role == "front":
+                if "front" in self.config.models.roles:
+                    return self.resolve_role("front")
+                if "heavy" in self.config.models.roles:
+                    return self.resolve_role("heavy")
+                if "cloud" in self.config.models.roles:
+                    return self.resolve_role("cloud")
+                if "nvidia" in self.providers:
+                    return self.providers["nvidia"], "nvidia/nemotron-3.5-lightning-30b-a3b"
             # Fallback for resident role: if not explicitly configured, fall back to brain
-            if role == "resident" and "brain" in self.config.models.roles:
-                return self.resolve_role("brain")
+            if role == "resident":
+                if "brain" in self.config.models.roles:
+                    return self.resolve_role("brain")
+                if "ollama" in self.providers:
+                    return self.providers["ollama"], "qwen2.5:14b"
             raise KeyError(
                 f"Role '{role}' is not configured in models.roles. "
                 f"Configured roles: {list(self.config.models.roles.keys())}"
@@ -85,9 +96,18 @@ class ModelRouter:
 
     def is_cloud_available(self) -> bool:
         """Check if cloud execution is configured and available."""
-        if "heavy" not in self.config.models.roles:
+        target_role = None
+        for r in ("front", "heavy", "cloud"):
+            if r in self.config.models.roles:
+                target_role = r
+                break
+        if not target_role:
+            if "nvidia" in self.providers:
+                p = self.providers["nvidia"]
+                ch = getattr(p, "cloud_health", None)
+                return bool(getattr(p, "api_key", None)) and (ch is None or ch.is_active())
             return False
-        role_cfg = self.config.models.roles["heavy"]
+        role_cfg = self.config.models.roles[target_role]
         provider_name = role_cfg.provider
         if provider_name not in self.providers:
             return False
@@ -126,9 +146,7 @@ class ModelRouter:
             is_local=False,
         )
         if not decision.allowed:
-            raise PrivacyViolation(
-                f"Privacy violation: {decision.reason} for role '{role}'."
-            )
+            raise PrivacyViolation(f"Privacy violation: {decision.reason} for role '{role}'.")
 
     async def chat(
         self,
@@ -149,9 +167,7 @@ class ModelRouter:
 
         # Resident model tuning & tool constraints (Phase F6.2, F6.3)
         if role == "resident":
-            if tools and not getattr(
-                self.config.models.ollama, "resident_allow_tool_loops", False
-            ):
+            if tools and not getattr(self.config.models.ollama, "resident_allow_tool_loops", False):
                 raise ValueError(
                     "Resident model is reserved for fast non-tool operations and cannot "
                     "execute tool loops without resident_allow_tool_loops=True."
@@ -208,14 +224,17 @@ class ModelRouter:
                 if on_notice:
                     on_notice(notice)
                 log.info(notice)
-                local_provider, local_model = self.resolve_role("brain")
+                local_role = "brain" if tools else "resident"
+                local_provider, local_model = self.resolve_role(local_role)
                 if on_model_used:
                     on_model_used(
                         {
-                            "role": role,
+                            "role": local_role,
                             "provider": local_provider.name,
                             "model": local_model,
                             "is_local": True,
+                            "fallback_from": role,
+                            "fallback_reason": f"PRIVACY_BLOCKED:{egress_decision.reason}",
                             "rerouted_reason": egress_decision.reason,
                         }
                     )
@@ -250,16 +269,20 @@ class ModelRouter:
             if on_notice:
                 on_notice(notice)
             log.info(notice)
-            local_provider, local_model = self.resolve_role("brain")
+            local_role = "brain" if tools else "resident"
+            local_provider, local_model = self.resolve_role(local_role)
+            fb_reason = (
+                cloud_health.state.value.upper() if hasattr(cloud_health, "state") else "DEGRADED"
+            )
             if on_model_used:
                 on_model_used(
                     {
-                        "role": role,
+                        "role": local_role,
                         "provider": local_provider.name,
                         "model": local_model,
                         "is_local": True,
                         "fallback_from": role,
-                        "fallback_reason": cloud_health.reason,
+                        "fallback_reason": fb_reason,
                     }
                 )
             async for chunk in local_provider.chat(
@@ -300,21 +323,46 @@ class ModelRouter:
                 yield chunk
 
         except (ProviderUnavailable, RateLimitError, ProviderError, Exception) as exc:
-            # Fall back to local brain role
-            log.warning("Cloud role '%s' failed (%s). Falling back to local brain role.", role, exc)
+            err_str = str(exc)
+            status_code = getattr(exc, "status_code", None)
+            if status_code is None:
+                if "401" in err_str:
+                    status_code = 401
+                elif "429" in err_str:
+                    status_code = 429
+            if cloud_health is not None:
+                cloud_health.record_failure(exc, status_code=status_code)
+
+            if status_code in (401, 403) or "401" in err_str:
+                reason_code = "INVALID_KEY"
+            elif status_code == 429 or isinstance(exc, RateLimitError) or "429" in err_str:
+                reason_code = "RATE_LIMITED"
+            elif any(k in err_str.lower() for k in ("dns", "connect", "network", "offline")):
+                reason_code = "OFFLINE"
+            else:
+                reason_code = "DEGRADED"
+
+            local_role = "brain" if tools else "resident"
+            log.warning(
+                "Cloud role '%s' failed (%s). Falling back to local %s role.",
+                role,
+                exc,
+                local_role,
+            )
             fallback_msg = f"Cloud role '{role}' failed ({exc}). Falling back to local model."
             if on_notice:
                 on_notice(fallback_msg)
 
-            fallback_provider, fallback_model = self.resolve_role("brain")
+            fallback_provider, fallback_model = self.resolve_role(local_role)
             if on_model_used:
                 on_model_used(
                     {
-                        "role": "brain",
+                        "role": local_role,
                         "provider": fallback_provider.name,
                         "model": fallback_model,
                         "is_local": True,
                         "fallback_from": role,
+                        "fallback_reason": reason_code,
                     }
                 )
 

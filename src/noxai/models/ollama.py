@@ -106,7 +106,9 @@ class OllamaProvider(Provider):
         **kwargs: Any,
     ) -> AsyncIterator[ChatChunk]:
         """Execute chat completion with Ollama."""
-        target_keep_alive = keep_alive if keep_alive is not None else self.keep_alive
+        target_keep_alive: Any = keep_alive if keep_alive is not None else self.keep_alive
+        if target_keep_alive in ("-1", -1):
+            target_keep_alive = -1
         target_ctx = num_ctx if num_ctx is not None else self.num_ctx
         payload: dict[str, Any] = {
             "model": model,
@@ -249,7 +251,9 @@ class OllamaProvider(Provider):
         if not texts:
             return []
 
-        target_keep_alive = keep_alive if keep_alive is not None else "-1"
+        target_keep_alive: Any = keep_alive if keep_alive is not None else -1
+        if target_keep_alive in ("-1", -1):
+            target_keep_alive = -1
         client = self._client()
         try:
             # Modern Ollama standard: POST /api/embed

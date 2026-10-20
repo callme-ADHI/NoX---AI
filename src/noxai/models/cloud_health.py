@@ -19,6 +19,7 @@ import datetime
 import enum
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -38,8 +39,8 @@ class CloudHealthState(enum.StrEnum):
 class CircuitState(enum.StrEnum):
     """Internal states of the circuit breaker."""
 
-    CLOSED = "closed"        # Normal operation
-    OPEN = "open"            # Failing fast; requests blocked or diverted
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing fast; requests blocked or diverted
     HALF_OPEN = "half_open"  # Testing recovery with single probe
 
 
@@ -152,12 +153,19 @@ class CloudHealth:
         failure_threshold: int = 3,
         cooldown_seconds: float = 60.0,
         ttft_threshold_seconds: float = 8.0,
+        secrets_path: Path | None = None,
+        probe_interval_seconds: float = 60.0,
     ) -> None:
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=failure_threshold,
             cooldown_seconds=cooldown_seconds,
         )
         self.ttft_threshold_seconds = ttft_threshold_seconds
+        self.secrets_path = secrets_path
+        self.probe_interval_seconds = probe_interval_seconds
+        self.last_probe_time: float = 0.0
+        self._last_secrets_mtime: float | None = None
+        self._current_key: str | None = None
         self.state = CloudHealthState.ACTIVE if has_key else CloudHealthState.NO_KEY
         self.reason = "Ready" if has_key else "NVIDIA API key not configured"
         self.since_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
@@ -266,6 +274,76 @@ class CloudHealth:
         self.circuit_breaker.state = CircuitState.OPEN
         self._transition(CloudHealthState.NO_KEY, reason)
 
+    def check_secrets_file(self, force: bool = False) -> bool:
+        """Inspect secrets.env for API key without requiring daemon restart (§G3.4).
+
+        Re-reads the secrets file on mtime change (or when force=True) and transitions
+        from NO_KEY/INVALID_KEY to ACTIVE within one probe tick when a valid key appears.
+        """
+        import os
+
+        from noxai.config import SECRETS_FILE, get_config
+
+        path = self.secrets_path or SECRETS_FILE
+        if not path.exists():
+            if not os.environ.get("NOX_NVIDIA_API_KEY") and not self._current_key:
+                if self.state != CloudHealthState.NO_KEY:
+                    self.set_no_key("NVIDIA API key not configured (secrets.env missing)")
+            return self.is_active()
+
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return self.is_active()
+
+        if not force and self._last_secrets_mtime is not None and mtime <= self._last_secrets_mtime:
+            return self.is_active()
+
+        self._last_secrets_mtime = mtime
+        key: str | None = None
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k in ("NOX_NVIDIA_API_KEY", "NVIDIA_API_KEY") and v:
+                        key = v
+                        break
+        except Exception as exc:
+            log.warning("Could not read secrets file %s: %s", path, exc)
+            return self.is_active()
+
+        if key:
+            self._current_key = key
+            os.environ["NOX_NVIDIA_API_KEY"] = key
+            try:
+                get_config.cache_clear()
+            except Exception as exc:
+                log.debug("Failed to clear get_config cache: %s", exc)
+            if self.state in (CloudHealthState.NO_KEY, CloudHealthState.INVALID_KEY) or force:
+                self.circuit_breaker.state = CircuitState.CLOSED
+                self.circuit_breaker.consecutive_failures = 0
+                self._transition(CloudHealthState.ACTIVE, "Ready")
+            return True
+        else:
+            self._current_key = None
+            if self.state != CloudHealthState.NO_KEY:
+                self.set_no_key("NVIDIA API key not configured")
+            return False
+
+    def tick(self, force: bool = False, now: float | None = None) -> None:
+        """Periodic health probe tick to check secrets mtime and circuit breaker recovery."""
+        current_time = now if now is not None else time.monotonic()
+        if force or (current_time - self.last_probe_time >= self.probe_interval_seconds):
+            self.last_probe_time = current_time
+            self.check_secrets_file(force=force)
+            if self.circuit_breaker.state == CircuitState.OPEN:
+                self.circuit_breaker.can_attempt()
+
     def to_dict(self) -> dict[str, Any]:
         """Return diagnostic health status."""
         return {
@@ -279,9 +357,7 @@ class CloudHealth:
             "last_latency_sec": (
                 round(self.last_latency, 3) if self.last_latency is not None else None
             ),
-            "last_ttft_sec": (
-                round(self.last_ttft, 3) if self.last_ttft is not None else None
-            ),
+            "last_ttft_sec": (round(self.last_ttft, 3) if self.last_ttft is not None else None),
         }
 
 
@@ -289,16 +365,18 @@ class CloudHealth:
 _GLOBAL_CLOUD_HEALTH: CloudHealth | None = None
 
 
-def get_cloud_health(has_key: bool = False) -> CloudHealth:
+def get_cloud_health(has_key: bool = False, secrets_path: Path | None = None) -> CloudHealth:
     """Return or initialize the shared CloudHealth tracker."""
     global _GLOBAL_CLOUD_HEALTH
     if _GLOBAL_CLOUD_HEALTH is None:
-        _GLOBAL_CLOUD_HEALTH = CloudHealth(has_key=has_key)
+        _GLOBAL_CLOUD_HEALTH = CloudHealth(has_key=has_key, secrets_path=secrets_path)
+    elif secrets_path is not None and _GLOBAL_CLOUD_HEALTH.secrets_path != secrets_path:
+        _GLOBAL_CLOUD_HEALTH.secrets_path = secrets_path
     return _GLOBAL_CLOUD_HEALTH
 
 
-def reset_cloud_health(has_key: bool = False) -> CloudHealth:
+def reset_cloud_health(has_key: bool = False, secrets_path: Path | None = None) -> CloudHealth:
     """Reset the global CloudHealth tracker (primarily for testing)."""
     global _GLOBAL_CLOUD_HEALTH
-    _GLOBAL_CLOUD_HEALTH = CloudHealth(has_key=has_key)
+    _GLOBAL_CLOUD_HEALTH = CloudHealth(has_key=has_key, secrets_path=secrets_path)
     return _GLOBAL_CLOUD_HEALTH

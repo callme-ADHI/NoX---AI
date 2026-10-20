@@ -408,127 +408,19 @@ async def _run_chat_pipeline(
     config: Settings,
 ) -> None:
     """Execute chat pipeline in background and publish events."""
-    from noxai.agent.gate import evaluate_complexity
     from noxai.db import get_db
-
-    router = get_default_router(config)
-    registry = default_registry
+    from noxai.orchestrator import orchestrate_chat_turn
 
     async with get_db() as db:
         try:
-            # Reflex router intent analysis (<50ms zero-LLM)
-            from noxai.router.intent import IntentType, analyze_intent
-
-            intent_res = analyze_intent(message)
-            if intent_res.intent == IntentType.SENSITIVE:
-                allow_cloud = False
-
-            await global_event_bus.publish(
-                make_event("run_started", {"message": message}, run_id=run_id),
+            await orchestrate_chat_turn(
+                message=message,
+                conversation_id=conv_id,
+                run_id=run_id,
+                allow_cloud=allow_cloud,
                 db=db,
+                config=config,
             )
-            await global_event_bus.publish(
-                make_event("intent_detected", intent_res.to_dict(), run_id=run_id),
-                db=db,
-            )
-
-            # Store user message
-            msg_id = f"msg_{uuid.uuid4().hex[:12]}"
-            await execute(
-                db,
-                """
-                INSERT INTO messages (id, conversation_id, role, content)
-                VALUES (?, ?, 'user', ?)
-                """,
-                (msg_id, conv_id, message),
-            )
-            await db.commit()
-
-            # Evaluate complexity
-            gate_res = await evaluate_complexity(message, router=router)
-
-            if gate_res.is_complex:
-                from noxai.agent.executor import DAGExecutor
-
-                executor = DAGExecutor(
-                    router=router,
-                    registry=registry,
-                    config=config,
-                    event_bus=global_event_bus,
-                )
-                exec_res = await executor.execute_plan(
-                    goal=message,
-                    conversation_id=conv_id,
-                    allow_cloud=allow_cloud,
-                    db=db,
-                    run_id=run_id,
-                )
-                final_text = exec_res.final_text
-            else:
-                from noxai.agent.loop import AgentLoop
-
-                loop = AgentLoop(
-                    router=router,
-                    registry=registry,
-                    config=config,
-                    event_bus=global_event_bus,
-                )
-                loop_res = await loop.run(
-                    user_message=message,
-                    conversation_id=conv_id,
-                    allow_cloud=allow_cloud,
-                    db=db,
-                    run_id=run_id,
-                )
-                final_text = loop_res.text
-
-            # Store assistant message
-            asst_id = f"msg_{uuid.uuid4().hex[:12]}"
-            await execute(
-                db,
-                """
-                INSERT INTO messages (id, conversation_id, role, content)
-                VALUES (?, ?, 'assistant', ?)
-                """,
-                (asst_id, conv_id, final_text),
-            )
-            await db.commit()
-
-            trace_data: dict[str, Any] = {
-                "intent": intent_res.to_dict(),
-            }
-            duration_sec = 0.0
-            if not gate_res.is_complex and "loop_res" in locals():
-                duration_sec = getattr(loop_res, "duration_seconds", 0.0)
-                trace_data["steps"] = getattr(loop_res, "steps", 1)
-                trace_data["tool_calls_count"] = getattr(loop_res, "tool_calls_count", 0)
-                trace_data["trace"] = getattr(loop_res, "trace", {})
-            latency_ms = int(duration_sec * 1000)
-            model_info = "nemotron-super-49b" if allow_cloud else "qwen2.5:14b"
-            lane_info = "cloud" if allow_cloud else (
-                "complex" if gate_res.is_complex else "front_desk"
-            )
-
-            await global_event_bus.publish(
-                make_event(
-                    "message_done",
-                    {
-                        "text": final_text,
-                        "lane": lane_info,
-                        "model_name": model_info,
-                        "is_cloud": allow_cloud,
-                        "latency_ms": latency_ms,
-                        "trace": trace_data,
-                    },
-                    run_id=run_id,
-                ),
-                db=db,
-            )
-            await global_event_bus.publish(
-                make_event("run_done", {"status": "done"}, run_id=run_id),
-                db=db,
-            )
-
         except asyncio.CancelledError:
             log.info("Run %s was cancelled.", run_id)
             await global_event_bus.publish(

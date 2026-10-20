@@ -41,7 +41,7 @@ export const ChatPage: React.FC = () => {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [allowCloud, setAllowCloud] = useState(false);
+  const [allowCloud, setAllowCloud] = useState(true);
   const [isPrivateMode, setIsPrivateMode] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [isRunning, setIsRunning] = useState(false);
