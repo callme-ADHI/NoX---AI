@@ -218,11 +218,17 @@ def test_chat_command() -> None:
     runner = CliRunner()
     mock_result = SimpleNamespace(
         citations=["https://example.com/source"],
+        trace={"total": 100.0},
         tool_calls_count=1,
         steps=2,
         duration_seconds=1.2,
     )
     with (
+        patch(
+            "noxai.orchestrator.orchestrate_chat_turn",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ),
         patch("noxai.agent.loop.AgentLoop.run", new_callable=AsyncMock, return_value=mock_result),
         patch("noxai.db.run_migrations", new_callable=AsyncMock),
         patch("noxai.db.get_db"),

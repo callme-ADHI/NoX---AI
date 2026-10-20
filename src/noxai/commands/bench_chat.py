@@ -143,16 +143,18 @@ async def run_chat_bench(
             from noxai.orchestrator import orchestrate_chat_turn
 
             for _ in range(runs_per_case):
-                res = await orchestrate_chat_turn(
+                cloud_res = await orchestrate_chat_turn(
                     prompt,
                     allow_cloud=True,
                     router=router,
                     config=cfg,
                 )
                 cloud_ttfts.append(
-                    res.trace.get("time_to_first_token", res.duration_seconds * 1000)
+                    cloud_res.trace.get(
+                        "time_to_first_token", cloud_res.duration_seconds * 1000
+                    )
                 )
-                cloud_totals.append(res.duration_seconds * 1000)
+                cloud_totals.append(cloud_res.duration_seconds * 1000)
 
         # Medians
         median_raw_ttft = statistics.median(raw_ttfts) if raw_ttfts else 0.0

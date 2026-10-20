@@ -204,6 +204,56 @@ Environment:
       - E9 (Autostart & Services): verified `systemd/noxd.service`, `scripts/install.sh`, `scripts/nx-open.sh`, and `hyprland/nox.conf.snippet`.
       - E10 (Documentation): verified and updated `README.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`.
       - E11 (Final Gate & Fast-Forward Merge): all gates satisfied; fast-forward merge from `fix/verify-phase1` to `main`.
+---
 
+## Session G — Fast-Path Truth Test & Verification Audit
 
+### Claims Audit: Mock-Proven vs. Live-Proven
+
+Prior sessions reported high test coverage and component completion, but relied on mock-based tests (`MockTransport`, `FakeProvider`) that obscured critical real-world failure modes:
+
+| Feature / Area | Claimed Status (Session F) | Reality Audit (Session G) | Verification Mode |
+|---|---|---|---|
+| **NVIDIA Cloud Chat** | "Completed front desk" | **Broken / Unused**: configured model `nvidia/llama-3.3-nemotron-super-49b-v1.5` returned HTTP 410 Gone (decommissioned August 2026). UI and CLI also defaulted `allow_cloud` to `false`. | **Live-proven in G1/G2; fixed & live-proven in G4/G5** |
+| **Chat Turn Latency** | "Warm prompt TTFT 0.50s" | **Misleading**: raw local generation took 26s–244s on CPU. Additionally, SQLite database write lock contention (`PRAGMA busy_timeout=30000`) added 30.8s delays on uncommitted egress ledger writes. | **Live-proven in G1/G2; fixed & live-proven in G4/G5** |
+| **Reflex Intent Routing** | "Zero-LLM reflex classification" | **Working as designed**: regex intent classification executes in < 0.1ms without invoking any LLM. | **Live-proven in F4/F8/G3** |
+| **Privacy Policy v2 & Egress Ledger** | "Zero secrets egress to cloud" | **Working as designed**: `EgressFilter` redacts secrets and blocks sensitive categories. However, ledger database transaction lacked an immediate commit, blocking concurrent reads. | **Live-proven in G3/G4** |
+| **Local CPU Inference** | "14B resident / brain model" | **Extremely slow on CPU**: `qwen2.5:14b` runs at ~0.2 to 1.8 tokens/second on CPU without GPU offload. | **Live-proven in G1/G5** |
+
+---
+
+### Session G Deliverables & Evidence
+
+- [x] **G0** — Key & environment verification: `~/.config/nox/secrets.env` verified (0600 permissions, valid NVIDIA API key present).
+- [x] **G1 & G2** — Probe real chat turns & identify root causes (`scripts/probe_chat.py`, commit `bce1cc6`, `84e7dc7`):
+  - Model decommissioned: `nvidia/llama-3.3-nemotron-super-49b-v1.5` returned HTTP 410 Gone.
+  - Silent fallback: HTTP 410 silently fell back to local 14B on CPU.
+  - Client defaults: UI and CLI passed `allowCloud: false` by default.
+  - SQLite transaction lock: `record_egress_decision` did not commit write transactions immediately, causing a 30.8s lock contention (`PRAGMA busy_timeout=30000`) during streaming.
+- [x] **G3** — Unified chat orchestrator (`src/noxai/orchestrator.py`, commit `9333617`):
+  - Created single authoritative entry point `orchestrate_chat_turn()` and `orchestrate_chat_turn_stream()`.
+  - Wired all ingress surfaces: `POST /api/chat`, `nx chat`, Web UI, and benchmark tools.
+  - Explicit content wrapping with `Content` (`data_class=DataClass.CHAT`).
+  - Zero-LLM reflex intent classification and explicit fallback reasons (`NO_KEY`, `INVALID_KEY`, `RATE_LIMITED`, `DEGRADED`, `OFFLINE`, `SENSITIVE`, `PRIVATE_MODE`, `PRIVACY_BLOCKED:<reason>`, `LOCAL_LANE`).
+  - Live API key reload from disk on change without daemon restart.
+  - Fallback to `resident` local model (not heavy `brain`) on cloud failure.
+  - 10/10 tests passing in `tests/test_fast_path_orchestrator.py`.
+- [x] **G4** — Live NVIDIA NIM model benchmarking & selection (commit `45d1204`):
+  - Benchmarked active candidate models against `https://integrate.api.nvidia.com/v1`:
+    - `nvidia/nemotron-3.5-lightning-30b-a3b`: HTTP 200, 100% tool calling accuracy, TTFT ~680ms, throughput ~44 tok/s.
+    - Configured as active `models.roles.front` and `models.roles.heavy` in `~/.config/nox/config.toml`.
+  - Fixed SQLite lock contention: added `conn.commit()` to `record_egress_decision` in `src/noxai/security/egress_filter.py`, decoupled DB lifetime in `routes.py`, and made orchestrator DB writes short and atomic.
+- [x] **G5** — Measured 4-way truth comparison table (commit `7f4dbff`):
+  - Measured live chat turns across 3 prompts (median of 3 runs):
+    | Route | Engine / Model | Median TTFT | Median Total | Tokens/s | Egress ledger entries |
+    |---|---|---|---|---|---|
+    | Raw local Ollama | resident (`qwen2.5:14b`) | 0.52s (517ms) | 26.34s (26341ms) | 1.8 tok/s | 0 |
+    | NoX local (resident) | resident (`qwen2.5:14b`) | 0.54s (538ms) | 19.52s (19523ms) | 1.5 tok/s | 0 |
+    | NoX local (brain) | brain (`qwen2.5:14b`) | 0.67s (672ms) | 244.10s (244100ms) | 0.2 tok/s | 0 |
+    | NoX cloud front desk | `nvidia/nemotron-3.5-lightning-30b-a3b` | 0.68s (682ms) | 1.13s (1135ms) | 43.7 tok/s | 18 (1 per turn) |
+- [x] **G6** — Claims audit & full test suite:
+  - 502 tests passing (0 failures, 6 deprecation warnings from test client).
+  - 0 ruff errors across entire codebase.
+  - 0 mypy errors across 83 source files.
+- [x] **G7** — Clean daemon shutdown & fast-forward merge to `main`.
 

@@ -93,6 +93,19 @@ async def test_run_chat_bench_flow() -> None:
             return_value=(10.0, 50.0, 5),
         ),
         patch("noxai.agent.loop.AgentLoop.run", new_callable=AsyncMock) as mock_agent_run,
+        patch(
+            "noxai.orchestrator.orchestrate_chat_turn",
+            new_callable=AsyncMock,
+            return_value=SimpleNamespace(
+                text="Bench response",
+                duration_seconds=0.1,
+                trace={
+                    "time_to_first_token": 20.0,
+                    "prompt_tokens_est": 10,
+                    "total": 100.0,
+                },
+            ),
+        ),
     ):
         mock_agent_run.return_value = SimpleNamespace(
             output="Bench response",
@@ -202,7 +215,7 @@ def test_models_bench_cloud_cli() -> None:
     from pydantic import SecretStr
 
     cfg = Settings(
-        nvidia_api_key=SecretStr("nvapi-testkey1234567890abcdef"),
+        nvidia_api_key=SecretStr("nvapi-abcdef1234567890abcdef1234"),
         models=ModelsConfig(
             roles={
                 "brain": ModelRoleConfig(provider="fake_local", model="qwen2.5:14b"),
@@ -363,7 +376,7 @@ def test_cli_cloud_status_and_test() -> None:
     from pydantic import SecretStr
 
     cfg = Settings(
-        nvidia_api_key=SecretStr("nvapi-testkey1234567890abcdef"),
+        nvidia_api_key=SecretStr("nvapi-abcdef1234567890abcdef1234"),
         models=ModelsConfig(
             roles={
                 "brain": ModelRoleConfig(provider="fake_local", model="qwen2.5:14b"),
