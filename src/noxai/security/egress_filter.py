@@ -234,6 +234,11 @@ class EgressFilter:
 
         # 7. Check for hard violations (SECRET, LOCAL_ONLY)
         if violations:
+            log.warning(
+                "EgressFilter blocked cloud request: max_data_class=%s, violations=%s",
+                max_data_class,
+                violations,
+            )
             return EgressDecision(
                 allowed=False,
                 decision="blocked",
