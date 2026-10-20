@@ -294,6 +294,7 @@ async def record_egress_decision(
                     decision.sha256_hash,
                 ),
             )
+            await conn.commit()
             return await lastrowid(cursor)
         except Exception as exc:
             log.debug("egress_ledger record note: %s", exc)

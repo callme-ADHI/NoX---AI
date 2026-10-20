@@ -178,30 +178,41 @@ async def orchestrate_chat_turn(
         db=db,
     )
 
-    # Store user message if db is available
-    if db is not None:
+    async def _safe_db_write(write_fn: Callable[[Any], Any]) -> None:
         try:
-            await execute(
-                db,
-                """
-                INSERT INTO conversations (id, title, created_at, updated_at)
-                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                              strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-                ON CONFLICT(id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                """,
-                (actual_conv_id, message[:40]),
-            )
-            await execute(
-                db,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'user', ?, ?)
-                """,
-                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, message, user_taint.value),
-            )
-            await db.commit()
+            if db is not None:
+                await write_fn(db)
+                await db.commit()
+            else:
+                from noxai.db import get_db
+
+                async with get_db() as conn:
+                    await write_fn(conn)
+                    await conn.commit()
         except Exception as exc:
-            log.warning("Could not persist conversation/message state: %s", exc)
+            log.warning("Database write failed: %s", exc)
+
+    async def _write_user_msg(conn: Any) -> None:
+        await execute(
+            conn,
+            """
+            INSERT INTO conversations (id, title, created_at, updated_at)
+            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            ON CONFLICT(id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            """,
+            (actual_conv_id, message[:40]),
+        )
+        await execute(
+            conn,
+            """
+            INSERT INTO messages (id, conversation_id, role, content, taint_flags)
+            VALUES (?, ?, 'user', ?, ?)
+            """,
+            (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, message, user_taint.value),
+        )
+
+    await _safe_db_write(_write_user_msg)
 
     # 3. CloudHealth check and engine determination (§G3.3, §G3.4)
     nvidia_provider = getattr(rtr, "providers", {}).get("nvidia")
@@ -413,36 +424,34 @@ async def orchestrate_chat_turn(
     lane_info = "cloud" if not actual_is_local else "local_resident"
 
     # Persist assistant response to DB
-    if db is not None:
-        try:
-            await execute(
-                db,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'assistant', ?, 0)
-                """,
-                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
+    async def _write_assistant_msg(conn: Any) -> None:
+        await execute(
+            conn,
+            """
+            INSERT INTO messages (id, conversation_id, role, content, taint_flags)
+            VALUES (?, ?, 'assistant', ?, 0)
+            """,
+            (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
+        )
+        await execute(
+            conn,
+            """
+            INSERT INTO runs (
+                id, kind, conversation_id, status, allow_cloud, started_at, trace_json
             )
-            await execute(
-                db,
-                """
-                INSERT INTO runs (
-                    id, kind, conversation_id, status, allow_cloud, started_at, trace_json
-                )
-                VALUES (?, 'chat', ?, 'done', ?, datetime('now'), ?)
-                ON CONFLICT(id) DO UPDATE SET status = 'done', trace_json = ?
-                """,
-                (
-                    actual_run_id,
-                    actual_conv_id,
-                    0 if actual_is_local else 1,
-                    json.dumps(trace_data),
-                    json.dumps(trace_data),
-                ),
-            )
-            await db.commit()
-        except Exception as exc:
-            log.warning("Could not persist assistant message or run trace: %s", exc)
+            VALUES (?, 'chat', ?, 'done', ?, datetime('now'), ?)
+            ON CONFLICT(id) DO UPDATE SET status = 'done', trace_json = ?
+            """,
+            (
+                actual_run_id,
+                actual_conv_id,
+                0 if actual_is_local else 1,
+                json.dumps(trace_data),
+                json.dumps(trace_data),
+            ),
+        )
+
+    await _safe_db_write(_write_assistant_msg)
 
     # Publish completion events
     await bus.publish(

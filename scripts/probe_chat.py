@@ -15,7 +15,6 @@ import argparse
 import asyncio
 import json
 import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -111,13 +110,13 @@ async def probe_single_turn(
 
                 try:
                     raw_msg = await asyncio.wait_for(ws.recv(), timeout=timeout - elapsed)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     result["error"] = f"Timeout ({timeout}s) waiting for websocket message"
                     break
 
                 try:
                     event = json.loads(raw_msg)
-                except Exception:
+                except json.JSONDecodeError:
                     continue
 
                 ev_type = event.get("type")
@@ -134,7 +133,9 @@ async def probe_single_turn(
                 if ev_type == "token":
                     if result["first_token_sec"] is None:
                         result["first_token_sec"] = round(time.perf_counter() - t0, 3)
-                    token_chunks.append(ev_data.get("text", ""))
+                    token_chunks.append(
+                        ev_data.get("chunk") or ev_data.get("text") or ev_data.get("delta") or ""
+                    )
                     result["tokens_received"] += 1
 
                 elif ev_type == "model_used":
@@ -190,9 +191,9 @@ async def main() -> None:
     results = []
     for p in prompts:
         if not args.json:
-            print(f"\n=======================================================")
+            print("\n=======================================================")
             print(f"PROBING: {p!r}")
-            print(f"=======================================================")
+            print("=======================================================")
         res = await probe_single_turn(
             p,
             allow_cloud=not args.no_cloud,

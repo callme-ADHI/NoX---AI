@@ -408,31 +408,22 @@ async def _run_chat_pipeline(
     config: Settings,
 ) -> None:
     """Execute chat pipeline in background and publish events."""
-    from noxai.db import get_db
     from noxai.orchestrator import orchestrate_chat_turn
 
-    async with get_db() as db:
-        try:
-            await orchestrate_chat_turn(
-                message=message,
-                conversation_id=conv_id,
-                run_id=run_id,
-                allow_cloud=allow_cloud,
-                db=db,
-                config=config,
-            )
-        except asyncio.CancelledError:
-            log.info("Run %s was cancelled.", run_id)
-            await global_event_bus.publish(
-                make_event("run_cancelled", {}, run_id=run_id),
-                db=db,
-            )
-        except Exception as exc:
-            log.error("Run %s failed with exception: %s", run_id, exc)
-            await global_event_bus.publish(
-                make_event("run_failed", {"error": str(exc)}, run_id=run_id),
-                db=db,
-            )
+    try:
+        await orchestrate_chat_turn(
+            message=message,
+            conversation_id=conv_id,
+            run_id=run_id,
+            allow_cloud=allow_cloud,
+            config=config,
+        )
+    except asyncio.CancelledError:
+        log.info("Run %s was cancelled.", run_id)
+        await global_event_bus.publish(make_event("run_cancelled", {}, run_id=run_id))
+    except Exception as exc:
+        log.error("Run %s failed with exception: %s", run_id, exc)
+        await global_event_bus.publish(make_event("run_failed", {"error": str(exc)}, run_id=run_id))
 
 
 @api_router.post("/chat", response_model=ChatResponse, dependencies=WRITE_DEPS)
