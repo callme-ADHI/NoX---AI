@@ -57,7 +57,7 @@ def _safe_json_loads(val: Any) -> Any:
 class ChatRequest(BaseModel):
     conversation_id: str | None = None
     message: str
-    allow_cloud: bool = False
+    allow_cloud: bool = True
 
 
 class ChatResponse(BaseModel):
@@ -374,10 +374,17 @@ async def get_system_status() -> SystemStatusResponse:
 
     db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
 
-    has_nvidia_key = bool(cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
-    from noxai.models.cloud_health import get_cloud_health
+    has_nvidia_key = bool(
+        (cfg.nvidia_api_keys and len(cfg.nvidia_api_keys) > 0)
+        or (cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
+    )
+    from noxai.models.cloud_health import CloudHealthState, get_cloud_health
 
     ch = get_cloud_health(has_key=has_nvidia_key)
+    if ch.secrets_path:
+        ch.check_secrets_file()
+    if has_nvidia_key and ch.state in (CloudHealthState.NO_KEY, CloudHealthState.OFFLINE):
+        ch._transition(CloudHealthState.ACTIVE, "Ready")
     cloud_is_available = has_nvidia_key and ch.is_active()
 
     return SystemStatusResponse(
@@ -655,6 +662,16 @@ async def delete_conversation(conv_id: str) -> dict[str, bool]:
     async with get_db() as db:
         await execute(db, "DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
         await execute(db, "DELETE FROM conversations WHERE id = ?", (conv_id,))
+        await db.commit()
+    return {"ok": True}
+
+
+@api_router.delete("/conversations", dependencies=WRITE_DEPS)
+async def delete_all_conversations() -> dict[str, bool]:
+    """Delete all conversations and their messages."""
+    async with get_db() as db:
+        await execute(db, "DELETE FROM messages")
+        await execute(db, "DELETE FROM conversations")
         await db.commit()
     return {"ok": True}
 

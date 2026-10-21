@@ -310,8 +310,8 @@ class CloudHealth:
                     k, v = line.split("=", 1)
                     k = k.strip()
                     v = v.strip().strip("'\"")
-                    if k in ("NOX_NVIDIA_API_KEY", "NVIDIA_API_KEY") and v:
-                        key = v
+                    if (k.startswith("NVIDIA_API_KEY") or k == "NOX_NVIDIA_API_KEY") and v:
+                        key = v.split(",")[0].strip() if "," in v else v
                         break
         except Exception as exc:
             log.warning("Could not read secrets file %s: %s", path, exc)

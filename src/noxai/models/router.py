@@ -40,7 +40,14 @@ class ModelRouter:
         else:
             from noxai.models.cloud_health import get_cloud_health
 
-            has_nv_key = bool(config.nvidia_api_key and config.nvidia_api_key.get_secret_value())
+            keys_list = (
+                [k.get_secret_value() for k in config.nvidia_api_keys]
+                if config.nvidia_api_keys
+                else []
+            )
+            if not keys_list and config.nvidia_api_key:
+                keys_list = [config.nvidia_api_key.get_secret_value()]
+            has_nv_key = len(keys_list) > 0
             ch = get_cloud_health(has_key=has_nv_key)
             self.providers = {
                 "ollama": OllamaProvider(
@@ -49,9 +56,8 @@ class ModelRouter:
                     num_ctx=config.models.ollama.num_ctx,
                 ),
                 "nvidia": NvidiaProvider(
-                    api_key=config.nvidia_api_key.get_secret_value()
-                    if config.nvidia_api_key
-                    else None,
+                    api_key=keys_list[0] if keys_list else None,
+                    api_keys=keys_list,
                     base_url=config.models.nvidia.base_url,
                     requests_per_minute=config.models.nvidia.requests_per_minute,
                     max_retries=config.models.nvidia.max_retries,

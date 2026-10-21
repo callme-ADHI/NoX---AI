@@ -46,6 +46,11 @@ _background_tasks: set[asyncio.Task[Any]] = set()
 FRONT_DESK_ALLOWED_TOOLS = {
     "web_search",
     "fetch_page",
+    "get_time",
+    "system_info",
+    "list_files",
+    "read_file",
+    "run_shell",
     "dispatch_task",
     "dispatch_reminder",
     "dispatch_job_edit",
@@ -75,15 +80,21 @@ def _build_cloud_system_prompt() -> Message:
 
     Guarantees:
     - Stable prefix for KV cache reuse.
-    - Front-desk tools only.
+    - Front-desk and system tools only.
     - Zero LOCAL_ONLY data (profile card remains empty by default).
     - Labelled DataClass.PUBLIC.
     """
     prompt_text = (
         "You are NoX, a fast, capable, and privacy-conscious personal AI assistant.\n"
         "Provide direct, concise, and helpful answers.\n"
-        "If the user asks to schedule a reminder, run background work, or manage jobs, "
-        "use the appropriate dispatch tool."
+        "You have access to live tools:\n"
+        "- web_search and fetch_page for current internet facts, news, and search.\n"
+        "- get_time for current date, time, weekday, and timezone.\n"
+        "- list_files and read_file to inspect files and directories on the system.\n"
+        "- system_info and run_shell for system resource usage and safe commands.\n"
+        "- dispatch_task, dispatch_reminder, dispatch_job_edit to schedule background work.\n"
+        "Always call the appropriate tool when the user asks about live internet data, "
+        "current date/time, or files and folders on their system."
     )
     return Message(
         role="system",
@@ -337,6 +348,7 @@ async def orchestrate_chat_turn(
     tool_calls_collected: list[ToolCall] = []
     first_token_time: float | None = None
     t_stream_0 = time.perf_counter()
+    citations_collected: list[str] = []
 
     try:
         async for chunk in rtr.chat(
@@ -358,6 +370,111 @@ async def orchestrate_chat_turn(
 
             if chunk.tool_calls:
                 tool_calls_collected.extend(chunk.tool_calls)
+
+        # Multi-step tool execution loop: if model requested tools,
+        # execute them and stream final answer
+        if tool_calls_collected:
+            for call in tool_calls_collected:
+                await bus.publish(
+                    make_event(
+                        "tool_call",
+                        {
+                            "tool": call.name,
+                            "args": call.arguments,
+                            "call_id": call.id,
+                        },
+                        run_id=actual_run_id,
+                    ),
+                    db=db,
+                )
+
+            # Append assistant message with tool calls to history
+            assistant_text = "".join(chunks).strip()
+            assistant_turn_msg = Message(
+                role="assistant",
+                content=Content.chat(assistant_text),
+                tool_calls=tool_calls_collected,
+            )
+            messages_to_send.append(assistant_turn_msg)
+
+            from noxai.tools.registry import ToolContext
+
+            tool_ctx = ToolContext(
+                run_id=actual_run_id,
+                config=cfg,
+                allow_cloud=allow_cloud,
+                db=db,
+                router=rtr,
+            )
+
+            for call in tool_calls_collected:
+                tool_def = reg.get(call.name)
+                tool_res_text = ""
+                if tool_def is not None:
+                    try:
+                        tool_res = await reg.execute(call.name, call.arguments, tool_ctx)
+                        tool_res_text = str(
+                            tool_res.output if tool_res.ok else f"Error: {tool_res.output}"
+                        )
+                        if call.name in ("web_search", "fetch_page"):
+                            import re
+
+                            urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
+                            citations_collected.extend(urls)
+                        await bus.publish(
+                            make_event(
+                                "tool_result",
+                                {
+                                    "tool": call.name,
+                                    "ok": tool_res.ok,
+                                    "summary": tool_res.summary,
+                                    "output": tool_res_text[:500],
+                                },
+                                run_id=actual_run_id,
+                            ),
+                            db=db,
+                        )
+                    except Exception as t_err:
+                        log.warning("Tool %s execution failed: %s", call.name, t_err)
+                        tool_res_text = f"Tool execution failed: {t_err}"
+                else:
+                    tool_res_text = f"Tool {call.name} not found in registry."
+
+                is_untrusted = tool_def.untrusted_output if tool_def else False
+                tool_content = (
+                    Content.untrusted(tool_res_text, source=call.name)
+                    if is_untrusted
+                    else Content.public(tool_res_text, source=call.name)
+                )
+
+                messages_to_send.append(
+                    Message(
+                        role="tool",
+                        content=tool_content,
+                        tool_call_id=call.id,
+                        name=call.name,
+                    )
+                )
+
+            follow_up_chunks: list[str] = []
+            async for chunk in rtr.chat(
+                role=target_role,
+                messages=messages_to_send,
+                tools=None,
+                stream=True,
+                on_notice=on_notice,
+                on_model_used=_on_model_used_internal,
+            ):
+                if chunk.text:
+                    if first_token_time is None:
+                        first_token_time = time.perf_counter()
+                    follow_up_chunks.append(chunk.text)
+                    if on_token:
+                        on_token(chunk.text)
+                    await bus.publish(
+                        make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                    )
+            chunks = follow_up_chunks
 
     except Exception as exc:
         log.error("Execution error during chat turn: %s", exc)
@@ -397,6 +514,11 @@ async def orchestrate_chat_turn(
     total_elapsed_ms = total_elapsed * 1000.0
 
     final_text = "".join(chunks).strip()
+    from noxai.agent.loop import extract_citations
+
+    for c in extract_citations(final_text):
+        if c not in citations_collected:
+            citations_collected.append(c)
 
     # Determine effective model and provider info
     actual_model_name = str(model_used_record.get("model", "unknown"))
@@ -489,5 +611,6 @@ async def orchestrate_chat_turn(
         fallback_reason=actual_fallback_reason,
         intent=intent_res,
         trace=trace_data,
+        citations=citations_collected,
         duration_seconds=total_elapsed,
     )

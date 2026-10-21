@@ -25,6 +25,7 @@ from noxai.models.base import (
 )
 from noxai.models.budget import RequestBudget
 from noxai.models.cloud_health import CloudHealth
+from noxai.models.key_pool import NvidiaKeyPool
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +101,8 @@ class NvidiaProvider(Provider):
     def __init__(
         self,
         api_key: str | None = None,
+        api_keys: list[str] | None = None,
+        key_pool: NvidiaKeyPool | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         requests_per_minute: int = 30,
         max_retries: int = 4,
@@ -108,13 +111,28 @@ class NvidiaProvider(Provider):
         cloud_health: CloudHealth | None = None,
         budget: RequestBudget | None = None,
     ) -> None:
-        self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self.timeout = timeout
         self.transport = transport
         self.rate_limiter = TokenBucket(requests_per_minute=requests_per_minute)
         self.budget = budget or RequestBudget(requests_per_minute=requests_per_minute)
+
+        # Initialize key pool
+        if key_pool is not None:
+            self.key_pool = key_pool
+        else:
+            init_keys: list[str] = []
+            if api_keys:
+                init_keys.extend(api_keys)
+            if api_key and api_key not in init_keys:
+                init_keys.append(api_key)
+            self.key_pool = NvidiaKeyPool(keys=init_keys, default_rpm_per_key=requests_per_minute)
+
+        self._fallback_key = (
+            api_key
+            or (self.key_pool.get_all_keys()[0] if not self.key_pool.is_empty() else None)
+        )
         self.cloud_health = (
             cloud_health
             if cloud_health is not None
@@ -122,22 +140,37 @@ class NvidiaProvider(Provider):
         )
 
     def __repr__(self) -> str:
+        count = self.key_pool.total_keys
         masked = f"{self.api_key[:6]}...***" if self.api_key else "None"
-        return f"NvidiaProvider(base_url={self.base_url!r}, api_key={masked!r})"
+        return f"NvidiaProvider(base_url={self.base_url!r}, keys={count}, primary={masked!r})"
+
+    @property
+    def api_key(self) -> str | None:
+        """Return the primary or first active API key."""
+        if not self.key_pool.is_empty():
+            return self.key_pool.get_all_keys()[0]
+        return self._fallback_key
+
+    @api_key.setter
+    def api_key(self, val: str | None) -> None:
+        self._fallback_key = val
+        if val:
+            self.key_pool.add_key(val)
 
     @property
     def is_enabled(self) -> bool:
-        """Return True if an API key is configured."""
-        return bool(self.api_key and self.api_key.strip())
+        """Return True if at least one API key is configured."""
+        return not self.key_pool.is_empty()
 
-    def _headers(self) -> dict[str, str]:
-        if not self.is_enabled:
+    def _headers(self, key: str | None = None) -> dict[str, str]:
+        chosen_key = key or self.api_key
+        if not chosen_key:
             raise ProviderUnavailable(
                 "NVIDIA provider is disabled: no API key configured. "
                 "Add NVIDIA_API_KEY=nvapi-... to ~/.config/nox/secrets.env."
             )
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {chosen_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
@@ -213,8 +246,10 @@ class NvidiaProvider(Provider):
             attempt += 1
             await self.rate_limiter.acquire()
 
+            active_key_entry = self.key_pool.acquire_best_key()
+
             try:
-                headers = self._headers()
+                headers = self._headers(active_key_entry.api_key)
                 req = client.build_request(
                     "POST",
                     f"{self.base_url}/chat/completions",
@@ -228,21 +263,40 @@ class NvidiaProvider(Provider):
                     wait_sec = _parse_retry_after(retry_after_header, backoff)
                     jitter = random.uniform(0.1, 0.5)  # noqa: S311
                     total_wait = wait_sec + jitter
+                    self.key_pool.mark_rate_limited(
+                        active_key_entry.api_key, cooldown_seconds=wait_sec
+                    )
                     self.cloud_health.record_failure(
-                        error="HTTP 429: rate limited",
+                        error=f"HTTP 429 on {active_key_entry.label}",
                         status_code=429,
                         retry_after=wait_sec,
                     )
+                    await resp.aclose()
+
+                    # Transparent failover: check if another key is available right now
+                    now = time.monotonic()
+                    alts = [
+                        e for e in self.key_pool._entries
+                        if e.api_key != active_key_entry.api_key and e.is_available(now)
+                    ]
+                    if alts and attempt <= self.max_retries:
+                        log.info(
+                            "NVIDIA %s hit 429; immediate failover to %s",
+                            active_key_entry.label,
+                            alts[0].label,
+                        )
+                        continue
+
                     log.warning(
-                        "NVIDIA 429 rate limited. Attempt %d/%d, waiting %.2fs",
+                        "All available keys rate limited. Attempt %d/%d, waiting %.2fs",
                         attempt,
                         self.max_retries,
                         total_wait,
                     )
-                    await resp.aclose()
                     if attempt > self.max_retries:
                         raise RateLimitError(
-                            f"NVIDIA rate limit exceeded after {self.max_retries} retries."
+                            "NVIDIA rate limit exceeded across key pool after "
+                            f"{self.max_retries} retries."
                         )
                     await asyncio.sleep(total_wait)
                     backoff *= 2.0
@@ -252,10 +306,25 @@ class NvidiaProvider(Provider):
                     error_text = await resp.aread()
                     await resp.aclose()
                     decoded = error_text.decode("utf-8", errors="replace")
+                    self.key_pool.mark_error(active_key_entry.api_key, cooldown_seconds=300.0)
                     self.cloud_health.record_failure(
                         error=decoded,
                         status_code=resp.status_code,
                     )
+                    # Transparent failover if another key exists
+                    now = time.monotonic()
+                    alts = [
+                        e for e in self.key_pool._entries
+                        if e.api_key != active_key_entry.api_key and not e.is_cooling_down(now)
+                    ]
+                    if alts and attempt <= self.max_retries:
+                        log.warning(
+                            "NVIDIA %s auth failed (%d); switching to %s",
+                            active_key_entry.label,
+                            resp.status_code,
+                            alts[0].label,
+                        )
+                        continue
                     raise ProviderUnavailable(
                         f"NVIDIA API authorization error ({resp.status_code}): {decoded}"
                     )
@@ -286,6 +355,7 @@ class NvidiaProvider(Provider):
                     )
                     raise ProviderUnavailable(f"NVIDIA API error ({resp.status_code}): {decoded}")
 
+                self.key_pool.mark_success(active_key_entry.api_key)
                 return resp
 
             except (httpx.TimeoutException, httpx.ConnectError) as exc:

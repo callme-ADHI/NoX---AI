@@ -16,7 +16,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, SecretStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -210,6 +217,7 @@ class Settings(BaseModel):
 
     # Secrets (loaded separately, not from TOML)
     nvidia_api_key: SecretStr | None = None
+    nvidia_api_keys: list[SecretStr] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_model_roles(self) -> Settings:
@@ -323,9 +331,30 @@ def load_config() -> Settings:
 
     # Inject secrets into raw dict so Pydantic can validate them
     # (they are not written back to disk)
-    key = secrets.get("NOX_NVIDIA_API_KEY") or secrets.get("NVIDIA_API_KEY")
-    if key:
-        raw["nvidia_api_key"] = key
+    collected_keys: list[str] = []
+    if "NOX_NVIDIA_API_KEY" in secrets:
+        k_clean = secrets["NOX_NVIDIA_API_KEY"].strip()
+        if k_clean and k_clean not in collected_keys:
+            collected_keys.append(k_clean)
+    if "NVIDIA_API_KEYS" in secrets:
+        for k in secrets["NVIDIA_API_KEYS"].split(","):
+            k_clean = k.strip()
+            if k_clean and k_clean not in collected_keys:
+                collected_keys.append(k_clean)
+    for k_name, k_val in sorted(secrets.items()):
+        if k_name.startswith("NVIDIA_API_KEY") and k_name != "NVIDIA_API_KEYS":
+            k_clean = k_val.strip()
+            if k_clean and k_clean not in collected_keys:
+                collected_keys.append(k_clean)
+
+    if collected_keys:
+        raw["nvidia_api_keys"] = collected_keys
+        raw["nvidia_api_key"] = collected_keys[0]
+    else:
+        key = secrets.get("NOX_NVIDIA_API_KEY") or secrets.get("NVIDIA_API_KEY")
+        if key:
+            raw["nvidia_api_key"] = key
+            raw["nvidia_api_keys"] = [key]
 
     try:
         settings = Settings(**raw)

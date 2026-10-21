@@ -290,7 +290,9 @@ def open() -> None:
 @app.command(name="chat")
 def chat_cmd(
     message: str = typer.Argument(..., help="Message to send to NoX."),
-    allow_cloud: bool = typer.Option(False, "--allow-cloud", help="Allow cloud model if eligible."),
+    allow_cloud: bool = typer.Option(
+        True, "--allow-cloud/--no-cloud", help="Allow cloud model if eligible."
+    ),
     trace: bool = typer.Option(False, "--trace", help="Print detailed latency stage trace."),
 ) -> None:
     """Send a one-shot chat message to NoX."""

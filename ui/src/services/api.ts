@@ -98,6 +98,11 @@ export const api = {
       method: 'DELETE',
     }),
 
+  deleteAllConversations: () =>
+    request<{ ok: boolean }>('/conversations', {
+      method: 'DELETE',
+    }),
+
   // Jobs
   getJobs: () => request<Job[]>('/jobs'),
 

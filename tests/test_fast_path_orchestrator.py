@@ -596,3 +596,81 @@ async def test_j_cloud_prompt_strict_data_class_and_tools() -> None:
             content = m.get("content", "")
             assert "Recalled Context:" not in content
             assert "local_only" not in content.lower()
+
+
+def make_nvidia_tool_call_sse(tool_name: str, args: dict[str, Any]) -> bytes:
+    """Generate SSE body for mock NVIDIA streaming response containing a tool call."""
+    chunk = json.dumps(
+        {
+            "id": "chatcmpl-mock",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_mock_123",
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(args),
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        }
+    )
+    return f"data: {chunk}\n\ndata: [DONE]\n\n".encode()
+
+
+@pytest.mark.asyncio
+async def test_k_tool_call_execution_in_orchestrator() -> None:
+    """Model tool calls (web_search, get_time, list_files) are executed and fed back."""
+    req_count = 0
+
+    def nv_handler(req: httpx.Request) -> httpx.Response:
+        nonlocal req_count
+        req_count += 1
+        if req_count == 1:
+            # First turn: model outputs a tool call to get_time
+            return httpx.Response(200, content=make_nvidia_tool_call_sse("get_time", {}))
+        # Second turn: model receives tool output and streams final answer
+        return httpx.Response(200, content=make_nvidia_sse("Today is October 21, 2026."))
+
+    def ol_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=make_ollama_ndjson("Local"))
+
+    router, cfg = make_test_router(
+        nvidia_transport=httpx.MockTransport(nv_handler),
+        ollama_transport=httpx.MockTransport(ol_handler),
+    )
+
+    await init_db()
+    bus = EventBus()
+    events_captured: list[Event] = []
+
+    async def _on_event(evt: Event) -> None:
+        events_captured.append(evt)
+
+    bus.subscribe(_on_event)
+
+    async with get_db() as db:
+        res = await orchestrate_chat_turn(
+            message="What is today's date?",
+            allow_cloud=True,
+            db=db,
+            router=router,
+            config=cfg,
+            event_bus=bus,
+        )
+
+        assert res.is_cloud is True
+        assert res.text == "Today is October 21, 2026."
+        assert req_count == 2
+        event_types = [e.type for e in events_captured]
+        assert "tool_call" in event_types
+        assert "tool_result" in event_types

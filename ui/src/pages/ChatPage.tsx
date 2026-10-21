@@ -402,6 +402,19 @@ export const ChatPage: React.FC = () => {
     }
   };
 
+  const handleClearAllConversations = async () => {
+    if (!window.confirm('Are you sure you want to delete all conversations?')) {
+      return;
+    }
+    try {
+      await api.deleteAllConversations();
+      handleNewChat();
+      loadConversations();
+    } catch (err) {
+      console.error('Clear all conversations error:', err);
+    }
+  };
+
   const handleApprovalDecision = async (id: number, decision: 'approve' | 'deny') => {
     try {
       await api.resolveApproval(id, decision);
@@ -472,7 +485,7 @@ export const ChatPage: React.FC = () => {
                   <span className="truncate flex-1 pr-2">{c.title || 'Untitled'}</span>
                   <button
                     onClick={(e) => handleDeleteConversation(e, c.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-danger rounded transition-opacity"
+                    className="opacity-70 hover:opacity-100 p-1 text-muted hover:text-danger rounded transition-all"
                     title="Delete conversation"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -482,6 +495,20 @@ export const ChatPage: React.FC = () => {
             })
           )}
         </div>
+
+        {/* Clear All Chats Footer */}
+        {conversations.length > 0 && (
+          <div className="p-2 border-t border-border/60">
+            <button
+              onClick={handleClearAllConversations}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-danger/10 text-muted hover:text-danger text-[11px] font-medium transition-colors border border-transparent hover:border-danger/30"
+              title="Delete all conversations"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear All Chats
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main Chat Area */}
@@ -516,8 +543,21 @@ export const ChatPage: React.FC = () => {
             )}
           </div>
 
-          {/* Controls: Private Mode Toggle and Cloud Status (§F7.3, §F7.4) */}
+          {/* Controls: Delete Chat, Private Mode Toggle and Cloud Status (§F7.3, §F7.4) */}
           <div className="flex items-center gap-2.5">
+            {/* Delete Active Chat Button */}
+            {activeConvId && (
+              <button
+                type="button"
+                onClick={(e) => handleDeleteConversation(e, activeConvId)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-muted hover:text-danger hover:bg-danger/10 border border-border transition-colors"
+                title="Delete this conversation"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline font-mono text-[11px]">Delete Chat</span>
+              </button>
+            )}
+
             {/* Private Mode Toggle */}
             <button
               type="button"
