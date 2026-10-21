@@ -345,36 +345,56 @@ async def orchestrate_chat_turn(
         task.add_done_callback(_background_tasks.discard)
 
     chunks: list[str] = []
-    tool_calls_collected: list[ToolCall] = []
     first_token_time: float | None = None
     t_stream_0 = time.perf_counter()
     citations_collected: list[str] = []
 
     try:
-        async for chunk in rtr.chat(
-            role=target_role,
-            messages=messages_to_send,
-            tools=selected_tools if selected_tools else None,
-            stream=True,
-            on_notice=on_notice,
-            on_model_used=_on_model_used_internal,
-        ):
-            if chunk.text:
-                if first_token_time is None:
-                    first_token_time = time.perf_counter()
-                chunks.append(chunk.text)
-                if on_token:
-                    on_token(chunk.text)
-                # Stream immediately without buffering (§G3.5)
-                await bus.publish(make_event("token", {"chunk": chunk.text}, run_id=actual_run_id))
+        max_tool_steps = 3
+        step = 0
 
-            if chunk.tool_calls:
-                tool_calls_collected.extend(chunk.tool_calls)
+        while step <= max_tool_steps:
+            turn_chunks: list[str] = []
+            turn_tool_calls: list[ToolCall] = []
 
-        # Multi-step tool execution loop: if model requested tools,
-        # execute them and stream final answer
-        if tool_calls_collected:
-            for call in tool_calls_collected:
+            # If this is the last allowed step, don't pass tools to force text synthesis
+            tools_for_step = (
+                selected_tools
+                if (selected_tools and step < max_tool_steps)
+                else None
+            )
+
+            async for chunk in rtr.chat(
+                role=target_role,
+                messages=messages_to_send,
+                tools=tools_for_step,
+                stream=True,
+                on_notice=on_notice,
+                on_model_used=_on_model_used_internal,
+            ):
+                if chunk.text:
+                    if first_token_time is None:
+                        first_token_time = time.perf_counter()
+                    turn_chunks.append(chunk.text)
+                    if on_token:
+                        on_token(chunk.text)
+                    # Stream immediately without buffering (§G3.5)
+                    await bus.publish(
+                        make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                    )
+
+                if chunk.tool_calls:
+                    turn_tool_calls.extend(chunk.tool_calls)
+
+            chunks = turn_chunks
+
+            # If no tool calls were made, we have reached the final answer
+            if not turn_tool_calls:
+                break
+
+            step += 1
+
+            for call in turn_tool_calls:
                 await bus.publish(
                     make_event(
                         "tool_call",
@@ -389,11 +409,11 @@ async def orchestrate_chat_turn(
                 )
 
             # Append assistant message with tool calls to history
-            assistant_text = "".join(chunks).strip()
+            assistant_text = "".join(turn_chunks).strip()
             assistant_turn_msg = Message(
                 role="assistant",
                 content=Content.chat(assistant_text),
-                tool_calls=tool_calls_collected,
+                tool_calls=turn_tool_calls,
             )
             messages_to_send.append(assistant_turn_msg)
 
@@ -407,7 +427,7 @@ async def orchestrate_chat_turn(
                 router=rtr,
             )
 
-            for call in tool_calls_collected:
+            for call in turn_tool_calls:
                 tool_def = reg.get(call.name)
                 tool_res_text = ""
                 if tool_def is not None:
@@ -455,26 +475,6 @@ async def orchestrate_chat_turn(
                         name=call.name,
                     )
                 )
-
-            follow_up_chunks: list[str] = []
-            async for chunk in rtr.chat(
-                role=target_role,
-                messages=messages_to_send,
-                tools=None,
-                stream=True,
-                on_notice=on_notice,
-                on_model_used=_on_model_used_internal,
-            ):
-                if chunk.text:
-                    if first_token_time is None:
-                        first_token_time = time.perf_counter()
-                    follow_up_chunks.append(chunk.text)
-                    if on_token:
-                        on_token(chunk.text)
-                    await bus.publish(
-                        make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                    )
-            chunks = follow_up_chunks
 
     except Exception as exc:
         log.error("Execution error during chat turn: %s", exc)
