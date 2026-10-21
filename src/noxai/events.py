@@ -189,7 +189,9 @@ class EventBus:
 
     async def _safe_dispatch(self, listener: EventListener, event: Event) -> None:
         try:
-            await listener(event)
+            res = listener(event)
+            if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
+                await res
         except Exception as exc:
             log.error("Exception in event listener for %s: %s", event.type, exc, exc_info=True)
 

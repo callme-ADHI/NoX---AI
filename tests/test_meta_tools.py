@@ -27,6 +27,8 @@ from noxai.tools.builtin.scheduler_tools import (
     PreferenceSetParams,
     ReminderCancelParams,
     ReminderCreateParams,
+    ReminderGetParams,
+    ReminderListParams,
     ReminderSnoozeParams,
     SourceAddParams,
     SourceListParams,
@@ -45,6 +47,8 @@ from noxai.tools.builtin.scheduler_tools import (
     preference_set,
     reminder_cancel,
     reminder_create,
+    reminder_get,
+    reminder_list,
     reminder_snooze,
     source_add,
     source_list,
@@ -210,7 +214,7 @@ async def test_reminder_tools(
     test_config: Settings,
 ) -> None:
     """reminder_create sets natural time reminder, reminder_snooze adjusts time,
-    and reminder_cancel disables.
+    reminder_list enumerates, reminder_get retrieves by ID, and reminder_cancel disables.
     """
     router, _ = fake_router
     ctx = _make_context(seeded_db, router, test_config)
@@ -223,6 +227,7 @@ async def test_reminder_tools(
     assert create_res.ok
     assert "Reminder set for" in create_res.output
     assert "Take a break" in create_res.output
+    assert "ID: rem_" in create_res.output
 
     # Find created reminder in DB
     rem_row = await fetch_one(
@@ -232,7 +237,28 @@ async def test_reminder_tools(
     rem_id = rem_row["id"]
     initial_next = rem_row["next_run_at"]
 
-    # 2. Snooze reminder (+20 minutes)
+    # 2. List reminders
+    list_res = await reminder_list(ReminderListParams(include_completed=False), ctx)
+    assert list_res.ok
+    assert rem_id in list_res.output
+    assert "Take a break" in list_res.output
+
+    # 3. Get reminder details (both clean ID and formatted/wrapped ID)
+    get_res1 = await reminder_get(ReminderGetParams(reminder_id=rem_id), ctx)
+    assert get_res1.ok
+    assert "Take a break" in get_res1.output
+    assert rem_id in get_res1.output
+
+    get_res2 = await reminder_get(ReminderGetParams(reminder_id=f"(ID: {rem_id})"), ctx)
+    assert get_res2.ok
+    assert "Take a break" in get_res2.output
+
+    # Also test job_get with wrapped ID
+    job_get_res = await job_get(JobGetParams(name=f"(ID: {rem_id})"), ctx)
+    assert job_get_res.ok
+    assert rem_id in job_get_res.output
+
+    # 4. Snooze reminder (+20 minutes)
     snooze_res = await reminder_snooze(ReminderSnoozeParams(reminder_id=rem_id, minutes=20), ctx)
     assert snooze_res.ok
     assert "Snoozed reminder" in snooze_res.output
@@ -241,7 +267,7 @@ async def test_reminder_tools(
     assert snoozed_row is not None
     assert snoozed_row["next_run_at"] > initial_next
 
-    # 3. Cancel reminder
+    # 5. Cancel reminder
     cancel_res = await reminder_cancel(ReminderCancelParams(reminder_id=rem_id), ctx)
     assert cancel_res.ok
     cancelled_row = await fetch_one(seeded_db, "SELECT enabled FROM jobs WHERE id = ?", (rem_id,))

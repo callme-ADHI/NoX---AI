@@ -154,10 +154,14 @@ async def job_get(params: JobGetParams, ctx: ToolContext) -> ToolResult:
     if ctx.db is None:
         return ToolResult(ok=False, output="Database not available.", summary="no db")
 
+    raw_query = params.name.strip()
+    clean_name = re.sub(r"^[\(\[\{\s]*(?:id\s*:\s*)?", "", raw_query, flags=re.IGNORECASE)
+    clean_name = re.sub(r"[\)\]\}\s\"',;:]+$", "", clean_name).strip()
+
     row = await fetch_one(
         ctx.db,
-        "SELECT * FROM jobs WHERE name = ? OR id = ?",
-        (params.name, params.name),
+        "SELECT * FROM jobs WHERE name = ? OR id = ? OR name = ? OR id = ?",
+        (clean_name, clean_name, raw_query, raw_query),
     )
     if row is None:
         return ToolResult(ok=False, output=f"Job '{params.name}' not found.", summary="not found")
@@ -513,8 +517,168 @@ async def reminder_create(params: ReminderCreateParams, ctx: ToolContext) -> Too
     )
     await ctx.db.commit()
 
-    output = f"Reminder set for {human_str}: '{params.message}'"
-    return ToolResult(ok=True, output=output, summary=f"reminder set for {human_str}")
+    output = f"Reminder set for {human_str}: '{params.message}' (ID: {job_id})"
+    if ctx.emit:
+        ctx.emit(
+            {
+                "type": "reminder_dispatched",
+                "job_id": job_id,
+                "reminder_text": params.message,
+                "due_at": iso_time,
+            }
+        )
+    return ToolResult(
+        ok=True,
+        output=output,
+        summary=f"reminder set for {human_str} (ID: {job_id})",
+    )
+
+
+class ReminderListParams(BaseModel):
+    include_completed: bool = Field(
+        default=False, description="Include recently triggered or completed reminders"
+    )
+
+
+@tool(
+    name="reminder_list",
+    description="List active and pending reminders, their due times, and IDs.",
+    params=ReminderListParams,
+    tier="read",
+)
+async def reminder_list(params: ReminderListParams, ctx: ToolContext) -> ToolResult:
+    """List pending or completed reminders."""
+    if ctx.db is None:
+        return ToolResult(ok=False, output="Database not available.", summary="no db")
+
+    where_clause = "WHERE (id LIKE 'rem_%' OR schedule_type = 'once')"
+    if not params.include_completed:
+        where_clause += " AND enabled = 1"
+
+    rows = await fetch_all(
+        ctx.db,
+        f"""
+        SELECT id, name, instruction, config_json, next_run_at, enabled
+        FROM jobs
+        {where_clause}
+        ORDER BY next_run_at ASC
+        """,
+    )
+
+    if not rows:
+        return ToolResult(
+            ok=True,
+            output="No scheduled reminders found.",
+            summary="0 reminders",
+        )
+
+    reminders_data = []
+    for r in rows:
+        cfg = json.loads(r["config_json"]) if r["config_json"] else {}
+        msg = cfg.get("message") or r["instruction"]
+        next_dt_str = str(r["next_run_at"] or "")
+        human_dt = ""
+        if next_dt_str:
+            try:
+                dt_obj = datetime.fromisoformat(next_dt_str)
+                human_dt = format_human_time(dt_obj, tz_name=DEFAULT_TIMEZONE)
+            except Exception:
+                human_dt = next_dt_str
+        reminders_data.append(
+            {
+                "id": str(r["id"]),
+                "message": msg,
+                "when": human_dt or "Passed / Fired",
+                "enabled": bool(r["enabled"]),
+                "iso_time": next_dt_str,
+            }
+        )
+
+    lines = [
+        "| ID | Message | Scheduled For | Status |",
+        "|---|---|---|---|",
+    ]
+    for rem in reminders_data:
+        status_str = "Active" if rem["enabled"] else "Completed / Inactive"
+        lines.append(f"| `{rem['id']}` | {rem['message']} | {rem['when']} | {status_str} |")
+
+    return ToolResult(
+        ok=True,
+        output="\n".join(lines),
+        summary=f"Found {len(reminders_data)} reminders",
+    )
+
+
+class ReminderGetParams(BaseModel):
+    reminder_id: str = Field(..., description="Reminder ID (e.g. 'rem_12345678') or reminder name")
+
+
+@tool(
+    name="reminder_get",
+    description="Retrieve details for a specific reminder by its ID or name.",
+    params=ReminderGetParams,
+    tier="read",
+)
+async def reminder_get(params: ReminderGetParams, ctx: ToolContext) -> ToolResult:
+    """Retrieve details for a reminder by ID or name, checking active jobs and historical runs."""
+    if ctx.db is None:
+        return ToolResult(ok=False, output="Database not available.", summary="no db")
+
+    raw_id = params.reminder_id.strip()
+    clean_id = re.sub(r"^[\(\[\{\s]*(?:id\s*:\s*)?", "", raw_id, flags=re.IGNORECASE)
+    clean_id = re.sub(r"[\)\]\}\s\"',;:]+$", "", clean_id).strip()
+
+    row = await fetch_one(
+        ctx.db,
+        """
+        SELECT * FROM jobs
+        WHERE id = ? OR name = ? OR id = ? OR name = ? OR id LIKE ?
+        """,
+        (clean_id, clean_id, f"rem_{clean_id}", f"reminder-{clean_id}", f"%{clean_id}%"),
+    )
+
+    if row is not None:
+        cfg = json.loads(row["config_json"]) if row["config_json"] else {}
+        msg = cfg.get("message") or row["instruction"]
+        next_dt_str = str(row["next_run_at"] or "")
+        human_dt = ""
+        if next_dt_str:
+            try:
+                dt_obj = datetime.fromisoformat(next_dt_str)
+                human_dt = format_human_time(dt_obj, tz_name=DEFAULT_TIMEZONE)
+            except Exception:
+                human_dt = next_dt_str
+
+        status_str = "Active (pending)" if row["enabled"] else "Completed / Inactive"
+        out = (
+            f"**Reminder Details:**\n"
+            f"- **ID**: `{row['id']}`\n"
+            f"- **Message**: {msg}\n"
+            f"- **Scheduled For**: {human_dt or 'Already triggered / None'}\n"
+            f"- **Status**: {status_str}\n"
+        )
+        return ToolResult(ok=True, output=out, summary=f"Found reminder {row['id']}")
+
+    # Check job_runs for fired reminders
+    run_row = await fetch_one(
+        ctx.db,
+        "SELECT * FROM job_runs WHERE job_id = ? OR job_id = ? OR job_id LIKE ? ORDER BY started_at DESC LIMIT 1",
+        (clean_id, f"rem_{clean_id}", f"%{clean_id}%"),
+    )
+    if run_row is not None:
+        out = (
+            f"**Reminder Status:**\n"
+            f"Reminder `{run_row['job_id']}` was previously triggered at {run_row['started_at']}.\n"
+            f"- **Status**: {run_row['status']}\n"
+            f"- **Message/Output**: {run_row['output_markdown'] or 'Notification delivered'}"
+        )
+        return ToolResult(ok=True, output=out, summary=f"Reminder {run_row['job_id']} already fired")
+
+    return ToolResult(
+        ok=False,
+        output=f"No reminder found matching ID '{clean_id}'. Use reminder_list to view all reminders.",
+        summary="reminder not found",
+    )
 
 
 class ReminderSnoozeParams(BaseModel):
@@ -533,10 +697,14 @@ async def reminder_snooze(params: ReminderSnoozeParams, ctx: ToolContext) -> Too
     if ctx.db is None:
         return ToolResult(ok=False, output="Database not available.", summary="no db")
 
+    raw_id = params.reminder_id.strip()
+    clean_id = re.sub(r"^[\(\[\{\s]*(?:id\s*:\s*)?", "", raw_id, flags=re.IGNORECASE)
+    clean_id = re.sub(r"[\)\]\}\s\"',;:]+$", "", clean_id).strip()
+
     row = await fetch_one(
         ctx.db,
-        "SELECT * FROM jobs WHERE id = ? OR name = ?",
-        (params.reminder_id, params.reminder_id),
+        "SELECT * FROM jobs WHERE id = ? OR name = ? OR id = ? OR name = ?",
+        (clean_id, clean_id, f"rem_{clean_id}", f"reminder-{clean_id}"),
     )
     if row is None:
         return ToolResult(
@@ -556,7 +724,7 @@ async def reminder_snooze(params: ReminderSnoozeParams, ctx: ToolContext) -> Too
 
     return ToolResult(
         ok=True,
-        output=f"Snoozed reminder '{row['name']}' until {human_str}",
+        output=f"Snoozed reminder '{row['name']}' (ID: {row['id']}) until {human_str}",
         summary=f"snoozed until {human_str}",
     )
 
@@ -573,7 +741,10 @@ class ReminderCancelParams(BaseModel):
     is_meta_tool=True,
 )
 async def reminder_cancel(params: ReminderCancelParams, ctx: ToolContext) -> ToolResult:
-    res = await job_disable(JobToggleParams(name=params.reminder_id), ctx)
+    raw_id = params.reminder_id.strip()
+    clean_id = re.sub(r"^[\(\[\{\s]*(?:id\s*:\s*)?", "", raw_id, flags=re.IGNORECASE)
+    clean_id = re.sub(r"[\)\]\}\s\"',;:]+$", "", clean_id).strip()
+    res = await job_disable(JobToggleParams(name=clean_id), ctx)
     return cast(ToolResult, res)
 
 

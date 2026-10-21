@@ -166,7 +166,11 @@ class JobScheduler:
         instruction = str(job_row["instruction"])
         cfg = json.loads(job_row["config_json"]) if job_row["config_json"] else {}
 
-        kind = cfg.get("kind", "agent")
+        kind = (
+            cfg.get("kind")
+            or cfg.get("task_type")
+            or ("reminder" if job_id.startswith("rem_") else "agent")
+        )
         job_run_id = f"jrun_{uuid.uuid4().hex[:12]}"
 
         # Record job run started
@@ -184,16 +188,16 @@ class JobScheduler:
         status = "ok"
         error_msg: str | None = None
 
-        if kind == "reminder":
+        if kind == "reminder" or job_id.startswith("rem_"):
             # Section 6.7: "Reminders fire WITHOUT ANY LLM CALL: deliver the message directly."
             message = cfg.get("message") or instruction
             channels = cfg.get("delivery") or ["ui", "desktop"]
-            title = f"Reminder: {job_name}"
+            clean_title = f"Reminder: {message[:50]}"
 
             try:
                 await self.delivery_router.deliver(
                     channel_names=channels,
-                    title=title,
+                    title=clean_title,
                     message=message,
                     payload={"kind": "reminder", "job_id": job_id, "job_name": job_name},
                     db=db,

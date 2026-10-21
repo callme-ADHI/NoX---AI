@@ -53,7 +53,11 @@ FRONT_DESK_ALLOWED_TOOLS = {
     "run_shell",
     "job_list",
     "job_get",
+    "reminder_create",
     "reminder_list",
+    "reminder_get",
+    "reminder_cancel",
+    "reminder_snooze",
     "recall_facts",
     "save_fact",
     "dispatch_task",
@@ -64,12 +68,18 @@ FRONT_DESK_ALLOWED_TOOLS = {
 
 
 def _parse_text_tool_calls(text: str) -> list[ToolCall]:
-    """Parse XML-style <tool_call> tags from model text if present."""
+    """Parse XML-style <tool_call> and bare <function=...> tags from model text if present."""
     import re
 
     tool_calls: list[ToolCall] = []
-    matches = re.findall(r"<tool_call>[\s\S]*?</tool_call>", text)
-    for block in matches:
+
+    # First, search for explicit <tool_call> blocks
+    blocks = re.findall(r"<tool_call>([\s\S]*?)</tool_call>", text)
+    if not blocks:
+        # Also match bare <function=...>...</function> blocks if model omitted <tool_call>
+        blocks = re.findall(r"(<function=[a-zA-Z0-9_\-]+>[\s\S]*?</function>)", text)
+
+    for block in blocks:
         fn_match = re.search(r"<function=([a-zA-Z0-9_\-]+)>([\s\S]*?)</function>", block)
         if fn_match:
             fn_name = fn_match.group(1).strip()
@@ -87,6 +97,10 @@ def _parse_text_tool_calls(text: str) -> list[ToolCall]:
                 elif p_val.lower() == "false":
                     params[p_key] = False
                 else:
+                    if (p_val.startswith('"') and p_val.endswith('"')) or (
+                        p_val.startswith("'") and p_val.endswith("'")
+                    ):
+                        p_val = p_val[1:-1].strip()
                     params[p_key] = p_val
             tool_calls.append(
                 ToolCall(
@@ -99,10 +113,13 @@ def _parse_text_tool_calls(text: str) -> list[ToolCall]:
 
 
 def _strip_text_tool_calls(text: str) -> str:
-    """Remove <tool_call> blocks from assistant text."""
+    """Remove <tool_call>, <function>, and <parameter> blocks from assistant text."""
     import re
 
-    cleaned = re.sub(r"<tool_call>[\s\S]*?</tool_call>", "", text)
+    cleaned = re.sub(r"<tool_call>[\s\S]*?(?:</tool_call>|$)", "", text)
+    cleaned = re.sub(r"<function=[a-zA-Z0-9_\-]+>[\s\S]*?(?:</function>|$)", "", cleaned)
+    cleaned = re.sub(r"<parameter=[a-zA-Z0-9_\-]+>[\s\S]*?(?:</parameter>|$)", "", cleaned)
+    cleaned = re.sub(r"</?(?:tool_call|function|parameter)[^>]*>", "", cleaned)
     return cleaned.strip()
 
 
@@ -139,16 +156,22 @@ def _build_cloud_system_prompt() -> Message:
         "- Architecture: Fast hybrid engine powered by a multi-key NVIDIA NIM cloud pool "
         "(Nemotron-3.5-Lightning-30B-A3B) with local-first SQLite persistence, "
         "autonomous JobScheduler, and security egress filters.\n"
+        "- Reminders & Scheduling: When the user asks to be reminded or schedule an alert, "
+        "you MUST invoke reminder_create (or dispatch_reminder). NEVER hallucinate a confirmation "
+        "or invent a fake reminder ID in text without calling the tool.\n"
+        "- Reminder Inquiries: When the user asks about a reminder, asks what reminders are active, "
+        "or mentions a reminder ID (e.g. rem_...), you MUST invoke reminder_get or reminder_list. "
+        "Never invoke list_files for reminders or reminder IDs.\n"
         "- Self-Inspection Tools: Use job_list and job_get to inspect scheduled jobs, "
-        "cron triggers, and background tasks. Use reminder_list for reminders. "
+        "cron triggers, and background tasks. Use reminder_list and reminder_get for reminders. "
         "Use recall_facts to recall stored user memories and facts.\n"
         "- Live System & Web Tools: Use get_time for current date and time. Use system_info "
         "and run_shell for system telemetry and commands. Use list_files and read_file "
         "to explore the system. Use web_search and fetch_page for live internet queries.\n"
-        "- Background Scheduling: Use dispatch_task, dispatch_reminder, dispatch_job_edit "
-        "to schedule background jobs.\n"
-        "Always invoke your tools to inspect your jobs, memories, files, or live web data. "
-        "Never output raw <tool_call> XML tags in regular text. "
+        "- Background Tasks: Use dispatch_task and dispatch_job_edit to schedule background jobs.\n"
+        "- Tool Execution Rules: Always formulate your answers from real tool outputs. "
+        "Never repeat the same tool call with identical arguments in a single turn. "
+        "Never output raw <tool_call> or <function=...> XML tags in your conversational text.\n"
         "Provide direct, structured, and insightful answers."
     )
     return Message(
@@ -163,6 +186,8 @@ def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Me
         "You are NoX, an advanced, highly capable personal AI assistant running locally.\n"
         "You have complete internal self-awareness:\n"
         "- Architecture: Hybrid autonomous system with local execution and SQLite persistence.\n"
+        "- Reminders & Inspection: Use reminder_create to set reminders, and reminder_list / "
+        "reminder_get to inspect reminders. Never hallucinate fake reminder confirmations.\n"
         "- Self-Inspection: Use job_list, job_get, reminder_list, and recall_facts to inspect "
         "jobs and memories.\n"
         "- System & Tools: Use get_time, system_info, list_files, read_file, run_shell, "
@@ -211,6 +236,15 @@ async def orchestrate_chat_turn(
     bus = event_bus or global_event_bus
     reg = registry or default_registry
 
+    db_ctx: Any | None = None
+    if db is None:
+        from noxai.db import get_db
+
+        db_ctx = get_db()
+        active_db = await db_ctx.__aenter__()
+    else:
+        active_db = db
+
     # 1. Reflex Router Intent Analysis (<50ms zero-LLM) (§1.4, §G3.1)
     t_route_0 = time.perf_counter()
     intent_res = analyze_intent(message)
@@ -243,24 +277,17 @@ async def orchestrate_chat_turn(
             },
             run_id=actual_run_id,
         ),
-        db=db,
+        db=active_db,
     )
     await bus.publish(
         make_event("intent_detected", intent_res.to_dict(), run_id=actual_run_id),
-        db=db,
+        db=active_db,
     )
 
     async def _safe_db_write(write_fn: Callable[[Any], Any]) -> None:
         try:
-            if db is not None:
-                await write_fn(db)
-                await db.commit()
-            else:
-                from noxai.db import get_db
-
-                async with get_db() as conn:
-                    await write_fn(conn)
-                    await conn.commit()
+            await write_fn(active_db)
+            await active_db.commit()
         except Exception as exc:
             log.warning("Database write failed: %s", exc)
 
@@ -363,7 +390,7 @@ async def orchestrate_chat_turn(
                 decision=egress_decision,
                 provider=provider_name,
                 model=cloud_model_name,
-                db=db,
+                db=active_db,
             )
         except Exception as exc:
             log.debug("record_egress_decision error: %s", exc)
@@ -402,7 +429,7 @@ async def orchestrate_chat_turn(
         task = asyncio.create_task(
             bus.publish(
                 make_event("model_used", model_used_record, run_id=actual_run_id),
-                db=db,
+                db=active_db,
             )
         )
         _background_tasks.add(task)
@@ -416,15 +443,18 @@ async def orchestrate_chat_turn(
     try:
         max_tool_steps = 3
         step = 0
+        executed_tool_signatures: set[str] = set()
+        last_tool_res_text: str = ""
+        force_synthesis = False
 
         while step <= max_tool_steps:
             turn_chunks: list[str] = []
             turn_tool_calls: list[ToolCall] = []
 
-            # If this is the last allowed step, don't pass tools to force text synthesis
+            # If force_synthesis or reached max_tool_steps, don't pass tools to force text response
             tools_for_step = (
                 selected_tools
-                if (selected_tools and step < max_tool_steps)
+                if (selected_tools and step < max_tool_steps and not force_synthesis)
                 else None
             )
 
@@ -441,7 +471,11 @@ async def orchestrate_chat_turn(
                         first_token_time = time.perf_counter()
                     turn_chunks.append(chunk.text)
                     current_turn_so_far = "".join(turn_chunks)
-                    if "<tool_call>" not in current_turn_so_far:
+                    # Suppress token streaming if it's a tool call XML tag
+                    if not any(
+                        tag in current_turn_so_far
+                        for tag in ("<tool_call", "<function=", "<parameter=")
+                    ) and not current_turn_so_far.lstrip().startswith("<"):
                         if on_token:
                             on_token(chunk.text)
                         await bus.publish(
@@ -478,6 +512,38 @@ async def orchestrate_chat_turn(
                 else:
                     break
 
+            # Deduplication: check if any tool call was already executed in this turn
+            duplicate_call = False
+            for c in turn_tool_calls:
+                c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
+                if c_sig in executed_tool_signatures:
+                    duplicate_call = True
+                    break
+
+            if duplicate_call:
+                # Model repeated a tool call already executed; break loop to synthesize
+                break
+
+            for c in turn_tool_calls:
+                c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
+                executed_tool_signatures.add(c_sig)
+
+            # Check if this turn executed an action tool; if so, next turn must be text synthesis
+            action_tools = {
+                "reminder_create",
+                "reminder_snooze",
+                "reminder_cancel",
+                "dispatch_reminder",
+                "dispatch_job_edit",
+                "dispatch_task",
+                "save_fact",
+                "job_create",
+                "job_update",
+                "job_delete",
+            }
+            if any(c.name in action_tools for c in turn_tool_calls):
+                force_synthesis = True
+
             step += 1
 
             for call in turn_tool_calls:
@@ -497,7 +563,7 @@ async def orchestrate_chat_turn(
                         },
                         run_id=actual_run_id,
                     ),
-                    db=db,
+                    db=active_db,
                 )
 
             # Append assistant message with tool calls to history
@@ -515,7 +581,7 @@ async def orchestrate_chat_turn(
                 run_id=actual_run_id,
                 config=cfg,
                 allow_cloud=allow_cloud,
-                db=db,
+                db=active_db,
                 router=rtr,
             )
 
@@ -529,6 +595,7 @@ async def orchestrate_chat_turn(
                         tool_res_text = str(
                             tool_res.output if tool_res.ok else f"Error: {tool_res.output}"
                         )
+                        last_tool_res_text = tool_res_text
                         if call.name in ("web_search", "fetch_page"):
                             import re
 
@@ -550,13 +617,15 @@ async def orchestrate_chat_turn(
                                 },
                                 run_id=actual_run_id,
                             ),
-                            db=db,
+                            db=active_db,
                         )
                     except Exception as t_err:
                         log.warning("Tool %s execution failed: %s", call.name, t_err)
                         tool_res_text = f"Tool execution failed: {t_err}"
+                        last_tool_res_text = tool_res_text
                 else:
                     tool_res_text = f"Tool {call.name} not found in registry."
+                    last_tool_res_text = tool_res_text
 
                 is_untrusted = tool_def.untrusted_output if tool_def else False
                 tool_content = (
@@ -612,6 +681,8 @@ async def orchestrate_chat_turn(
     total_elapsed_ms = total_elapsed * 1000.0
 
     final_text = _strip_text_tool_calls("".join(chunks).strip())
+    if not final_text and last_tool_res_text:
+        final_text = f"✅ {last_tool_res_text}"
     from noxai.agent.loop import extract_citations
 
     for c in extract_citations(final_text):
@@ -676,7 +747,7 @@ async def orchestrate_chat_turn(
     # Publish completion events
     await bus.publish(
         make_event("trace", trace_data, run_id=actual_run_id),
-        db=db,
+        db=active_db,
     )
     await bus.publish(
         make_event(
@@ -692,12 +763,15 @@ async def orchestrate_chat_turn(
             },
             run_id=actual_run_id,
         ),
-        db=db,
+        db=active_db,
     )
     await bus.publish(
         make_event("run_done", {"status": "done"}, run_id=actual_run_id),
-        db=db,
+        db=active_db,
     )
+
+    if db_ctx is not None:
+        await db_ctx.__aexit__(None, None, None)
 
     return ChatTurnResult(
         run_id=actual_run_id,

@@ -164,6 +164,7 @@ async def dispatch_reminder(params: DispatchReminderParams, ctx: ToolContext) ->
     if ctx.db is not None:
         cfg = {
             "kind": "reminder",
+            "task_type": "reminder",
             "message": params.reminder_text,
             "delivery": ["ui", "desktop"],
             "catchup": "once",
@@ -200,11 +201,11 @@ async def dispatch_reminder(params: DispatchReminderParams, ctx: ToolContext) ->
             }
         )
 
-    output = f"Reminder set for {human_str}: '{params.reminder_text}' (id={job_id})."
+    output = f"Reminder set for {human_str}: '{params.reminder_text}' (ID: {job_id})"
     return ToolResult(
         ok=True,
         output=output,
-        summary=f"Reminder set for {human_str}",
+        summary=f"Reminder set for {human_str} (ID: {job_id})",
     )
 
 
@@ -236,6 +237,12 @@ class DispatchJobEditParams(BaseModel):
     is_meta_tool=True,
 )
 async def dispatch_job_edit(params: DispatchJobEditParams, ctx: ToolContext) -> ToolResult:
+    import re
+
+    raw_id = params.job_id.strip()
+    clean_id = re.sub(r"^[\(\[\{\s]*(?:id\s*:\s*)?", "", raw_id, flags=re.IGNORECASE)
+    clean_id = re.sub(r"[\)\]\}\s\"',;:]+$", "", clean_id).strip()
+
     act = params.action.lower().strip()
     valid_actions = (
         "pause",
@@ -264,11 +271,11 @@ async def dispatch_job_edit(params: DispatchJobEditParams, ctx: ToolContext) -> 
         if ctx.db is not None:
             await execute(
                 ctx.db,
-                "UPDATE jobs SET enabled = 0 WHERE id = ? OR name = ?",
-                (params.job_id, params.job_id),
+                "UPDATE jobs SET enabled = 0 WHERE id = ? OR name = ? OR id = ? OR name = ?",
+                (clean_id, clean_id, f"rem_{clean_id}", f"reminder-{clean_id}"),
             )
             await ctx.db.commit()
-        out_msg = f"Job '{params.job_id}' has been paused/disabled."
+        out_msg = f"Job '{clean_id}' has been paused/disabled."
     elif act in ("resume", "enable"):
         if ctx.db is not None:
             await execute(

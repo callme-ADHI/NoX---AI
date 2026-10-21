@@ -235,15 +235,25 @@ export const ChatPage: React.FC = () => {
         // Tool execution in progress: clear speculative tokens emitted prior to tool execution
         setStreamingText('');
         const callId = (data.id as string) || (data.call_id as string) || `tool_${Date.now()}`;
+        const toolName = (data.name as string) || (data.tool as string);
+        const toolArgs =
+          (data.arguments as Record<string, unknown>) ||
+          (data.args as Record<string, unknown>) ||
+          {};
+        const argsStr = JSON.stringify(toolArgs);
+
         setToolCalls((prev) => {
-          const exists = prev.some((t) => t.id === callId);
+          const isMatch = (t: ToolCallItem) =>
+            t.id === callId || (t.name === toolName && JSON.stringify(t.arguments) === argsStr);
+
+          const exists = prev.some(isMatch);
           if (exists) {
             return prev.map((t) =>
-              t.id === callId
+              isMatch(t)
                 ? {
                     ...t,
-                    name: (data.name as string) || (data.tool as string) || t.name,
-                    arguments: (data.arguments as Record<string, unknown>) || (data.args as Record<string, unknown>) || t.arguments,
+                    name: toolName || t.name,
+                    arguments: toolArgs,
                     tier: (data.tier as ToolCallItem['tier']) || t.tier,
                   }
                 : t
@@ -253,8 +263,8 @@ export const ChatPage: React.FC = () => {
             ...prev,
             {
               id: callId,
-              name: (data.name as string) || (data.tool as string),
-              arguments: (data.arguments as Record<string, unknown>) || (data.args as Record<string, unknown>) || {},
+              name: toolName,
+              arguments: toolArgs,
               tier: data.tier as ToolCallItem['tier'],
             },
           ];

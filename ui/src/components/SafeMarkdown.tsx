@@ -7,7 +7,14 @@ interface SafeMarkdownProps {
 }
 
 export const SafeMarkdown: React.FC<SafeMarkdownProps> = ({ content, className = '' }) => {
-  const tokens = parseSafeMarkdown(content);
+  const cleanedContent = (content || '')
+    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, '')
+    .replace(/<function=[a-zA-Z0-9_\-]+>[\s\S]*?(?:<\/function>|$)/gi, '')
+    .replace(/<parameter=[a-zA-Z0-9_\-]+>[\s\S]*?(?:<\/parameter>|$)/gi, '')
+    .replace(/<\/?(?:tool_call|function|parameter)[^>]*>/gi, '')
+    .trim();
+
+  const tokens = parseSafeMarkdown(cleanedContent);
 
   return (
     <div className={`whitespace-pre-wrap font-sans ${className}`}>
