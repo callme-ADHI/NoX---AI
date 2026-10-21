@@ -191,7 +191,12 @@ class CloudHealth:
 
     def is_active(self) -> bool:
         """Return True if cloud model is healthy and ready for interactive chat."""
-        if self.state != CloudHealthState.ACTIVE:
+        if self.state in (
+            CloudHealthState.NO_KEY,
+            CloudHealthState.INVALID_KEY,
+            CloudHealthState.RATE_LIMITED,
+            CloudHealthState.OFFLINE,
+        ):
             return False
         return self.circuit_breaker.can_attempt()
 

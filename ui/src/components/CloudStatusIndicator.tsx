@@ -29,8 +29,8 @@ export const CloudStatusIndicator: React.FC<CloudStatusIndicatorProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [isOpen]);
 
-  const state = cloudHealth?.state || (isCloudEnabled ? 'ACTIVE' : 'OFFLINE');
-  const circuitBreaker = cloudHealth?.circuit_breaker_state || 'CLOSED';
+  const state = (cloudHealth?.state || (isCloudEnabled ? 'ACTIVE' : 'OFFLINE')).toUpperCase();
+  const circuitBreaker = (cloudHealth?.circuit_breaker_state || 'CLOSED').toUpperCase();
 
   const getColor = () => {
     if (!isCloudEnabled || state === 'OFFLINE') return 'bg-gray-500';

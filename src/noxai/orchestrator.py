@@ -105,8 +105,16 @@ def _build_cloud_system_prompt() -> Message:
 def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Message:
     """Construct the system prompt for local execution."""
     prompt_text = (
-        "You are NoX, a private personal AI assistant running locally on the owner's machine.\n"
-        "Provide helpful, concise, and accurate responses."
+        "You are NoX, a fast, capable personal AI assistant.\n"
+        "Provide direct, concise, and helpful answers.\n"
+        "You have access to live tools:\n"
+        "- web_search and fetch_page for current internet facts, news, and search.\n"
+        "- get_time for current date, time, weekday, and timezone.\n"
+        "- list_files and read_file to inspect files and directories on the system.\n"
+        "- system_info and run_shell for system resource usage and safe commands.\n"
+        "- dispatch_task, dispatch_reminder, dispatch_job_edit to schedule background work.\n"
+        "Always call the appropriate tool when the user asks about live internet data, "
+        "current date/time, or files and folders on their system."
     )
     if recalled_memories:
         prompt_text += "\n\nRecalled Context:\n" + "\n".join(recalled_memories)
@@ -262,21 +270,24 @@ async def orchestrate_chat_turn(
         target_role = "resident"
         fallback_reason = "OFFLINE"
     elif ch.state == CloudHealthState.DEGRADED:
-        target_role = "resident"
-        fallback_reason = "DEGRADED"
+        if not ch.circuit_breaker.can_attempt():
+            target_role = "resident"
+            fallback_reason = "DEGRADED"
+        else:
+            target_role = "front"
     elif not ch.is_active():
         target_role = "resident"
         fallback_reason = "DEGRADED"
 
     # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7)
     t_prompt_0 = time.perf_counter()
-    selected_tools: list[ToolSpec] | None = None
+    all_specs = tools if tools is not None else reg.get_specs()
+    front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
 
     if target_role == "front":
         # Slim cloud front-desk prompt (<1500 tokens target)
         sys_msg = _build_cloud_system_prompt()
-        all_specs = tools if tools is not None else reg.get_specs()
-        selected_tools = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
+        selected_tools = front_desk_specs
 
         cloud_turn_messages = [sys_msg, user_msg]
 
@@ -309,7 +320,7 @@ async def orchestrate_chat_turn(
             target_role = "resident"
             fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
             messages_to_send = [_build_local_system_prompt(), user_msg]
-            selected_tools = tools if tools is not None else []
+            selected_tools = []
         else:
             messages_to_send = (
                 egress_decision.sanitized_messages
@@ -320,7 +331,7 @@ async def orchestrate_chat_turn(
         # Local execution (resident model unless multi-step tools require brain)
         sys_msg = _build_local_system_prompt()
         messages_to_send = [sys_msg, user_msg]
-        selected_tools = tools if tools is not None else []
+        selected_tools = []
 
     t_prompt = (time.perf_counter() - t_prompt_0) * 1000.0
 

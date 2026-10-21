@@ -432,12 +432,12 @@ class NvidiaProvider(Provider):
                         delta = choice.get("delta", {})
                         delta_text = delta.get("content") or ""
                         finish_reason = choice.get("finish_reason")
+                        raw_tcs = delta.get("tool_calls")
 
-                        if delta_text and ttft_sec is None:
+                        if (delta_text or raw_tcs) and ttft_sec is None:
                             ttft_sec = time.perf_counter() - t0
 
                         tool_calls: list[ToolCall] = []
-                        raw_tcs = delta.get("tool_calls")
                         if raw_tcs and isinstance(raw_tcs, list):
                             for tc in raw_tcs:
                                 fn = tc.get("function", {})
