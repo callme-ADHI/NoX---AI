@@ -25,24 +25,45 @@ SEED_JOBS: list[dict[str, Any]] = [
         "schedule_expr": "30 7 * * *",
         "timezone": "Asia/Kolkata",
         "instruction": (
-            "Produce my morning briefing for {today}.\n"
-            "Sections: (1) Cybersecurity: major vulnerabilities, breaches, advisories, "
-            "notable tools. (2) AI and tech: model releases, open-source and local-AI "
-            "tooling, major industry news. (3) India and Kerala tech and startup "
-            "ecosystem: funding, events, programs, government schemes.\n"
-            'Use feed sources tagged "news" first (rss_fetch with unseen_only=true), '
-            "then web_search to fill gaps. Skip items already seen.\n"
-            "Output: start with a 3-line TL;DR. Then each section with at most 6 items. "
-            "Each item: headline, a 2-sentence summary, one line on why it matters to "
-            "a cybersecurity student, and the link.\n"
-            "If a section has nothing new, say so in one line."
+            "Produce an executive intelligence morning briefing for {today}.\n"
+            "Format strictly with rich markdown sections, bold headlines, bullet points, "
+            "and citations:\n\n"
+            "# ⚡ NoX Morning Intelligence Briefing — {today}\n\n"
+            "## 🌐 Executive Radar (TL;DR)\n"
+            "- 3 punchy, high-impact bullet points summarizing today's key developments.\n\n"
+            "## 🛡️ Sector 1: Cybersecurity & Threat Intelligence\n"
+            "Provide 3-5 curated bullet points on major vulnerabilities (CVEs), active exploits, "
+            "security advisories, or notable offensive/defensive tools.\n"
+            "Each item format:\n"
+            "- **[Headline / CVE]**: 2-sentence crisp factual analysis. "
+            "**Impact**: 1 sentence on why it matters to a security researcher. "
+            "**Reference**: [Source Name](url)\n\n"
+            "## 🤖 Sector 2: AI, Frontier Systems & Open Source\n"
+            "Provide 3-5 curated bullet points on model releases, local AI tools, "
+            "agent frameworks, and major tech breakthroughs.\n"
+            "Each item format:\n"
+            "- **[Headline / Tool]**: 2-sentence concise summary. "
+            "**Key Advantage**: 1 sentence on practical capability. "
+            "**Reference**: [Source Name](url)\n\n"
+            "## 🇮🇳 Sector 3: India & Kerala Tech Ecosystem\n"
+            "Provide 2-4 curated bullet points on Kerala startup funding, KSUM initiatives, "
+            "hackathons, student grants, or Indian tech policy.\n"
+            "Each item format:\n"
+            "- **[Headline / Initiative]**: 2-sentence summary. "
+            "**Takeaway**: 1 sentence on relevance. "
+            "**Reference**: [Source Name](url)\n\n"
+            "## 📊 Operations & System Overview\n"
+            "- System readiness, background daemon tasks, and date/time confirmation.\n\n"
+            "Use rss_fetch on sources tagged 'news' and web_search to find today's latest updates. "
+            "Never output unformatted text; format strictly with clean markdown headers "
+            "and bullet lists."
         ),
         "config": {
             "allow_cloud": True,
             "delivery": ["ui", "desktop"],
             "sources": ["news"],
             "output_format": "briefing",
-            "max_runtime_seconds": 300,
+            "max_runtime_seconds": 600,
             "catchup": "once",
             "kind": "agent",
         },
@@ -177,7 +198,10 @@ async def seed_database_if_needed(db: aiosqlite.Connection) -> bool:
                 instruction, config_json, enabled, created_by, version, next_run_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'seed', 1, ?)
-            ON CONFLICT(name) DO NOTHING
+            ON CONFLICT(name) DO UPDATE SET
+                instruction = excluded.instruction,
+                description = excluded.description,
+                config_json = excluded.config_json
             """,
             (
                 job_id,

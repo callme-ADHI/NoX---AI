@@ -46,6 +46,32 @@ export const SafeMarkdown: React.FC<SafeMarkdownProps> = ({ content, className =
                 {token.content}
               </a>
             );
+          case 'heading1':
+            return (
+              <h1 key={index} className="text-base font-bold text-text mt-3 mb-1.5 pb-1 border-b border-border/60">
+                {token.content}
+              </h1>
+            );
+          case 'heading2':
+            return (
+              <h2 key={index} className="text-xs font-bold text-accent uppercase tracking-wider mt-3 mb-1">
+                {token.content}
+              </h2>
+            );
+          case 'heading3':
+            return (
+              <h3 key={index} className="text-xs font-semibold text-text mt-2 mb-0.5">
+                {token.content}
+              </h3>
+            );
+          case 'hr':
+            return <hr key={index} className="my-3 border-border/60" />;
+          case 'bullet':
+            return (
+              <span key={index} className="inline-block mr-1.5 text-accent font-bold">
+                •
+              </span>
+            );
           case 'newline':
             return '\n';
           case 'text':

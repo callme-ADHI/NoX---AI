@@ -151,6 +151,14 @@ class Content:
         source_attr = f' source="{self.source}"' if self.source else ""
         return f"<{self.UNTRUSTED_TAG}{source_attr}>\n{safe_text}\n</{self.UNTRUSTED_TAG}>"
 
+    def __str__(self) -> str:
+        return self.text
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, str):
+            return item in self.text
+        return False
+
     def merge(self, other: Content) -> Content:
         """Return a new Content whose taint is the union of self and other.
 

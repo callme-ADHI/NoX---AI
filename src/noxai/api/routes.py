@@ -58,6 +58,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     message: str
     allow_cloud: bool = True
+    run_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -437,7 +438,7 @@ async def _run_chat_pipeline(
 async def chat_endpoint(req: ChatRequest) -> ChatResponse:
     """Start an agent run (simple or complex) and stream results via WebSocket."""
     conv_id = req.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
-    run_id = f"run_{uuid.uuid4().hex[:12]}"
+    run_id = req.run_id or f"run_{uuid.uuid4().hex[:12]}"
 
     async with get_db() as db:
         await execute(

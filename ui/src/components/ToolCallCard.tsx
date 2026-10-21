@@ -47,6 +47,23 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
   const safeArguments = redactSecrets(tool.arguments);
   const safeSummary = tool.result_summary ? (redactSecrets(tool.result_summary) as string) : undefined;
 
+  const argEntries = Object.entries((safeArguments as Record<string, unknown>) || {});
+  const hasArgs = argEntries.length > 0;
+
+  const argSummary = React.useMemo(() => {
+    if (!hasArgs) return null;
+    if (typeof safeArguments === 'object' && safeArguments !== null) {
+      const keys = Object.keys(safeArguments);
+      if (keys.length === 1) {
+        const val = (safeArguments as Record<string, unknown>)[keys[0]];
+        const strVal = typeof val === 'string' ? val : JSON.stringify(val);
+        return `${keys[0]}: "${strVal.length > 35 ? strVal.slice(0, 32) + '...' : strVal}"`;
+      }
+      return `${keys.length} args`;
+    }
+    return null;
+  }, [safeArguments, hasArgs]);
+
   const getTierBadge = () => {
     switch (tool.tier) {
       case 'dangerous':
@@ -74,12 +91,17 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1 rounded bg-raised text-muted border border-border/50">
+          <div className="p-1 rounded bg-raised text-muted border border-border/50 shrink-0">
             <Wrench className="w-3.5 h-3.5" />
           </div>
           <span className="font-mono font-medium text-text truncate">
             {tool.name}
           </span>
+          {argSummary && (
+            <span className="text-[10px] font-mono text-muted/70 truncate hidden sm:inline">
+              ({argSummary})
+            </span>
+          )}
           {tool.tier && (
             <span
               className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded border ${getTierBadge()}`}
@@ -116,26 +138,38 @@ export const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool }) => {
           {safeSummary}
         </div>
       )}
+      {!isExpanded && !safeSummary && tool.ok === undefined && (
+        <div className="px-3 py-1 bg-raised/20 text-muted/60 border-t border-border/30 font-mono text-[10px] italic flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+          Executing tool...
+        </div>
+      )}
 
       {/* Expanded details */}
       {isExpanded && (
         <div className="p-3 border-t border-border/60 bg-background/50 flex flex-col gap-2.5">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-muted font-semibold text-[11px]">Arguments:</span>
-              <button
-                onClick={handleCopy}
-                className="text-[11px] text-muted hover:text-text flex items-center gap-1 transition-colors"
-                title="Copy arguments"
-              >
-                {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+          {hasArgs ? (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-muted font-semibold text-[11px]">Arguments:</span>
+                <button
+                  onClick={handleCopy}
+                  className="text-[11px] text-muted hover:text-text flex items-center gap-1 transition-colors"
+                  title="Copy arguments"
+                >
+                  {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="p-2 rounded bg-surface border border-border font-mono text-[11px] text-text overflow-x-auto">
+                {JSON.stringify(safeArguments, null, 2)}
+              </pre>
             </div>
-            <pre className="p-2 rounded bg-surface border border-border font-mono text-[11px] text-text overflow-x-auto">
-              {JSON.stringify(safeArguments, null, 2)}
-            </pre>
-          </div>
+          ) : (
+            <div className="text-[11px] text-muted font-mono italic">
+              No arguments required
+            </div>
+          )}
 
           {safeSummary && (
             <div>

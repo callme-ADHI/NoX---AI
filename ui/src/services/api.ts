@@ -71,10 +71,10 @@ export const api = {
   getStatus: () => request<SystemStatus>('/status'),
 
   // Chat & Runs
-  startChat: (message: string, conversation_id?: string, allow_cloud = true) =>
+  startChat: (message: string, conversation_id?: string, allow_cloud = true, run_id?: string) =>
     request<{ run_id: string; conversation_id: string }>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, conversation_id, allow_cloud }),
+      body: JSON.stringify({ message, conversation_id, allow_cloud, run_id }),
     }),
 
   cancelRun: (runId: string) =>

@@ -39,7 +39,7 @@ class DuckDuckGoSearch(SearchBackend):
         def _do_search() -> list[dict[str, str]]:
             results = []
             try:
-                with DDGS() as ddgs_client:
+                with DDGS(timeout=8) as ddgs_client:
                     raw_res = list(ddgs_client.text(query, max_results=max_results))
                     for item in raw_res:
                         results.append(

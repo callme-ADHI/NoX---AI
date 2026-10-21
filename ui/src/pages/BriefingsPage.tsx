@@ -6,9 +6,12 @@ import {
   Play,
   Calendar,
   Loader2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Briefing } from '../types';
 import { api } from '../services/api';
+import { SafeMarkdown } from '../components/SafeMarkdown';
 
 export const BriefingsPage: React.FC = () => {
   const [briefings, setBriefings] = useState<Briefing[]>([]);
@@ -16,6 +19,7 @@ export const BriefingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [feedbackNote, setFeedbackNote] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     loadBriefings();
@@ -153,8 +157,20 @@ export const BriefingsPage: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Feedback controls */}
+                {/* Actions & Feedback controls */}
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedBriefing.markdown);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-raised border-border text-muted hover:text-text text-xs transition-colors"
+                    title="Copy briefing to clipboard"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
                   <button
                     onClick={() => handleFeedback(selectedBriefing.id, 1)}
                     className={`p-2 rounded-lg border transition-colors ${
@@ -182,8 +198,8 @@ export const BriefingsPage: React.FC = () => {
             </div>
 
             {/* Briefing Markdown Content */}
-            <div className="p-6 rounded-xl bg-surface border border-border leading-relaxed text-xs text-text shadow-sm whitespace-pre-wrap font-sans">
-              {selectedBriefing.markdown}
+            <div className="p-6 md:p-8 rounded-xl bg-surface border border-border shadow-sm leading-relaxed text-xs text-text font-sans">
+              <SafeMarkdown content={selectedBriefing.markdown} />
             </div>
           </div>
         ) : (

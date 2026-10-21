@@ -51,11 +51,59 @@ FRONT_DESK_ALLOWED_TOOLS = {
     "list_files",
     "read_file",
     "run_shell",
+    "job_list",
+    "job_get",
+    "reminder_list",
+    "recall_facts",
+    "save_fact",
     "dispatch_task",
     "dispatch_reminder",
     "dispatch_job_edit",
     "request_approval",
 }
+
+
+def _parse_text_tool_calls(text: str) -> list[ToolCall]:
+    """Parse XML-style <tool_call> tags from model text if present."""
+    import re
+
+    tool_calls: list[ToolCall] = []
+    matches = re.findall(r"<tool_call>[\s\S]*?</tool_call>", text)
+    for block in matches:
+        fn_match = re.search(r"<function=([a-zA-Z0-9_\-]+)>([\s\S]*?)</function>", block)
+        if fn_match:
+            fn_name = fn_match.group(1).strip()
+            param_body = fn_match.group(2)
+            params: dict[str, Any] = {}
+            for p in re.finditer(
+                r"<parameter=([a-zA-Z0-9_\-]+)>([\s\S]*?)</parameter>", param_body
+            ):
+                p_key = p.group(1).strip()
+                p_val = p.group(2).strip()
+                if p_val.isdigit():
+                    params[p_key] = int(p_val)
+                elif p_val.lower() == "true":
+                    params[p_key] = True
+                elif p_val.lower() == "false":
+                    params[p_key] = False
+                else:
+                    params[p_key] = p_val
+            tool_calls.append(
+                ToolCall(
+                    id=f"call_{uuid.uuid4().hex[:8]}",
+                    name=fn_name,
+                    arguments=params,
+                )
+            )
+    return tool_calls
+
+
+def _strip_text_tool_calls(text: str) -> str:
+    """Remove <tool_call> blocks from assistant text."""
+    import re
+
+    cleaned = re.sub(r"<tool_call>[\s\S]*?</tool_call>", "", text)
+    return cleaned.strip()
 
 
 @dataclass
@@ -85,16 +133,23 @@ def _build_cloud_system_prompt() -> Message:
     - Labelled DataClass.PUBLIC.
     """
     prompt_text = (
-        "You are NoX, a fast, capable, and privacy-conscious personal AI assistant.\n"
-        "Provide direct, concise, and helpful answers.\n"
-        "You have access to live tools:\n"
-        "- web_search and fetch_page for current internet facts, news, and search.\n"
-        "- get_time for current date, time, weekday, and timezone.\n"
-        "- list_files and read_file to inspect files and directories on the system.\n"
-        "- system_info and run_shell for system resource usage and safe commands.\n"
-        "- dispatch_task, dispatch_reminder, dispatch_job_edit to schedule background work.\n"
-        "Always call the appropriate tool when the user asks about live internet data, "
-        "current date/time, or files and folders on their system."
+        "You are NoX, an advanced, highly capable autonomous personal AI assistant created "
+        "to serve the owner on their Linux system.\n"
+        "You have complete internal self-awareness:\n"
+        "- Architecture: Fast hybrid engine powered by a multi-key NVIDIA NIM cloud pool "
+        "(Nemotron-3.5-Lightning-30B-A3B) with local-first SQLite persistence, "
+        "autonomous JobScheduler, and security egress filters.\n"
+        "- Self-Inspection Tools: Use job_list and job_get to inspect scheduled jobs, "
+        "cron triggers, and background tasks. Use reminder_list for reminders. "
+        "Use recall_facts to recall stored user memories and facts.\n"
+        "- Live System & Web Tools: Use get_time for current date and time. Use system_info "
+        "and run_shell for system telemetry and commands. Use list_files and read_file "
+        "to explore the system. Use web_search and fetch_page for live internet queries.\n"
+        "- Background Scheduling: Use dispatch_task, dispatch_reminder, dispatch_job_edit "
+        "to schedule background jobs.\n"
+        "Always invoke your tools to inspect your jobs, memories, files, or live web data. "
+        "Never output raw <tool_call> XML tags in regular text. "
+        "Provide direct, structured, and insightful answers."
     )
     return Message(
         role="system",
@@ -105,16 +160,14 @@ def _build_cloud_system_prompt() -> Message:
 def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Message:
     """Construct the system prompt for local execution."""
     prompt_text = (
-        "You are NoX, a fast, capable personal AI assistant.\n"
-        "Provide direct, concise, and helpful answers.\n"
-        "You have access to live tools:\n"
-        "- web_search and fetch_page for current internet facts, news, and search.\n"
-        "- get_time for current date, time, weekday, and timezone.\n"
-        "- list_files and read_file to inspect files and directories on the system.\n"
-        "- system_info and run_shell for system resource usage and safe commands.\n"
-        "- dispatch_task, dispatch_reminder, dispatch_job_edit to schedule background work.\n"
-        "Always call the appropriate tool when the user asks about live internet data, "
-        "current date/time, or files and folders on their system."
+        "You are NoX, an advanced, highly capable personal AI assistant running locally.\n"
+        "You have complete internal self-awareness:\n"
+        "- Architecture: Hybrid autonomous system with local execution and SQLite persistence.\n"
+        "- Self-Inspection: Use job_list, job_get, reminder_list, and recall_facts to inspect "
+        "jobs and memories.\n"
+        "- System & Tools: Use get_time, system_info, list_files, read_file, run_shell, "
+        "web_search, fetch_page.\n"
+        "Provide direct, structured, and helpful answers."
     )
     if recalled_memories:
         prompt_text += "\n\nRecalled Context:\n" + "\n".join(recalled_memories)
@@ -387,29 +440,57 @@ async def orchestrate_chat_turn(
                     if first_token_time is None:
                         first_token_time = time.perf_counter()
                     turn_chunks.append(chunk.text)
-                    if on_token:
-                        on_token(chunk.text)
-                    # Stream immediately without buffering (§G3.5)
-                    await bus.publish(
-                        make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                    )
+                    current_turn_so_far = "".join(turn_chunks)
+                    if "<tool_call>" not in current_turn_so_far:
+                        if on_token:
+                            on_token(chunk.text)
+                        await bus.publish(
+                            make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                        )
 
                 if chunk.tool_calls:
-                    turn_tool_calls.extend(chunk.tool_calls)
+                    for tc in chunk.tool_calls:
+                        existing = next(
+                            (
+                                t
+                                for t in turn_tool_calls
+                                if (t.id and t.id == tc.id) or (t.name and t.name == tc.name)
+                            ),
+                            None,
+                        )
+                        if existing:
+                            if tc.id:
+                                existing.id = tc.id
+                            if tc.name:
+                                existing.name = tc.name
+                            if tc.arguments and tc.arguments != {}:
+                                existing.arguments = tc.arguments
+                        else:
+                            turn_tool_calls.append(tc)
 
             chunks = turn_chunks
 
-            # If no tool calls were made, we have reached the final answer
+            # If no tool calls were made in delta, check for XML-style tool calls in text
             if not turn_tool_calls:
-                break
+                text_tcs = _parse_text_tool_calls("".join(turn_chunks))
+                if text_tcs:
+                    turn_tool_calls.extend(text_tcs)
+                else:
+                    break
 
             step += 1
 
             for call in turn_tool_calls:
+                tool_item = reg.get(call.name)
+                tier_val = getattr(tool_item, "tier", "read") if tool_item else "read"
                 await bus.publish(
                     make_event(
                         "tool_call",
                         {
+                            "id": call.id,
+                            "name": call.name,
+                            "arguments": call.arguments,
+                            "tier": tier_val,
                             "tool": call.name,
                             "args": call.arguments,
                             "call_id": call.id,
@@ -420,7 +501,7 @@ async def orchestrate_chat_turn(
                 )
 
             # Append assistant message with tool calls to history
-            assistant_text = "".join(turn_chunks).strip()
+            assistant_text = _strip_text_tool_calls("".join(turn_chunks).strip())
             assistant_turn_msg = Message(
                 role="assistant",
                 content=Content.chat(assistant_text),
@@ -439,6 +520,7 @@ async def orchestrate_chat_turn(
             )
 
             for call in turn_tool_calls:
+                t0_call = time.perf_counter()
                 tool_def = reg.get(call.name)
                 tool_res_text = ""
                 if tool_def is not None:
@@ -452,14 +534,19 @@ async def orchestrate_chat_turn(
 
                             urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
                             citations_collected.extend(urls)
+                        t_call_dur = int((time.perf_counter() - t0_call) * 1000)
                         await bus.publish(
                             make_event(
                                 "tool_result",
                                 {
+                                    "id": call.id,
+                                    "name": call.name,
                                     "tool": call.name,
                                     "ok": tool_res.ok,
                                     "summary": tool_res.summary,
+                                    "result_summary": tool_res.summary,
                                     "output": tool_res_text[:500],
+                                    "duration_ms": t_call_dur,
                                 },
                                 run_id=actual_run_id,
                             ),
@@ -524,7 +611,7 @@ async def orchestrate_chat_turn(
     total_elapsed = t_now - start_time
     total_elapsed_ms = total_elapsed * 1000.0
 
-    final_text = "".join(chunks).strip()
+    final_text = _strip_text_tool_calls("".join(chunks).strip())
     from noxai.agent.loop import extract_citations
 
     for c in extract_citations(final_text):

@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import time
+import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC
 from typing import Any
@@ -413,6 +414,8 @@ class NvidiaProvider(Provider):
             )
 
             if stream:
+                accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+                tool_calls_emitted = False
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
@@ -437,28 +440,43 @@ class NvidiaProvider(Provider):
                         if (delta_text or raw_tcs) and ttft_sec is None:
                             ttft_sec = time.perf_counter() - t0
 
-                        tool_calls: list[ToolCall] = []
+                        delta_tool_calls: list[ToolCall] = []
                         if raw_tcs and isinstance(raw_tcs, list):
                             for tc in raw_tcs:
+                                idx = tc.get("index", 0)
+                                if idx not in accumulated_tool_calls:
+                                    accumulated_tool_calls[idx] = {
+                                        "id": tc.get("id") or f"call_{uuid.uuid4().hex[:8]}",
+                                        "name": "",
+                                        "arguments_str": "",
+                                    }
+                                entry = accumulated_tool_calls[idx]
+                                if tc.get("id"):
+                                    entry["id"] = tc["id"]
                                 fn = tc.get("function", {})
-                                fn_name = fn.get("name", "")
-                                fn_args_str = fn.get("arguments", "")
+                                if fn.get("name"):
+                                    entry["name"] = fn["name"]
+                                if fn.get("arguments"):
+                                    entry["arguments_str"] += fn["arguments"]
+
+                                args_str = entry["arguments_str"].strip()
                                 try:
-                                    fn_args = json.loads(fn_args_str) if fn_args_str else {}
+                                    parsed_args = json.loads(args_str) if args_str else {}
                                 except Exception:
-                                    fn_args = {"raw": fn_args_str}
-                                tool_calls.append(
+                                    parsed_args = {"raw": args_str}
+
+                                delta_tool_calls.append(
                                     ToolCall(
-                                        id=tc.get("id", ""),
-                                        name=fn_name,
-                                        arguments=fn_args,
+                                        id=entry["id"],
+                                        name=entry["name"],
+                                        arguments=parsed_args,
                                     )
                                 )
 
                         usage = chunk_data.get("usage")
                         yield ChatChunk(
                             delta_text=delta_text,
-                            delta_tool_calls=tool_calls,
+                            delta_tool_calls=delta_tool_calls,
                             finish_reason=finish_reason,
                             usage=usage,
                         )

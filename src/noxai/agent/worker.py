@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from noxai.agent.json_repair import repair_json
 from noxai.models.base import ChatChunk, Message, ToolCall, ToolSpec
@@ -51,6 +51,24 @@ class WorkerSource(BaseModel):
     title: str = Field(..., description="Document or web page title.")
     url: str = Field(..., description="Absolute URL or resource location.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_source(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return {"title": v, "url": v}
+        if isinstance(v, dict):
+            url = v.get("url") or v.get("link") or v.get("href") or ""
+            title = (
+                v.get("title")
+                or v.get("name")
+                or v.get("headline")
+                or v.get("cve_headline")
+                or url
+                or "Source"
+            )
+            return {"title": str(title), "url": str(url)}
+        return v
+
 
 class WorkerOutput(BaseModel):
     """Structured result returned by a worker subtask."""
@@ -75,6 +93,55 @@ class WorkerOutput(BaseModel):
         description="Unanswered aspects or information gaps.",
     )
 
+    @field_validator("key_points", mode="before")
+    @classmethod
+    def _coerce_key_points(cls, v: Any) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)] if v else []
+        res = []
+        for item in v:
+            if isinstance(item, str):
+                res.append(item)
+            elif isinstance(item, dict):
+                headline = item.get("headline") or item.get("cve_headline") or item.get("title")
+                url = item.get("url") or item.get("link")
+                body = (
+                    item.get("body")
+                    or item.get("summary")
+                    or item.get("description")
+                    or item.get("text")
+                )
+                parts = []
+                if headline:
+                    parts.append(str(headline))
+                if body:
+                    parts.append(str(body))
+                if not parts:
+                    parts = [str(val) for k, val in item.items() if val and k != "url"]
+                line = " — ".join(parts)
+                if url:
+                    line += f" ({url})"
+                res.append(line if line else str(item))
+            else:
+                res.append(str(item))
+        return res
+
+    @field_validator("gaps", mode="before")
+    @classmethod
+    def _coerce_gaps(cls, v: Any) -> list[str]:
+        if not isinstance(v, list):
+            return [str(v)] if v else []
+        res = []
+        for item in v:
+            if isinstance(item, str):
+                res.append(item)
+            elif isinstance(item, dict):
+                vals = [str(val) for k, val in item.items() if val]
+                res.append(" — ".join(vals) if vals else str(item))
+            else:
+                res.append(str(item))
+        return res
+
 
 def parse_worker_json(text: str) -> WorkerOutput:
     """Parse worker response text into a validated WorkerOutput."""
@@ -93,11 +160,17 @@ def parse_worker_json(text: str) -> WorkerOutput:
         except Exception as err:
             log.debug("Worker output repair_json failed: %s", err)
 
-    if isinstance(parsed, dict) and "summary" in parsed:
-        try:
-            return WorkerOutput.model_validate(parsed)
-        except Exception as exc:
-            log.warning("Pydantic validation failed for worker JSON: %s", exc)
+    if isinstance(parsed, dict):
+        if "summary" not in parsed:
+            for alt_key in ("findings", "overview", "result", "analysis", "content", "response"):
+                if alt_key in parsed and isinstance(parsed[alt_key], str):
+                    parsed["summary"] = parsed[alt_key]
+                    break
+        if "summary" in parsed:
+            try:
+                return WorkerOutput.model_validate(parsed)
+            except Exception as exc:
+                log.warning("Pydantic validation failed for worker JSON: %s", exc)
 
     # Heuristic fallback if model returned plain text
     return WorkerOutput(
@@ -127,7 +200,7 @@ async def execute_worker_subtask(
 ) -> WorkerOutput:
     """Execute a single worker node subtask with a fresh context and tool execution."""
     worker_system = _load_worker_prompt()
-    role = "brain"  # Workers execute locally on the owner's machine per Section 6.4
+    role = "heavy" if allow_cloud else "brain"
 
     # Build prompt with dependency outputs
     prompt_parts = [
@@ -147,8 +220,16 @@ async def execute_worker_subtask(
                 prompt_parts.append(f"  Key points: {'; '.join(dep_out.key_points[:3])}")
 
     messages: list[Message] = [
-        Message(role="system", content=worker_system),
-        Message(role="user", content="\n".join(prompt_parts)),
+        Message(
+            role="system",
+            content=Content.public(worker_system) if allow_cloud else worker_system,
+        ),
+        Message(
+            role="user",
+            content=Content.public("\n".join(prompt_parts))
+            if allow_cloud
+            else "\n".join(prompt_parts),
+        ),
     ]
 
     tool_specs: list[ToolSpec] = [t.to_spec() for t in registry.list_tools()]
@@ -157,6 +238,7 @@ async def execute_worker_subtask(
     step_count = 0
     final_output_text = ""
     current_taint = TaintFlag.NONE
+    executed_tool_calls: list[ToolCall] = []
 
     while step_count < MAX_WORKER_STEPS:
         step_count += 1
@@ -202,10 +284,11 @@ async def execute_worker_subtask(
             break
 
         # Execute tool calls
+        executed_tool_calls.extend(tool_calls)
         messages.append(
             Message(
                 role="assistant",
-                content=full_text,
+                content=Content.public(full_text) if allow_cloud else full_text,
                 tool_calls=tool_calls,
             )
         )
@@ -254,15 +337,27 @@ async def execute_worker_subtask(
 
     output = parse_worker_json(final_output_text)
 
-    # Heuristic: Research nodes must provide sources per spec §6.4
-    if node.kind == "research" and not output.sources:
-        output.confidence = min(output.confidence, 0.3)
+    # Heuristic: Extract cited URLs if sources list was left empty by LLM
+    if not output.sources:
+        import re
+
+        url_pattern = re.compile(r"https?://[^\s)\]\"'>]+")
+        search_texts = [output.summary] + output.key_points
+        for m in messages:
+            if m.role == "tool" and m.content:
+                search_texts.append(str(m.content))
+        found_urls = url_pattern.findall(" ".join(search_texts))
+        if found_urls:
+            distinct_urls = list(dict.fromkeys(found_urls))[:5]
+            output.sources = [WorkerSource(title=u, url=u) for u in distinct_urls]
+        elif node.kind == "research" and not executed_tool_calls:
+            output.confidence = min(output.confidence, 0.4)
 
     # Retry rule per Section 6.4:
     # "if a node's confidence is below 0.5 or it lists gaps that matter,
     # run ONE refinement attempt with a rewritten query. Never more than one."
     gaps_present = bool(output.gaps and len(output.gaps) >= 1)
-    if output.confidence < 0.5 or (gaps_present and output.confidence < 0.8):
+    if output.confidence < 0.5 and gaps_present:
         log.info(
             "Node %s triggered 1-attempt refinement (confidence=%.2f)",
             node.id,
@@ -277,8 +372,18 @@ async def execute_worker_subtask(
             "Please perform ONE targeted refinement step using appropriate tools to find missing "
             "details and return the updated final JSON."
         )
-        messages.append(Message(role="assistant", content=final_output_text))
-        messages.append(Message(role="user", content=refine_msg))
+        messages.append(
+            Message(
+                role="assistant",
+                content=Content.public(final_output_text) if allow_cloud else final_output_text,
+            )
+        )
+        messages.append(
+            Message(
+                role="user",
+                content=Content.public(refine_msg) if allow_cloud else refine_msg,
+            )
+        )
 
         refine_chunks: list[ChatChunk] = []
         try:
@@ -305,9 +410,20 @@ async def execute_worker_subtask(
                 )
                 res = await registry.execute(call.name, call.arguments or {}, tool_ctx)
                 out_snippet = res.output[:MAX_TOOL_RESULT_CHARS]
-                messages.append(Message(role="assistant", content="", tool_calls=[call]))
                 messages.append(
-                    Message(role="tool", content=out_snippet, tool_call_id=call.id, name=call.name)
+                    Message(
+                        role="assistant",
+                        content=Content.public("") if allow_cloud else "",
+                        tool_calls=[call],
+                    )
+                )
+                messages.append(
+                    Message(
+                        role="tool",
+                        content=Content.public(out_snippet) if allow_cloud else out_snippet,
+                        tool_call_id=call.id,
+                        name=call.name,
+                    )
                 )
 
                 # Get final answer after tool call

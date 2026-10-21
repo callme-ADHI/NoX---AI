@@ -61,7 +61,19 @@ export function escapeHtml(str: string): string {
 }
 
 export interface MarkdownToken {
-  type: 'text' | 'bold' | 'italic' | 'code' | 'codeblock' | 'link' | 'newline';
+  type:
+    | 'text'
+    | 'bold'
+    | 'italic'
+    | 'code'
+    | 'codeblock'
+    | 'link'
+    | 'newline'
+    | 'heading1'
+    | 'heading2'
+    | 'heading3'
+    | 'hr'
+    | 'bullet';
   content: string;
   url?: string;
   lang?: string;
@@ -106,8 +118,36 @@ export function parseSafeMarkdown(text: string): MarkdownToken[] {
       continue;
     }
 
+    const trimmed = line.trim();
+    if (trimmed === '---' || trimmed === '***') {
+      tokens.push({ type: 'hr', content: '' });
+      if (i < lines.length - 1) tokens.push({ type: 'newline', content: '\n' });
+      continue;
+    }
+
+    if (line.startsWith('# ')) {
+      tokens.push({ type: 'heading1', content: line.slice(2).trim() });
+      if (i < lines.length - 1) tokens.push({ type: 'newline', content: '\n' });
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      tokens.push({ type: 'heading2', content: line.slice(3).trim() });
+      if (i < lines.length - 1) tokens.push({ type: 'newline', content: '\n' });
+      continue;
+    }
+    if (line.startsWith('### ')) {
+      tokens.push({ type: 'heading3', content: line.slice(4).trim() });
+      if (i < lines.length - 1) tokens.push({ type: 'newline', content: '\n' });
+      continue;
+    }
+
     // Parse inline tokens for this line
     let pos = 0;
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      tokens.push({ type: 'bullet', content: '' });
+      pos = 2;
+    }
+
     while (pos < line.length) {
       // Inline link: [text](url) - supports nested parens like alert(1) or wiki/Foo_(bar)
       const linkMatch = line.slice(pos).match(/^\[([^\]]+)\]\(((?:[^()]+|\([^()]*\))+)\)/);

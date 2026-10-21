@@ -46,6 +46,7 @@ export const ChatPage: React.FC = () => {
   const [searchFilter, setSearchFilter] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const activeRunIdRef = useRef<string | null>(null);
 
   // Streaming, execution and trace state
   const [currentPlan, setCurrentPlan] = useState<TaskPlan | null>(null);
@@ -113,6 +114,9 @@ export const ChatPage: React.FC = () => {
   const selectConversation = async (convId: string) => {
     setActiveConvId(convId);
     sessionStorage.setItem('nox_active_conv', convId);
+    setActiveRunId(null);
+    activeRunIdRef.current = null;
+    setIsRunning(false);
     try {
       const conv = await api.getConversation(convId);
       setMessages(conv.messages || []);
@@ -128,23 +132,38 @@ export const ChatPage: React.FC = () => {
   const handleWsEvent = (event: WebSocketEvent) => {
     const { type, data, run_id } = event;
 
-    if (type.startsWith('task_')) {
+    if (type.startsWith('task_') || type.startsWith('run_')) {
       loadStatusAndTasks();
     }
 
+    // Determine if this event belongs to the active foreground chat run.
+    // If an active chat run is in flight, events with a different run_id are background jobs
+    // and must NOT hijack the chat, DAG plan, tool cards, or input availability.
+    const isOurRun = activeRunIdRef.current
+      ? run_id === activeRunIdRef.current
+      : false;
+
     switch (type) {
       case 'run_started':
-        setIsRunning(true);
-        if (run_id) setActiveRunId(run_id);
+        if (isOurRun) {
+          setIsRunning(true);
+        }
         break;
 
       case 'token':
-        if (typeof data.delta === 'string') {
+        if (!isOurRun) break;
+        if (data.clear) {
+          setStreamingText('');
+        }
+        if (typeof data.chunk === 'string') {
+          setStreamingText((prev) => prev + data.chunk);
+        } else if (typeof data.delta === 'string') {
           setStreamingText((prev) => prev + data.delta);
         }
         break;
 
       case 'plan_created': {
+        if (!isOurRun) break;
         const rawNodes = (data.nodes || data.subtasks) as unknown as SubtaskNode[] | undefined;
         if (Array.isArray(rawNodes)) {
           setCurrentPlan({
@@ -159,6 +178,7 @@ export const ChatPage: React.FC = () => {
       }
 
       case 'node_started':
+        if (!isOurRun) break;
         if (currentPlan && typeof data.node_id === 'string') {
           setCurrentPlan((prev) => {
             if (!prev) return null;
@@ -173,6 +193,7 @@ export const ChatPage: React.FC = () => {
         break;
 
       case 'node_done':
+        if (!isOurRun) break;
         if (currentPlan && typeof data.node_id === 'string') {
           setCurrentPlan((prev) => {
             if (!prev) return null;
@@ -195,6 +216,7 @@ export const ChatPage: React.FC = () => {
         break;
 
       case 'node_failed':
+        if (!isOurRun) break;
         if (currentPlan && typeof data.node_id === 'string') {
           setCurrentPlan((prev) => {
             if (!prev) return null;
@@ -208,25 +230,46 @@ export const ChatPage: React.FC = () => {
         }
         break;
 
-      case 'tool_call':
-        setToolCalls((prev) => [
-          ...prev,
-          {
-            id: (data.id as string) || `tool_${Date.now()}`,
-            name: data.name as string,
-            arguments: (data.arguments as Record<string, unknown>) || {},
-            tier: data.tier as ToolCallItem['tier'],
-          },
-        ]);
+      case 'tool_call': {
+        if (!isOurRun) break;
+        // Tool execution in progress: clear speculative tokens emitted prior to tool execution
+        setStreamingText('');
+        const callId = (data.id as string) || (data.call_id as string) || `tool_${Date.now()}`;
+        setToolCalls((prev) => {
+          const exists = prev.some((t) => t.id === callId);
+          if (exists) {
+            return prev.map((t) =>
+              t.id === callId
+                ? {
+                    ...t,
+                    name: (data.name as string) || (data.tool as string) || t.name,
+                    arguments: (data.arguments as Record<string, unknown>) || (data.args as Record<string, unknown>) || t.arguments,
+                    tier: (data.tier as ToolCallItem['tier']) || t.tier,
+                  }
+                : t
+            );
+          }
+          return [
+            ...prev,
+            {
+              id: callId,
+              name: (data.name as string) || (data.tool as string),
+              arguments: (data.arguments as Record<string, unknown>) || (data.args as Record<string, unknown>) || {},
+              tier: data.tier as ToolCallItem['tier'],
+            },
+          ];
+        });
         break;
+      }
 
       case 'tool_result':
+        if (!isOurRun) break;
         setToolCalls((prev) =>
           prev.map((t) =>
-            t.name === data.name || t.id === data.id
+            t.id === data.id || t.id === data.call_id || (t.name === data.name && !t.result_summary) || (t.name === data.tool && !t.result_summary)
               ? {
                   ...t,
-                  result_summary: data.summary as string,
+                  result_summary: (data.summary as string) || (data.result_summary as string) || (data.output as string),
                   duration_ms: data.duration_ms as number,
                   ok: data.ok as boolean,
                 }
@@ -236,6 +279,7 @@ export const ChatPage: React.FC = () => {
         break;
 
       case 'approval_required':
+        if (!isOurRun && run_id !== activeRunIdRef.current) break;
         setPendingApprovals((prev) => [
           ...prev,
           {
@@ -258,6 +302,7 @@ export const ChatPage: React.FC = () => {
         break;
 
       case 'message_done':
+        if (!isOurRun) break;
         if (typeof data.text === 'string') {
           const effectiveCloud = isPrivateMode ? false : (typeof data.is_cloud === 'boolean' ? data.is_cloud : allowCloud);
           const newMsg: Message = {
@@ -266,7 +311,7 @@ export const ChatPage: React.FC = () => {
             role: 'assistant',
             content: data.text,
             is_cloud: effectiveCloud,
-            model_name: (data.model_name as string) || (effectiveCloud ? 'nemotron-super-49b' : 'qwen2.5:14b'),
+            model_name: (data.model_name as string) || (effectiveCloud ? 'nemotron-3.5-lightning-30b-a3b' : 'qwen2.5:14b'),
             lane: (data.lane as string) || (effectiveCloud ? 'cloud' : 'front_desk'),
             latency_ms: typeof data.latency_ms === 'number' ? data.latency_ms : undefined,
             trace: (data.trace as Record<string, unknown>) || undefined,
@@ -279,8 +324,10 @@ export const ChatPage: React.FC = () => {
       case 'run_done':
       case 'run_failed':
       case 'run_cancelled':
+        if (!isOurRun) break;
         setIsRunning(false);
         setActiveRunId(null);
+        activeRunIdRef.current = null;
         if (activeConvId) {
           loadConversations();
         }
@@ -340,13 +387,19 @@ export const ChatPage: React.FC = () => {
     };
     setMessages((prev) => [...prev, userMsg]);
     setIsRunning(true);
-    setActiveRunId(null);
     setStreamingText('');
+    setToolCalls([]);
+    setCurrentPlan(null);
+
+    const clientRunId = 'run_' + Math.random().toString(36).substring(2, 14);
+    setActiveRunId(clientRunId);
+    activeRunIdRef.current = clientRunId;
 
     const effectiveCloud = isPrivateMode ? false : allowCloud;
     try {
-      const resp = await api.startChat(trimmed, activeConvId || undefined, effectiveCloud);
+      const resp = await api.startChat(trimmed, activeConvId || undefined, effectiveCloud, clientRunId);
       setActiveRunId(resp.run_id);
+      activeRunIdRef.current = resp.run_id;
       sessionStorage.setItem('nox_active_conv', resp.conversation_id);
       if (!activeConvId) {
         setActiveConvId(resp.conversation_id);
@@ -355,13 +408,16 @@ export const ChatPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to start chat run:', err);
       setIsRunning(false);
+      setActiveRunId(null);
+      activeRunIdRef.current = null;
     }
   };
 
   const handleStop = async () => {
-    if (!activeRunId) return;
+    const runToStop = activeRunIdRef.current || activeRunId;
+    if (!runToStop) return;
     try {
-      await api.cancelRun(activeRunId);
+      await api.cancelRun(runToStop);
     } catch (err) {
       console.error('Cancel run error:', err);
     }
@@ -380,6 +436,7 @@ export const ChatPage: React.FC = () => {
     sessionStorage.removeItem('nox_active_conv');
     setActiveConvId(null);
     setActiveRunId(null);
+    activeRunIdRef.current = null;
     setIsRunning(false);
     setMessages([]);
     setStreamingText('');

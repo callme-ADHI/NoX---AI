@@ -508,7 +508,24 @@ class AgentLoop:
                             make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
                         )
                     if chunk.tool_calls:
-                        tool_calls.extend(chunk.tool_calls)
+                        for tc in chunk.tool_calls:
+                            existing = next(
+                                (
+                                    t
+                                    for t in tool_calls
+                                    if (t.id and t.id == tc.id) or (t.name and t.name == tc.name)
+                                ),
+                                None,
+                            )
+                            if existing:
+                                if tc.id:
+                                    existing.id = tc.id
+                                if tc.name:
+                                    existing.name = tc.name
+                                if tc.arguments and tc.arguments != {}:
+                                    existing.arguments = tc.arguments
+                            else:
+                                tool_calls.append(tc)
 
                 if first_token_time is not None:
                     t_generation_total += (time.perf_counter() - first_token_time) * 1000
@@ -608,7 +625,7 @@ class AgentLoop:
                 messages.append(
                     Message(
                         role="assistant",
-                        content=assistant_text,
+                        content=Content.public(assistant_text) if allow_cloud else assistant_text,
                         tool_calls=tool_calls,
                     )
                 )

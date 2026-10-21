@@ -97,6 +97,7 @@ class DAGExecutor:
                 """,
                 (actual_run_id, conversation_id, 1 if allow_cloud else 0),
             )
+            await db.commit()
 
         # 3. Plan generation
         plan = existing_plan
@@ -145,7 +146,19 @@ class DAGExecutor:
                     INSERT INTO task_nodes
                     (id, run_id, node_index, title, objective, kind, depends_on_json, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-                    ON CONFLICT(id) DO NOTHING
+                    ON CONFLICT(id) DO UPDATE SET
+                        run_id = excluded.run_id,
+                        node_index = excluded.node_index,
+                        title = excluded.title,
+                        objective = excluded.objective,
+                        kind = excluded.kind,
+                        depends_on_json = excluded.depends_on_json,
+                        status = 'pending',
+                        output_json = NULL,
+                        error = NULL,
+                        started_at = NULL,
+                        finished_at = NULL
+                    WHERE task_nodes.run_id != excluded.run_id
                     """,
                     (
                         node.id,
@@ -157,6 +170,7 @@ class DAGExecutor:
                         json.dumps(node.depends_on),
                     ),
                 )
+            await db.commit()
 
         # 6. Run Worker DAG with bounded concurrency
         concurrency = max(1, self.config.agent.worker_concurrency)
@@ -200,6 +214,7 @@ class DAGExecutor:
                         "started_at = datetime('now') WHERE id = ? AND run_id = ?",
                         (target_node.id, actual_run_id),
                     )
+                    await db.commit()
 
                 await self.event_bus.publish(
                     make_event(
@@ -264,6 +279,7 @@ class DAGExecutor:
                             "finished_at = datetime('now') WHERE id = ? AND run_id = ?",
                             (err_msg, nid, actual_run_id),
                         )
+                        await db.commit()
                     await self.event_bus.publish(
                         make_event(
                             "node_failed",
@@ -309,6 +325,7 @@ class DAGExecutor:
                             """,
                             (res_out.model_dump_json(), done_nid, actual_run_id),
                         )
+                        await db.commit()
 
                     await self.event_bus.publish(
                         make_event(
@@ -335,6 +352,7 @@ class DAGExecutor:
                             "finished_at = datetime('now') WHERE id = ? AND run_id = ?",
                             (str(exc), done_nid, actual_run_id),
                         )
+                        await db.commit()
 
                     await self.event_bus.publish(
                         make_event(
@@ -377,6 +395,7 @@ class DAGExecutor:
                 "UPDATE runs SET status = ?, finished_at = datetime('now') WHERE id = ?",
                 (overall_status, actual_run_id),
             )
+            await db.commit()
 
         await self.event_bus.publish(
             make_event(

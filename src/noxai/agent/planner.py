@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from noxai.agent.json_repair import repair_json
-from noxai.models.base import Message
+from noxai.models.base import Content, Message
 
 if TYPE_CHECKING:
     from noxai.config import Settings
@@ -198,8 +198,16 @@ async def generate_plan(
         user_content_parts.append(f"\nRelevant Owner Memory / Context:\n{memory_context}")
 
     messages = [
-        Message(role="system", content=planner_system),
-        Message(role="user", content="\n".join(user_content_parts)),
+        Message(
+            role="system",
+            content=Content.public(planner_system) if allow_cloud else planner_system,
+        ),
+        Message(
+            role="user",
+            content=Content.public("\n".join(user_content_parts))
+            if allow_cloud
+            else "\n".join(user_content_parts),
+        ),
     ]
 
     max_subtasks = config.agent.max_subtasks
@@ -245,11 +253,23 @@ async def generate_plan(
                 log.warning("Plan validation error on attempt %d: %s", attempt + 1, val_err)
                 if attempt == 0:
                     # Provide feedback to the model once
-                    messages.append(Message(role="assistant", content=raw_text))
+                    messages.append(
+                        Message(
+                            role="assistant",
+                            content=Content.public(raw_text) if allow_cloud else raw_text,
+                        )
+                    )
                     messages.append(
                         Message(
                             role="user",
-                            content=(
+                            content=Content.public(
+                                f"Your plan had a validation error: {val_err}\n"
+                                "Please fix the error and output the corrected JSON plan\n"
+                                f"conforming strictly to schema (max {max_subtasks} subtasks, "
+                                f"max depth {max_depth}, no cycles)."
+                            )
+                            if allow_cloud
+                            else (
                                 f"Your plan had a validation error: {val_err}\n"
                                 "Please fix the error and output the corrected JSON plan\n"
                                 f"conforming strictly to schema (max {max_subtasks} subtasks, "
@@ -259,11 +279,21 @@ async def generate_plan(
                     )
         else:
             if attempt == 0:
-                messages.append(Message(role="assistant", content=raw_text))
+                messages.append(
+                    Message(
+                        role="assistant",
+                        content=Content.public(raw_text) if allow_cloud else raw_text,
+                    )
+                )
                 messages.append(
                     Message(
                         role="user",
-                        content=(
+                        content=Content.public(
+                            "Your response was not valid JSON. "
+                            "Please return ONLY a valid JSON plan."
+                        )
+                        if allow_cloud
+                        else (
                             "Your response was not valid JSON. "
                             "Please return ONLY a valid JSON plan."
                         ),

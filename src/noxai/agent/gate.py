@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from noxai.agent.json_repair import repair_json
 from noxai.models.base import Message
+from noxai.taint import Content
 
 if TYPE_CHECKING:
     from noxai.models.router import ModelRouter
@@ -130,9 +131,11 @@ async def evaluate_complexity(
             messages = [
                 Message(
                     role="system",
-                    content="You are a fast routing classifier. Always return valid JSON only.",
+                    content=Content.public(
+                        "You are a fast routing classifier. Always return valid JSON only."
+                    ),
                 ),
-                Message(role="user", content=gate_prompt),
+                Message(role="user", content=Content.public(gate_prompt)),
             ]
             raw_llm = ""
             async for chunk in router.chat(role="brain", messages=messages, stream=False):

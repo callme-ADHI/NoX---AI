@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from noxai.models.base import Message
+from noxai.models.base import Content, Message
 
 if TYPE_CHECKING:
     from noxai.agent.planner import SubtaskNode
@@ -103,8 +103,14 @@ async def synthesize_report(
         )
 
     messages = [
-        Message(role="system", content=synthesizer_system),
-        Message(role="user", content="\n".join(prompt_lines)),
+        Message(
+            role="system",
+            content=Content.public(synthesizer_system) if allow_cloud else synthesizer_system,
+        ),
+        Message(
+            role="user",
+            content=Content.public("\n".join(prompt_lines)) if allow_cloud else "\n".join(prompt_lines),
+        ),
     ]
 
     final_text = ""
