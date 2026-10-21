@@ -660,6 +660,11 @@ async def get_conversation(conv_id: str) -> ConversationDetailResponse:
 async def delete_conversation(conv_id: str) -> dict[str, bool]:
     """Delete a conversation and its messages."""
     async with get_db() as db:
+        await execute(
+            db,
+            "UPDATE runs SET conversation_id = NULL WHERE conversation_id = ?",
+            (conv_id,),
+        )
         await execute(db, "DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
         await execute(db, "DELETE FROM conversations WHERE id = ?", (conv_id,))
         await db.commit()
@@ -670,6 +675,7 @@ async def delete_conversation(conv_id: str) -> dict[str, bool]:
 async def delete_all_conversations() -> dict[str, bool]:
     """Delete all conversations and their messages."""
     async with get_db() as db:
+        await execute(db, "UPDATE runs SET conversation_id = NULL")
         await execute(db, "DELETE FROM messages")
         await execute(db, "DELETE FROM conversations")
         await db.commit()

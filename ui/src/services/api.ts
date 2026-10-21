@@ -71,7 +71,7 @@ export const api = {
   getStatus: () => request<SystemStatus>('/status'),
 
   // Chat & Runs
-  startChat: (message: string, conversation_id?: string, allow_cloud = false) =>
+  startChat: (message: string, conversation_id?: string, allow_cloud = true) =>
     request<{ run_id: string; conversation_id: string }>('/chat', {
       method: 'POST',
       body: JSON.stringify({ message, conversation_id, allow_cloud }),

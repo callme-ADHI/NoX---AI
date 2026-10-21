@@ -555,3 +555,43 @@ def test_websocket_ping_pong_and_auth(client: TestClient, valid_token: str) -> N
                 msg = m
                 break
         assert msg == {"type": "pong"}
+
+
+@pytest.mark.asyncio
+async def test_delete_conversation_with_associated_runs(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    """Deleting a conversation cleans up messages and nulls out runs without foreign key error."""
+    conv_id = "test_conv_del_123"
+    async with get_db() as db:
+        await execute(
+            db,
+            "INSERT INTO conversations (id, title) VALUES (?, ?)",
+            (conv_id, "Test Conv To Delete"),
+        )
+        await execute(
+            db,
+            "INSERT INTO runs (id, kind, conversation_id, status) VALUES (?, 'chat', ?, 'done')",
+            ("run_del_1", conv_id),
+        )
+        await execute(
+            db,
+            "INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, 'user', 'hi')",
+            ("msg_del_1", conv_id),
+        )
+        await db.commit()
+
+    resp = client.delete(f"/api/conversations/{conv_id}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+
+    async with get_db() as db:
+        conv_row = await fetch_one(db, "SELECT id FROM conversations WHERE id = ?", (conv_id,))
+        assert conv_row is None
+        msg_row = await fetch_one(db, "SELECT id FROM messages WHERE id = 'msg_del_1'")
+        assert msg_row is None
+        run_row = await fetch_one(db, "SELECT id, conversation_id FROM runs WHERE id = 'run_del_1'")
+        assert run_row is not None
+        assert run_row["conversation_id"] is None
+
