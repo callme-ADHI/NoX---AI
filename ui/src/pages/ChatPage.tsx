@@ -504,12 +504,12 @@ export const ChatPage: React.FC = () => {
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Left Sidebar: Conversations */}
-      <aside className="w-64 bg-surface border-r border-border flex flex-col shrink-0 hidden md:flex">
+      <aside className="w-64 bg-surface/80 backdrop-blur-xl border-r border-border flex flex-col shrink-0 hidden md:flex">
         {/* New Chat Button */}
         <div className="p-3 border-b border-border">
           <button
             onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-raised hover:bg-border text-text font-medium text-xs transition-colors border border-border"
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/[0.06] hover:bg-white/[0.10] text-text font-medium text-xs transition-all border border-white/10 shadow-glass"
           >
             <Plus className="w-4 h-4 text-accent" />
             New Conversation
@@ -579,9 +579,9 @@ export const ChatPage: React.FC = () => {
       </aside>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col bg-background overflow-hidden relative">
+      <main className="flex-1 flex flex-col bg-transparent overflow-hidden relative">
         {/* Top Header Bar: Active Tasks, Private Mode, Cloud Health (§F7) */}
-        <header className="px-4 py-2 border-b border-border bg-surface/50 flex items-center justify-between gap-3 shrink-0">
+        <header className="px-4 py-2 border-b border-border bg-surface/75 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0">
           {/* Active Tasks Chips (§F7.5) */}
           <div className="flex items-center gap-2 overflow-x-auto py-0.5 max-w-lg scrollbar-none">
             {activeTasks.length === 0 ? (
@@ -662,10 +662,10 @@ export const ChatPage: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           {messages.length === 0 && !streamingText && (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 select-none max-w-lg mx-auto">
-              <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent mb-4 shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-white/[0.06] border border-white/20 flex items-center justify-center text-accent mb-4 shadow-glass shadow-[0_0_24px_rgba(56,189,248,0.25)]">
                 <Sparkles className="w-6 h-6" />
               </div>
-              <h2 className="text-base font-semibold text-text mb-1">
+              <h2 className="text-base font-semibold text-text mb-1 tracking-tight">
                 Welcome to NoX Agent
               </h2>
               <p className="text-xs text-muted mb-6 leading-relaxed">
@@ -685,7 +685,7 @@ export const ChatPage: React.FC = () => {
                       setInputMessage(sample);
                       textareaRef.current?.focus();
                     }}
-                    className="p-3 rounded-lg bg-surface hover:bg-raised border border-border text-xs text-text hover:border-accent/40 transition-colors"
+                    className="p-3 rounded-xl bg-surface/80 hover:bg-white/[0.06] border border-border text-xs text-text hover:border-accent/40 shadow-glass transition-all"
                   >
                     {sample}
                   </button>
@@ -721,8 +721,8 @@ export const ChatPage: React.FC = () => {
                 <div
                   className={`p-4 rounded-xl text-xs leading-relaxed relative group ${
                     isUser
-                      ? 'bg-accent/15 text-text border border-accent/30 rounded-br-none'
-                      : 'bg-surface text-text border border-border rounded-bl-none shadow-sm w-full'
+                      ? 'bg-gradient-to-r from-sky-950/40 to-slate-900/60 text-white border border-sky-400/30 rounded-br-none shadow-md backdrop-blur-md'
+                      : 'bg-surface/80 backdrop-blur-xl text-text border border-border rounded-bl-none shadow-glass w-full'
                   }`}
                 >
                   <SafeMarkdown
@@ -789,7 +789,7 @@ export const ChatPage: React.FC = () => {
         </div>
 
         {/* Input Bar */}
-        <div className="p-3 md:p-4 bg-surface border-t border-border shrink-0">
+        <div className="p-3 md:p-4 bg-surface/80 backdrop-blur-xl border-t border-border shrink-0">
           <div className="max-w-3xl mx-auto flex flex-col gap-2">
             {/* Input Options bar */}
             <div className="flex items-center justify-between text-xs text-muted px-1">
@@ -800,7 +800,7 @@ export const ChatPage: React.FC = () => {
                     disabled={isPrivateMode}
                     checked={!isPrivateMode && allowCloud}
                     onChange={(e) => setAllowCloud(e.target.checked)}
-                    className="rounded border-border text-accent focus:ring-accent bg-background"
+                    className="rounded border-border text-accent focus:ring-accent bg-black/60"
                   />
                   <span className="text-[11px] flex items-center gap-1">
                     <Cloud className="w-3.5 h-3.5" />
@@ -827,10 +827,10 @@ export const ChatPage: React.FC = () => {
             </div>
 
             {/* Input textarea box with Private Mode visual glow (§F7.4) */}
-            <div className={`flex items-end gap-2 bg-background border rounded-xl p-2 transition-all ${
+            <div className={`flex items-end gap-2 bg-black/60 backdrop-blur-md border rounded-xl p-2 transition-all ${
               isPrivateMode
-                ? 'border-amber-500/60 ring-1 ring-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.12)]'
-                : 'border-border focus-within:border-accent'
+                ? 'border-amber-500/60 ring-1 ring-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+                : 'border-border focus-within:border-accent/60 focus-within:shadow-[0_0_20px_rgba(56,189,248,0.22)]'
             }`}>
               <textarea
                 ref={textareaRef}
@@ -852,9 +852,9 @@ export const ChatPage: React.FC = () => {
                 disabled={!inputMessage.trim() || isRunning}
                 onClick={handleSend}
                 aria-label="Send message"
-                className={`p-2 rounded-lg transition-colors shrink-0 ${
+                className={`p-2 rounded-lg transition-all shrink-0 ${
                   inputMessage.trim() && !isRunning
-                    ? 'bg-accent text-black hover:bg-accent/90 shadow-sm'
+                    ? 'bg-accent text-black font-semibold hover:bg-accent-hover shadow-[0_0_14px_rgba(56,189,248,0.35)]'
                     : 'bg-raised text-muted cursor-not-allowed opacity-50'
                 }`}
                 title="Send message (Enter)"
