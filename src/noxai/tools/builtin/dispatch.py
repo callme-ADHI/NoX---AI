@@ -17,7 +17,7 @@ from noxai.scheduler.time_utils import (
     parse_natural_time,
 )
 from noxai.tools.builtin.scheduler_tools import resolve_schedule_expression
-from noxai.tools.registry import ToolContext, ToolResult, record_pending_approval, tool
+from noxai.tools.registry import ToolContext, ToolResult, tool
 
 log = logging.getLogger(__name__)
 
@@ -374,6 +374,8 @@ async def request_approval(params: RequestApprovalParams, ctx: ToolContext) -> T
         )
 
     # Persist pending approval in DB if connected (delegated to registry pipeline)
+    from noxai.tools.registry import record_pending_approval
+
     approval_id = await record_pending_approval(
         db=ctx.db,
         tool_name=params.action,
@@ -385,11 +387,12 @@ async def request_approval(params: RequestApprovalParams, ctx: ToolContext) -> T
     if ctx.emit:
         ctx.emit(
             {
-                "type": "approval_requested",
+                "type": "approval_required",
                 "approval_id": approval_id,
-                "action": params.action,
+                "tool": params.action,
+                "args": params.details,
                 "reason": params.reason,
-                "details": params.details,
+                "tier": "dangerous",
             }
         )
 

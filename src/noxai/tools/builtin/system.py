@@ -136,28 +136,20 @@ async def run_shell(params: RunShellParams, ctx: ToolContext) -> ToolResult:
 
     # If evaluated tier is write or dangerous, check approval
     if tier in ("write", "dangerous"):
-        if ctx.request_approval:
-            approved = await ctx.request_approval(
-                ctx.run_id,
-                "run_shell",
-                {"command": cmd_str},
-                tier,
-                reason,
-            )
-            if not approved:
-                return ToolResult(
-                    ok=False,
-                    output=f"Command '{cmd_str}' was denied by owner or timed out.",
-                    summary="Command denied by owner",
-                )
-        else:
+        from noxai.tools.registry import handle_dynamic_approval
+
+        approved = await handle_dynamic_approval(
+            "run_shell",
+            {"command": cmd_str},
+            tier,
+            reason,
+            ctx,
+        )
+        if not approved:
             return ToolResult(
                 ok=False,
-                output=(
-                    f"Command '{cmd_str}' requires approval ({reason}) "
-                    "but no approval handler was available."
-                ),
-                summary="Command requires approval",
+                output=f"Command '{cmd_str}' was denied by owner or timed out.",
+                summary="Command denied by owner",
             )
 
     try:

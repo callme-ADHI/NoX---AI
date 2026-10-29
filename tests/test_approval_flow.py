@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 
 from noxai.cli import app
 from noxai.config import Settings
+from noxai.tools.builtin.system import RunShellParams, run_shell
 from noxai.tools.registry import (
     ToolContext,
     ToolDefinition,
@@ -256,6 +257,50 @@ async def test_approval_timeout_marks_expired(
     row = await cursor.fetchone()
     assert row is not None
     assert row["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_approval_run_shell_polling(
+    mock_config: Settings,
+    migrated_db: aiosqlite.Connection,
+) -> None:
+    """run_shell writing to file dynamically escalates and polls for approval."""
+    emitted_events: list[dict[str, Any]] = []
+
+    def on_emit(event: dict[str, Any]) -> None:
+        emitted_events.append(event)
+
+    ctx = ToolContext(
+        run_id="run_dynamic_shell_test",
+        config=mock_config,
+        db=migrated_db,
+        poll_approval=True,
+        approval_timeout=2.0,
+        emit=on_emit,
+    )
+
+    async def background_approver() -> None:
+        # Wait until event is emitted or row is in db
+        for _ in range(20):
+            await asyncio.sleep(0.05)
+            cursor = await migrated_db.execute(
+                "SELECT id FROM approvals "
+                "WHERE run_id = 'run_dynamic_shell_test' AND status = 'pending'"
+            )
+            row = await cursor.fetchone()
+            if row is not None:
+                await approve_approval(row["id"], db=migrated_db)
+                return
+
+    task = asyncio.create_task(background_approver())
+    result = await run_shell(RunShellParams(command="echo 'nox dynamic approval'"), ctx)
+    await task
+
+    assert result.ok is True
+    assert "nox dynamic approval" in result.output
+    assert len(emitted_events) == 1
+    assert emitted_events[0]["type"] == "approval_required"
+    assert emitted_events[0]["tool"] == "run_shell"
 
 
 def test_cli_tools_approve_and_deny(tmp_path: Path) -> None:

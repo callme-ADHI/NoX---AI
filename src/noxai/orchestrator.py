@@ -50,6 +50,7 @@ FRONT_DESK_ALLOWED_TOOLS = {
     "system_info",
     "list_files",
     "read_file",
+    "write_file",
     "run_shell",
     "job_list",
     "job_get",
@@ -577,12 +578,26 @@ async def orchestrate_chat_turn(
 
             from noxai.tools.registry import ToolContext
 
+            def _handle_tool_emit(ev_data: dict[str, Any]) -> None:
+                ev_type = ev_data.get("type", "tool_event")
+                emit_task = asyncio.create_task(
+                    bus.publish(
+                        make_event(ev_type, ev_data, run_id=actual_run_id),
+                        db=active_db,
+                    )
+                )
+                _background_tasks.add(emit_task)
+                emit_task.add_done_callback(_background_tasks.discard)
+
             tool_ctx = ToolContext(
                 run_id=actual_run_id,
                 config=cfg,
                 allow_cloud=allow_cloud,
                 db=active_db,
                 router=rtr,
+                poll_approval=True,
+                approval_timeout=cfg.safety.approval_timeout_seconds if cfg else 300.0,
+                emit=_handle_tool_emit,
             )
 
             for call in turn_tool_calls:

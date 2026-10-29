@@ -753,6 +753,127 @@ async def record_pending_approval(
     return approval_id
 
 
+async def handle_dynamic_approval(
+    tool_name: str,
+    args: dict[str, Any],
+    tier: str,
+    reason: str | None,
+    ctx: ToolContext,
+) -> bool:
+    """Handle approval for dynamically escalated tools (e.g. run_shell)."""
+    if ctx.request_approval:
+        return await ctx.request_approval(
+            ctx.run_id,
+            tool_name,
+            args,
+            tier,
+            reason,
+        )
+
+    if not ctx.db:
+        return False
+
+    args_raw = json.dumps(args, sort_keys=True)
+    args_hash = hashlib.sha256(args_raw.encode("utf-8")).hexdigest()
+    approval_reason = reason or f"Execution of {tool_name} requires owner approval"
+    timeout_sec = ctx.approval_timeout or (
+        ctx.config.safety.approval_timeout_seconds if ctx.config else 300
+    )
+    expires_at = (datetime.now(UTC) + timedelta(seconds=timeout_sec)).isoformat()
+
+    # Insert into approvals table
+    target_run_id = ctx.run_id if ctx.run_id else None
+    if target_run_id:
+        run_exists = await fetch_one(ctx.db, "SELECT id FROM runs WHERE id = ?", (target_run_id,))
+        if not run_exists:
+            try:
+                await execute(
+                    ctx.db,
+                    "INSERT INTO runs (id, kind, status) VALUES (?, 'chat', 'running')",
+                    (target_run_id,),
+                )
+            except Exception:
+                target_run_id = None
+
+    approval_id = None
+    try:
+        cursor = await execute(
+            ctx.db,
+            """
+            INSERT INTO approvals
+            (tool_name, args_json, args_hash, reason, requested_at, expires_at, status, run_id)
+            VALUES (?, ?, ?, ?, datetime('now'), ?, 'pending', ?)
+            """,
+            (
+                tool_name,
+                redact_secrets(args_raw),
+                args_hash,
+                approval_reason,
+                expires_at,
+                target_run_id,
+            ),
+        )
+        if hasattr(ctx.db, "commit"):
+            await ctx.db.commit()
+        approval_id = cursor.lastrowid
+    except Exception as exc:
+        log.warning("Failed to insert approval for %s: %s", tool_name, exc)
+        return False
+
+    if ctx.emit and approval_id is not None:
+        ctx.emit(
+            {
+                "type": "approval_required",
+                "approval_id": approval_id,
+                "tool": tool_name,
+                "args": args,
+                "args_hash": args_hash,
+                "reason": approval_reason,
+                "tier": tier,
+                "untrusted_warning": False,
+            }
+        )
+
+    if not ctx.poll_approval or approval_id is None:
+        return False
+
+    start_poll = time.monotonic()
+    while time.monotonic() - start_poll < timeout_sec:
+        if ctx.cancel_event and ctx.cancel_event.is_set():
+            return False
+        row = await fetch_one(
+            ctx.db,
+            "SELECT status, decided_by, expires_at FROM approvals WHERE id = ?",
+            (approval_id,),
+        )
+        if row is not None:
+            r_status = row["status"]
+            if r_status == "approved":
+                await execute(
+                    ctx.db,
+                    "UPDATE approvals SET status = 'consumed', "
+                    "decided_at = datetime('now') WHERE id = ?",
+                    (approval_id,),
+                )
+                if hasattr(ctx.db, "commit"):
+                    await ctx.db.commit()
+                return True
+            elif r_status in ("denied", "expired"):
+                return False
+            elif r_status == "consumed":
+                return True
+        await asyncio.sleep(0.15)
+
+    await execute(
+        ctx.db,
+        "UPDATE approvals SET status = 'expired' WHERE id = ? AND status = 'pending'",
+        (approval_id,),
+    )
+    if hasattr(ctx.db, "commit"):
+        await ctx.db.commit()
+    return False
+
+
 # Auto-discover built-in tools on startup
 try:
     default_registry.auto_discover()
