@@ -33,6 +33,7 @@ from noxai.config import SECRETS_FILE, Settings, get_config
 from noxai.db import get_db, init_db
 from noxai.lock import DaemonLock
 from noxai.scheduler import JobScheduler, seed_database_if_needed
+from noxai.tasks.supervisor import TaskSupervisor, set_task_supervisor
 
 log = logging.getLogger(__name__)
 
@@ -259,6 +260,17 @@ def create_app(
 
             warmup_task = asyncio.create_task(_warmup_worker())
 
+        # 7c. Start Detached Task Supervisor (Phase 2)
+        log.info("7c. Starting Detached Task Supervisor...")
+        supervisor = TaskSupervisor(
+            config=cfg,
+            router=getattr(app.state, "model_router", None),
+        )
+        await supervisor.start()
+        app.state.supervisor = supervisor
+        set_task_supervisor(supervisor)
+        log.info("TaskSupervisor active in daemon.")
+
         # 8. Start background JobScheduler
         scheduler: JobScheduler | None = None
         if start_scheduler:
@@ -313,6 +325,12 @@ def create_app(
         sweeper_task.cancel()
         if gate_task is not None:
             gate_task.cancel()
+
+        # 1b. Stop TaskSupervisor
+        if hasattr(app.state, "supervisor") and app.state.supervisor is not None:
+            log.info("Stopping TaskSupervisor...")
+            await app.state.supervisor.stop()
+            set_task_supervisor(None)
 
         # 2. Stop scheduler
         if scheduler is not None:

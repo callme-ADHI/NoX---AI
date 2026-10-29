@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority            TEXT NOT NULL DEFAULT 'normal'
                         CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
     status              TEXT NOT NULL DEFAULT 'queued'
-                        CHECK(status IN ('queued', 'running', 'paused', 'waiting_approval', 'done', 'failed', 'cancelled')),
+                        CHECK(status IN ('queued', 'running', 'paused', 'waiting_approval', 'done', 'failed', 'cancelled', 'interrupted')),
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     started_at          TEXT,
     finished_at         TEXT,

@@ -1,4 +1,4 @@
-"""Data models and enums for the NoX Task Center (§1.4, §G3)."""
+"""Data models and enums for the NoX Task Supervisor and Task Center (§1.4, Phase 2)."""
 
 from __future__ import annotations
 
@@ -16,8 +16,10 @@ class TaskStatus(enum.StrEnum):
     PAUSED = "paused"
     WAITING_APPROVAL = "waiting_approval"
     DONE = "done"
+    SUCCEEDED = "done"  # Alias for done
     FAILED = "failed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
 
 
 class TaskLane(enum.StrEnum):
@@ -48,7 +50,7 @@ class TaskPriority(enum.StrEnum):
 
 
 class Task(BaseModel):
-    """Representation of an asynchronous background task in the Task Center."""
+    """Representation of an asynchronous background task in the Task Supervisor."""
 
     id: str = Field(..., description="Unique task identifier (e.g. task_<hex>).")
     title: str = Field(..., description="Short human-readable title.")
@@ -56,6 +58,16 @@ class Task(BaseModel):
     lane: TaskLane = Field(default=TaskLane.LOCAL, description="Execution lane.")
     priority: TaskPriority = Field(default=TaskPriority.NORMAL, description="Execution priority.")
     status: TaskStatus = Field(default=TaskStatus.QUEUED, description="Current lifecycle state.")
+    kind: str = Field(
+        default="agent", description="Task kind: 'agent', 'briefing', 'research', etc."
+    )
+    parent_id: str | None = Field(default=None, description="Parent task ID if part of DAG.")
+    payload_json: str | None = Field(default=None, description="Arbitrary task payload.")
+    result_ref: str | None = Field(default=None, description="Reference to output table/file.")
+    attempts: int = Field(default=0, description="Attempt count.")
+    max_attempts: int = Field(default=3, description="Maximum retry attempts.")
+    heartbeat_at: str | None = Field(default=None, description="UTC ISO heartbeat timestamp.")
+    owner: str = Field(default="system", description="Owner: 'system', 'user', or 'scheduler'.")
     created_at: str = Field(..., description="UTC ISO timestamp of creation.")
     started_at: str | None = Field(default=None, description="UTC ISO timestamp of start.")
     finished_at: str | None = Field(default=None, description="UTC ISO timestamp of completion.")
@@ -76,6 +88,14 @@ class Task(BaseModel):
             "lane": self.lane.value,
             "priority": self.priority.value,
             "status": self.status.value,
+            "kind": self.kind,
+            "parent_id": self.parent_id,
+            "payload_json": self.payload_json,
+            "result_ref": self.result_ref,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
+            "heartbeat_at": self.heartbeat_at,
+            "owner": self.owner,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
