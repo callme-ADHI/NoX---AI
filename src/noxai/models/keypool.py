@@ -434,6 +434,7 @@ class KeyPool:
 
         probe_key = healthy[0]
         client = self._get_or_create_client(probe_key.key_id)
+
         def _get_m(role: str) -> str:
             cfg_val = self.config.models.roles.get(role, "")
             return getattr(cfg_val, "model", str(cfg_val))

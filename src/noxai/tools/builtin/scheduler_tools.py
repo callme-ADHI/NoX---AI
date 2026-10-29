@@ -562,7 +562,7 @@ async def reminder_list(params: ReminderListParams, ctx: ToolContext) -> ToolRes
         FROM jobs
         {where_clause}
         ORDER BY next_run_at ASC
-        """,
+        """,  # noqa: S608
     )
 
     if not rows:
@@ -662,7 +662,10 @@ async def reminder_get(params: ReminderGetParams, ctx: ToolContext) -> ToolResul
     # Check job_runs for fired reminders
     run_row = await fetch_one(
         ctx.db,
-        "SELECT * FROM job_runs WHERE job_id = ? OR job_id = ? OR job_id LIKE ? ORDER BY started_at DESC LIMIT 1",
+        (
+            "SELECT * FROM job_runs WHERE job_id = ? OR job_id = ? "
+            "OR job_id LIKE ? ORDER BY started_at DESC LIMIT 1"
+        ),
         (clean_id, f"rem_{clean_id}", f"%{clean_id}%"),
     )
     if run_row is not None:
@@ -672,11 +675,17 @@ async def reminder_get(params: ReminderGetParams, ctx: ToolContext) -> ToolResul
             f"- **Status**: {run_row['status']}\n"
             f"- **Message/Output**: {run_row['output_markdown'] or 'Notification delivered'}"
         )
-        return ToolResult(ok=True, output=out, summary=f"Reminder {run_row['job_id']} already fired")
+        return ToolResult(
+            ok=True,
+            output=out,
+            summary=f"Reminder {run_row['job_id']} already fired",
+        )
 
     return ToolResult(
         ok=False,
-        output=f"No reminder found matching ID '{clean_id}'. Use reminder_list to view all reminders.",
+        output=(
+            f"No reminder found matching ID '{clean_id}'. Use reminder_list to view all reminders."
+        ),
         summary="reminder not found",
     )
 

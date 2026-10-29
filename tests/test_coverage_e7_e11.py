@@ -1724,9 +1724,7 @@ async def test_tools_registry_pre_approval_and_user_tools(tmp_path: Path) -> Non
 
     @tool(name="dummy_write", description="test write", params=WriteDummyParams, tier="write")
     async def dummy_write_fn(params: WriteDummyParams, ctx: ToolContext) -> ToolResult:
-        return ToolResult(
-            ok=True, output=f"executed: {params.arg}", summary=f"wrote {params.arg}"
-        )
+        return ToolResult(ok=True, output=f"executed: {params.arg}", summary=f"wrote {params.arg}")
 
     reg.register(dummy_write_fn)
 

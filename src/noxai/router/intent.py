@@ -47,9 +47,9 @@ class IntentType(enum.StrEnum):
 class ReplyMode(enum.StrEnum):
     """Dispatch strategy for responding to the intent."""
 
-    INSTANT = "instant"        # Answer immediately in foreground stream
+    INSTANT = "instant"  # Answer immediately in foreground stream
     BACKGROUND = "background"  # Queue to Task Center silently or purely async
-    BOTH = "both"              # Stream immediate confirmation AND queue background task
+    BOTH = "both"  # Stream immediate confirmation AND queue background task
 
 
 @dataclass

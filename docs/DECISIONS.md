@@ -406,3 +406,36 @@ overwrite or wipe the user's persistent memory store without owner intervention.
 **Decision:** The React Web UI is compiled to `ui/dist` via Vite. The FastAPI daemon serves static assets from `/assets`, resolves known root assets (`manifest.json`, `sw.js`, `icon.svg`) with strict path containment checks, and falls back to `index.html` for client-side SPA routing for authenticated sessions. The service worker (`sw.js`) caches app shell assets while strictly bypassing any `/api/` or `/ws` network requests.
 
 **Rationale:** Fulfills SPEC §9 ("Web UI — React + Vite + Tailwind + shadcn/ui") requirements for PWA installability, clean client-side routing, and protection against caching dynamic API responses or WebSocket streams.
+
+---
+
+### D-037: Detached TaskSupervisor lifecycle tied to FastAPI lifespan
+
+**Decision:** Background task execution is owned by `TaskSupervisor`, tied to daemon lifespan. Web UI / WebSocket disconnects or socket terminations do not cancel running tasks. Tasks persist heartbeat timestamps every 3s into SQLite; upon daemon startup, stale running tasks are automatically detected and recovered/resumed. Cooperative cancellation is enforced via `asyncio.Event` within 2 seconds.
+
+**Rationale:** Fixes the critical bug where opening UI, navigating tabs, or disconnecting client sockets cancelled ongoing daily briefings or multi-step agent tasks.
+
+---
+
+### D-038: NVIDIA Key Pool Allocator with EWMA Latency and Priority Isolation
+
+**Decision:** Implement `KeyPool` in `src/noxai/models/keypool.py` managing 5 NVIDIA API keys with priority classes (`INTERACTIVE`, `PINNED`, `WIDE`, `MULTI-JOB`). The pure `allocate(snapshot, job_id, priority)` function selects keys based on EWMA latency (`alpha=0.2`), rate limit isolation (35 RPM per key), and token budgets. A Python `async with pool.lease()` context manager guarantees lease release on completion or error.
+
+**Rationale:** Distributes workload across 5 free-tier API keys (~175 RPM aggregate) without hitting individual 40 RPM limits, prevents background jobs from starving user chat, and isolates failing keys with exponential backoff.
+
+---
+
+### D-039: Idempotent 2-Slot Daily Briefing Pipeline with Anti-Hallucination Verification
+
+**Decision:** Briefings run across 2 slots: Morning (04:00 Asia/Kolkata) and Evening (18:00 Asia/Kolkata). Execution is tracked in `briefing_runs` enforced by `(run_date, slot)` uniqueness for crash recovery and boot catch-up. All candidate links are checked via an SSRF-safe crawler; any URL returning non-200 or failing domain allowlist checks is dropped from the synthesized markdown to eliminate link hallucination.
+
+**Rationale:** Ensures users receive timely intelligence upon morning boot or evening review without duplicate runs, stale data, or hallucinated dead links.
+
+---
+
+### D-040: Night-Sky Theme UI with Starfield Canvas and KeyPool Dashboard
+
+**Decision:** Styled NoX UI with a deep cosmos palette (`#05060F` to `#0B1026`), semi-transparent glass cards (`bg-surface/80 backdrop-blur-md`), and moon-silver accents (`#C9D4FF`). An ambient `<Starfield />` canvas renders 150–220 twinkling stars and rare shooting stars. Added dedicated `KeyPool` dashboard and enhanced Briefings view with Executive Summary (TL;DR) card and granular feedback panel.
+
+**Rationale:** Matches the product identity ("NoX = night, dark, focused"), meets WCAG AA contrast standards, and provides immediate visibility into key allocation and briefing tuning.
+

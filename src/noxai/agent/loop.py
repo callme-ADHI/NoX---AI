@@ -220,9 +220,7 @@ class AgentLoop:
             valid_tools = list(tools)
         elif lane in ("chat", "front_desk"):
             if allow_cloud or lane == "front_desk":
-                filtered = [
-                    t for t in self.registry.get_specs() if t.name in FRONT_DESK_TOOLS
-                ]
+                filtered = [t for t in self.registry.get_specs() if t.name in FRONT_DESK_TOOLS]
             else:
                 filtered = [t for t in self.registry.get_specs() if t.name in CHAT_LANE_TOOLS]
             valid_tools = filtered if filtered else self.registry.get_specs()

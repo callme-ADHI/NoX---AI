@@ -105,7 +105,11 @@ also require re-authentication when the gate is in `command` mode.
 | `nx doctor` | Run health checks (PASS/FAIL) |
 | `nx token` | Show the session token |
 | `nx open` | Open the web UI (M7) |
-| `nx chat "message"` | One-shot chat (M3) |
+| `nx chat "message"` | Fast Front Desk chat (local or cloud) |
+| `nx keys status` | Show live KeyPool allocator status & metrics |
+| `nx keys test` | Test all configured NVIDIA API keys live |
+| `nx briefing run` | Run daily intelligence briefing pipeline |
+| `nx briefing list` | List briefing archive history |
 | `nx jobs list` | List scheduled jobs (M6) |
 | `nx memory search <query>` | Search memory (M4) |
 | `nx eval-tools <model>` | Evaluate tool calling (M3) |
@@ -148,6 +152,7 @@ They can only be changed by editing the config file directly.
 | `~/.config/nox/config.toml` | Configuration |
 | `~/.config/nox/secrets.env` | API keys (mode 0600) |
 | `~/.local/share/nox/nox.db` | Database (all data) |
+| `~/.local/share/nox/briefings/` | Delivered Markdown briefings |
 | `~/.local/share/nox/skills/` | Editable skill files |
 | `~/.local/share/nox/session_token` | Auth token (mode 0600) |
 | `~/.local/state/nox/logs/` | Rotating JSON logs |
@@ -169,3 +174,5 @@ They can only be changed by editing the config file directly.
 | M8 | ✅ Done | Web UI (React + TypeScript + Tailwind) |
 | M9 | ✅ Done | Autostart, install script, full docs |
 | M10 | ✅ Done | Fast Front Desk, Task Center, Privacy Policy v2, Resumed Verification |
+| Session H | ✅ Done | Briefing Overhaul, KeyPool (5 keys), TaskSupervisor, Night-Sky UI, Memory MMR |
+

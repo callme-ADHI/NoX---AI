@@ -257,3 +257,47 @@ Prior sessions reported high test coverage and component completion, but relied 
   - 0 mypy errors across 83 source files.
 - [x] **G7** — Clean daemon shutdown & fast-forward merge to `main`.
 
+---
+
+## 3. Session H: Briefing Overhaul, Key Pool, Task Supervisor, Memory, Web Research, Night-Sky UI (2026-10-29)
+
+### Status: Complete
+
+### Deliverables & Evidence
+
+- [x] **Phase 1: Briefing & Key Audit** (`docs/audits/briefing-audit.md`):
+  - Documented root causes of briefing failures (ephemeral request contexts, lack of detached supervisor, missing slot state machine).
+  - Cataloged all NVIDIA key usage sites across codebase.
+- [x] **Phase 2: Detached Task Supervisor** (`src/noxai/tasks/supervisor.py`, `src/noxai/tasks/models.py`):
+  - Daemon-lifespan supervised background execution decoupled from HTTP/WebSocket/UI disconnects.
+  - Heartbeat timestamps (3s interval) with stale crash recovery.
+  - Cooperative cancellation via `asyncio.Event` within 2s.
+  - Migration `007_task_supervisor_keypool_briefing.sql` applied.
+  - Automated tests passing: `tests/test_task_supervisor_phase2.py` (4/4 passed).
+- [x] **Phase 3: NVIDIA Key Pool Allocator** (`src/noxai/models/keypool.py`, `src/noxai/commands/keys.py`):
+  - Dynamic allocation modes: `INTERACTIVE` (lowest EWMA), `PINNED` (job affinity), `WIDE` (parallel fan-out), `MULTI-JOB` (background yields to chat).
+  - Pure allocation algorithm with lease context manager and EWMA latency updates (`alpha=0.2`).
+  - 5 configured deduped keys in `~/.config/nox/secrets.env` (0600 mode), verified HTTP 200 live against NVIDIA `/v1/models`.
+  - Automated tests passing: `tests/test_keypool_phase3.py` (4/4 passed).
+- [x] **Phase 4 & 5: Briefing Engine & Feedback Loop** (`src/noxai/briefing/engine.py`, `src/noxai/briefing/feedback.py`, `src/noxai/research/crawler.py`):
+  - 5-stage pipeline: Planner -> Parallel Workers -> Analyst -> Composer -> Cleanup.
+  - 2 automatic daily slots: Morning (04:00 Asia/Kolkata) and Evening (18:00 Asia/Kolkata) with idempotent state machine.
+  - Granular feedback with prompt self-rewriting on dislike signals.
+  - Anti-hallucination link verification.
+  - Live test run produced verified briefing at `~/.local/share/nox/briefings/2026-10-29-morning.md` (81 sources hit).
+  - Automated tests passing: `tests/test_briefing_phase4_5.py` (2/2 passed).
+- [x] **Phase 6: Night-Sky Theme UI** (`ui/src/components/Starfield.tsx`, `ui/src/pages/KeysPage.tsx`, `ui/src/pages/BriefingsPage.tsx`):
+  - Animated canvas starfield (`#05060F` to `#0B1026`, twinkling stars, rare shooting star, moon glow).
+  - KeyPool live status dashboard and manual probe trigger.
+  - Briefings page with TL;DR card, opportunities countdown, and feedback drawer.
+  - Vitest: 41/41 unit tests passing. Production build clean (`dist/index.html`).
+  - Playwright: Full-page desktop and mobile screenshots captured in `docs/screenshots/`.
+- [x] **Phase 7: Memory Upgrade** (`src/noxai/memory/recall.py`):
+  - Maximal Marginal Relevance (MMR) re-ranking (`lambda=0.7`) to eliminate duplicate memories.
+  - Recency decay weighting and token budget adherence.
+  - Automated tests passing: `tests/test_memory.py` (23/23 passed).
+- [x] **Phase 8: Doctor & System Verification**:
+  - `nx doctor`: All required checks PASS.
+  - `systemctl --user status noxd.service`: Active and running.
+
+

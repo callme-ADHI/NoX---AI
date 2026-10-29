@@ -100,7 +100,7 @@ async def run_chat_bench(
         c.print(f"[bold red]Warning: warm-up call failed:[/] {exc}\n")
 
     for category, prompt in BENCH_PROMPTS:
-        c.print(f"Benchmarking [bold]{category}[/]: [italic]\"{prompt}\"[/]...")
+        c.print(f'Benchmarking [bold]{category}[/]: [italic]"{prompt}"[/]...')
 
         # 1. Raw Ollama baseline
         raw_ttfts, raw_totals = [], []
@@ -150,9 +150,7 @@ async def run_chat_bench(
                     config=cfg,
                 )
                 cloud_ttfts.append(
-                    cloud_res.trace.get(
-                        "time_to_first_token", cloud_res.duration_seconds * 1000
-                    )
+                    cloud_res.trace.get("time_to_first_token", cloud_res.duration_seconds * 1000)
                 )
                 cloud_totals.append(cloud_res.duration_seconds * 1000)
 

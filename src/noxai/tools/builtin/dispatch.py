@@ -217,9 +217,7 @@ async def dispatch_reminder(params: DispatchReminderParams, ctx: ToolContext) ->
 class DispatchJobEditParams(BaseModel):
     model_config = {"extra": "forbid"}
 
-    job_id: str = Field(
-        ..., description="ID or name of the scheduled job to modify.", min_length=1
-    )
+    job_id: str = Field(..., description="ID or name of the scheduled job to modify.", min_length=1)
     action: str = Field(
         ...,
         description="Action to perform: 'pause', 'resume', 'cancel', 'delete', or 'edit'.",

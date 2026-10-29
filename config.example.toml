@@ -63,3 +63,42 @@ chat_to_cloud = true          # send interactive chat turns to cloud when active
 cloud_profile_card = false     # keep cloud-safe memory profile empty by default
 private_mode = false           # toggle zero-egress private mode on demand
 
+[keypool]
+rpm_per_key = 35
+concurrency_per_key = 2
+reserve_interactive = true
+cooldown_base_s = 5.0
+cooldown_max_s = 120.0
+wide_mode = true
+
+[briefing]
+enabled = true
+timezone = "Asia/Kolkata"
+morning_start = "04:00"
+evening_start = "18:00"
+catchup_on_boot = true
+max_items_news_per_topic = 6
+max_items_opportunities = 10
+freshness_hours_news = 48
+freshness_days_papers = 7
+notify_on_start = false
+notify_on_done = true
+staging_retention_days = 3
+run_timeout_minutes = 15
+topic_timeout_minutes = 5
+
+[research]
+user_agent = "NoX-Research/1.0 (+https://github.com/callme-ADHI/NoX---AI)"
+per_domain_rps = 1.0
+fetch_timeout_s = 12.0
+max_bytes = 1000000
+cache_ttl_h = 24
+deny_domains = ["pinterest.com", "quora.com"]
+boost_domains = [
+    "arxiv.org",
+    "github.com",
+    "news.ycombinator.com",
+    "thehackernews.com",
+]
+
+

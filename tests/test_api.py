@@ -594,4 +594,3 @@ async def test_delete_conversation_with_associated_runs(
         run_row = await fetch_one(db, "SELECT id, conversation_id FROM runs WHERE id = 'run_del_1'")
         assert run_row is not None
         assert run_row["conversation_id"] is None
-

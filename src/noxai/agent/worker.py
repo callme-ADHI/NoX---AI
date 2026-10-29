@@ -342,7 +342,7 @@ async def execute_worker_subtask(
         import re
 
         url_pattern = re.compile(r"https?://[^\s)\]\"'>]+")
-        search_texts = [output.summary] + output.key_points
+        search_texts = [output.summary, *output.key_points]
         for m in messages:
             if m.role == "tool" and m.content:
                 search_texts.append(str(m.content))

@@ -104,7 +104,6 @@ class Fact:
     visibility: str = "local_only"  # local_only | cloud_ok
 
 
-
 @dataclass
 class FactHistory:
     """Represents a historical snapshot of a fact before modification."""

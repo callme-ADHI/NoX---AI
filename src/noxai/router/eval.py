@@ -24,31 +24,26 @@ ROUTING_BENCHMARK_PROMPTS: list[tuple[str, IntentType]] = [
     ("Explain the difference between TCP and UDP in two sentences.", IntentType.REPLY_NOW),
     ("Thanks for your help!", IntentType.REPLY_NOW),
     ("Good morning NoX", IntentType.REPLY_NOW),
-
     # 2. reminder
     ("Remind me in 15 minutes to take a break", IntentType.REMINDER),
     ("Set a timer for 5 minutes for tea", IntentType.REMINDER),
     ("Don't forget to remind me at 4pm to push the commit", IntentType.REMINDER),
     ("Remind me tomorrow morning to call the dentist", IntentType.REMINDER),
-
     # 3. schedule
     ("Run a security audit every Monday at 9am", IntentType.SCHEDULE),
     ("Schedule a daily briefing at 08:00 Asia/Kolkata", IntentType.SCHEDULE),
     ("Execute disk cleanup every Sunday midnight", IntentType.SCHEDULE),
     ("Create a cron job */15 * * * * to check server health", IntentType.SCHEDULE),
-
     # 4. job_edit
     ("Change my morning briefing time to 7:30am", IntentType.JOB_EDIT),
     ("Disable the nightly backup job", IntentType.JOB_EDIT),
     ("Pause the RSS monitor job", IntentType.JOB_EDIT),
     ("Delete the old news summary job", IntentType.JOB_EDIT),
-
     # 5. background_task
     ("Start a background index of all markdown files in ~/Documents", IntentType.BACKGROUND_TASK),
     ("Run a full vulnerability scan in the background", IntentType.BACKGROUND_TASK),
     ("Batch summarize these 20 PDF files in the background", IntentType.BACKGROUND_TASK),
     ("Download and extract the dataset asynchronously", IntentType.BACKGROUND_TASK),
-
     # 6. deep_research
     (
         "/deep Investigate recent supply chain vulnerabilities in npm packages",
@@ -63,28 +58,24 @@ ROUTING_BENCHMARK_PROMPTS: list[tuple[str, IntentType]] = [
         "Perform an in-depth security comparison between Arch Linux and Debian",
         IntentType.DEEP_RESEARCH,
     ),
-
     # 7. memory_op
     ("Remember that my home wifi SSID is CyberVault", IntentType.MEMORY_OP),
     ("What did we discuss yesterday about database indexing?", IntentType.MEMORY_OP),
     ("Forget the password for the old test server", IntentType.MEMORY_OP),
     ("Search my past episodes for mentions of wireguard", IntentType.MEMORY_OP),
     ("Note down that my preferred editor is Neovim", IntentType.MEMORY_OP),
-
     # 8. system_action
     ("Reboot the system", IntentType.SYSTEM_ACTION),
     ("What is the current system CPU and memory load?", IntentType.SYSTEM_ACTION),
     ("List all active systemd user services", IntentType.SYSTEM_ACTION),
     ("Show me the disk space usage on /", IntentType.SYSTEM_ACTION),
     ("Kill process pid 12345", IntentType.SYSTEM_ACTION),
-
     # 9. sensitive
     ("My AWS secret key is AKIAIOSFODNN7EXAMPLE", IntentType.SENSITIVE),
     ("Here is the root password for the server: SecretPassw0rd!", IntentType.SENSITIVE),
     ("Store my credit card 4532-1234-5678-9012 for the subscription", IntentType.SENSITIVE),
     ("Here is the confidential medical diagnosis report", IntentType.SENSITIVE),
     ("Private SSH private key -----BEGIN OPENSSH PRIVATE KEY-----", IntentType.SENSITIVE),
-
     # 10. ambiguous
     ("Maybe check the thing we saw earlier", IntentType.AMBIGUOUS),
     ("What about that other file?", IntentType.AMBIGUOUS),
@@ -131,9 +122,7 @@ async def run_routing_eval(
     accuracy = (correct_count / total_prompts) if total_prompts else 0.0
     mean_latency = (sum(latencies_ms) / len(latencies_ms)) if latencies_ms else 0.0
     max_latency = max(latencies_ms) if latencies_ms else 0.0
-    sensitive_ratio = (
-        (sensitive_contained_count / sensitive_total) if sensitive_total > 0 else 1.0
-    )
+    sensitive_ratio = (sensitive_contained_count / sensitive_total) if sensitive_total > 0 else 1.0
 
     results: dict[str, Any] = {
         "total": total_prompts,

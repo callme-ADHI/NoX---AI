@@ -296,9 +296,7 @@ def models_bench_cloud(
     async def _run() -> None:
         router = ModelRouter(cfg)
 
-        table = Table(
-            title=f"Cloud Benchmark: {model_name} ({runs} runs/prompt)", show_header=True
-        )
+        table = Table(title=f"Cloud Benchmark: {model_name} ({runs} runs/prompt)", show_header=True)
         table.add_column("Prompt Category", style="bold cyan")
         table.add_column("Prompt", style="dim")
         table.add_column("TTFT (mean ± stdev)", justify="right")
@@ -549,9 +547,7 @@ def models_bench_local(
                 if ps_resp.status_code == 200:
                     for pm in ps_resp.json().get("models", []):
                         if m_name in pm.get("name", ""):
-                            res_mem_gb = (pm.get("size", 0) or pm.get("size_vram", 0)) / (
-                                1024**3
-                            )
+                            res_mem_gb = (pm.get("size", 0) or pm.get("size_vram", 0)) / (1024**3)
 
             # E. Composite Score
             # Weight: 35% JSON acc, 35% Tool acc, 20% TPS, 10% TTFT

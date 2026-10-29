@@ -130,14 +130,11 @@ class NvidiaProvider(Provider):
                 init_keys.append(api_key)
             self.key_pool = NvidiaKeyPool(keys=init_keys, default_rpm_per_key=requests_per_minute)
 
-        self._fallback_key = (
-            api_key
-            or (self.key_pool.get_all_keys()[0] if not self.key_pool.is_empty() else None)
+        self._fallback_key = api_key or (
+            self.key_pool.get_all_keys()[0] if not self.key_pool.is_empty() else None
         )
         self.cloud_health = (
-            cloud_health
-            if cloud_health is not None
-            else CloudHealth(has_key=self.is_enabled)
+            cloud_health if cloud_health is not None else CloudHealth(has_key=self.is_enabled)
         )
 
     def __repr__(self) -> str:
@@ -277,7 +274,8 @@ class NvidiaProvider(Provider):
                     # Transparent failover: check if another key is available right now
                     now = time.monotonic()
                     alts = [
-                        e for e in self.key_pool._entries
+                        e
+                        for e in self.key_pool._entries
                         if e.api_key != active_key_entry.api_key and e.is_available(now)
                     ]
                     if alts and attempt <= self.max_retries:
@@ -315,7 +313,8 @@ class NvidiaProvider(Provider):
                     # Transparent failover if another key exists
                     now = time.monotonic()
                     alts = [
-                        e for e in self.key_pool._entries
+                        e
+                        for e in self.key_pool._entries
                         if e.api_key != active_key_entry.api_key and not e.is_cooling_down(now)
                     ]
                     if alts and attempt <= self.max_retries:
@@ -415,7 +414,6 @@ class NvidiaProvider(Provider):
 
             if stream:
                 accumulated_tool_calls: dict[int, dict[str, Any]] = {}
-                tool_calls_emitted = False
                 async for line in resp.aiter_lines():
                     if not line:
                         continue

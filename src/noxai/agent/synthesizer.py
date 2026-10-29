@@ -109,7 +109,9 @@ async def synthesize_report(
         ),
         Message(
             role="user",
-            content=Content.public("\n".join(prompt_lines)) if allow_cloud else "\n".join(prompt_lines),
+            content=(
+                Content.public("\n".join(prompt_lines)) if allow_cloud else "\n".join(prompt_lines)
+            ),
         ),
     ]
 

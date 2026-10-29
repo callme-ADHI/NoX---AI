@@ -171,16 +171,12 @@ def test_ram_budget_check(tmp_path: Path) -> None:
 
     # Case A: 10 GB MemAvailable, 1 GB model loaded -> PASS (~10% ratio)
     meminfo_file.write_text(
-        "MemTotal:       16000000 kB\n"
-        "MemFree:         4000000 kB\n"
-        "MemAvailable:   10000000 kB\n"
+        "MemTotal:       16000000 kB\nMemFree:         4000000 kB\nMemAvailable:   10000000 kB\n"
     )
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "models": [{"name": "qwen2.5:1.5b", "size": 1 * (1024**3)}]
-    }
+    mock_resp.json.return_value = {"models": [{"name": "qwen2.5:1.5b", "size": 1 * (1024**3)}]}
 
     with patch("httpx.get", return_value=mock_resp):
         check = check_ram_budget(meminfo_path=meminfo_file)
@@ -189,9 +185,7 @@ def test_ram_budget_check(tmp_path: Path) -> None:
 
     # Case B: 2 GB MemAvailable, 1.8 GB models loaded -> WARN (~90% ratio > 80%)
     meminfo_file.write_text(
-        "MemTotal:       16000000 kB\n"
-        "MemFree:          500000 kB\n"
-        "MemAvailable:    2000000 kB\n"
+        "MemTotal:       16000000 kB\nMemFree:          500000 kB\nMemAvailable:    2000000 kB\n"
     )
     mock_resp.json.return_value = {
         "models": [{"name": "heavy:model", "size": int(1.8 * (1024**3))}]
@@ -205,18 +199,13 @@ def test_ram_budget_check(tmp_path: Path) -> None:
 
 def test_doctor_perf_recommendations(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     meminfo_file = tmp_path / "meminfo"
-    meminfo_file.write_text(
-        "MemTotal:       32000000 kB\n"
-        "MemAvailable:   24000000 kB\n"
-    )
+    meminfo_file.write_text("MemTotal:       32000000 kB\nMemAvailable:   24000000 kB\n")
     console = Console()
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "models": [
-            {"name": "qwen2.5:14b", "size": 9 * (1024**3), "processor": "50% GPU / 50% CPU"}
-        ]
+        "models": [{"name": "qwen2.5:14b", "size": 9 * (1024**3), "processor": "50% GPU / 50% CPU"}]
     }
 
     with patch("httpx.get", return_value=mock_resp):
@@ -260,6 +249,7 @@ async def test_warmup_worker_logic() -> None:
 
     # Simulate warm-up task
     import time
+
     t0 = time.monotonic()
     res_prov, res_model = router.resolve_role("resident")
     async for _ in res_prov.chat(

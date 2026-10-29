@@ -169,6 +169,26 @@ The Task Center (`src/noxai/tasks/center.py`) orchestrates asynchronous workload
 - `TraceDrawer`: Slide-out panel detailing intent classification latency, data class, taint flags, tool calls, and event stream.
 - `CloudStatusIndicator`: Status badge in header displaying live health state, with a popover revealing circuit breaker state, token budget gauges, interactive reserve, and cloud toggle.
 - `TasksPage` (`/tasks`): Dashboard for viewing active and queued background jobs, progress bars, cancellation triggers, and parked approvals.
+- `KeysPage` (`/keys`): Live dashboard for NVIDIA KeyPool status, in-flight leases, RPM limits, EWMA latency tracking, and live key probe triggers.
+- `Night-Sky Theme`: Deep cosmic palette (`#05060F` to `#0B1026`), glass panels, moon-silver typography, and animated canvas starfield (`ui/src/components/Starfield.tsx`).
+
+### 5. Detached TaskSupervisor & Briefing Pipeline (Session H)
+- `TaskSupervisor` (`src/noxai/tasks/supervisor.py`):
+  - Owned by FastAPI lifespan, decoupling background execution from ephemeral HTTP/WebSocket/UI connections.
+  - State persisted to SQLite `tasks` table with 3s heartbeat intervals.
+  - Crash recovery on boot automatically catches up interrupted jobs.
+  - Cooperative cancellation within 2s via `asyncio.Event`.
+- `KeyPool` (`src/noxai/models/keypool.py`):
+  - Allocates across 5 NVIDIA NIM API keys (~175 RPM aggregate).
+  - Allocation modes: `INTERACTIVE` (lowest EWMA latency), `PINNED` (multi-step job affinity), `WIDE` (parallel briefing fan-out), `MULTI-JOB` (background tasks yield to chat turns).
+  - Exponentially weighted moving average (EWMA, $\alpha=0.2$) latency scoring.
+  - Leases managed via `async with pool.lease(job_id, priority)` context manager.
+- `Briefing Pipeline` (`src/noxai/briefing/engine.py`):
+  - 5-stage pipeline: Planner -> Parallel Crawler Workers -> Analyst -> Composer -> Cleanup.
+  - 2 automatic daily slots: Morning (04:00 Asia/Kolkata) and Evening (18:00 Asia/Kolkata).
+  - Anti-hallucination link validation: every link probed live via SSRF-safe client; non-200 or unverified links dropped.
+  - Granular feedback & prompt self-rewriting (`src/noxai/briefing/feedback.py`).
+
 
 ## File Layout
 
