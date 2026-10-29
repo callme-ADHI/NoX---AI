@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import shlex
 import zoneinfo
 from pathlib import Path
 from typing import Literal
@@ -152,22 +151,17 @@ async def run_shell(params: RunShellParams, ctx: ToolContext) -> ToolResult:
                 summary="Command denied by owner",
             )
 
-    try:
-        argv = shlex.split(cmd_str)
-    except Exception as exc:
-        return ToolResult(
-            ok=False,
-            output=f"Failed to parse command arguments: {exc}",
-            summary="Malformed command arguments",
-        )
+    cmd_parts = cmd_str.split()
+    cmd_head = cmd_parts[0] if cmd_parts else "shell"
+    user_home = Path.home()
 
     try:
-        # Run process directly without shell=True
-        proc = await asyncio.create_subprocess_exec(
-            argv[0],
-            *argv[1:],
+        proc = await asyncio.create_subprocess_shell(
+            cmd_str,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            executable="/bin/bash",
+            cwd=str(user_home),
         )
         stdout, stderr = await proc.communicate()
         exit_code = proc.returncode
@@ -182,6 +176,8 @@ async def run_shell(params: RunShellParams, ctx: ToolContext) -> ToolResult:
             res_lines.append(out_decoded)
         if err_decoded:
             res_lines.append(f"[stderr]\n{err_decoded}")
+        if exit_code == 127:
+            res_lines.append(f"Command not found: {cmd_head}")
         if exit_code != 0:
             res_lines.append(f"[exit code: {exit_code}]")
 
@@ -191,19 +187,19 @@ async def run_shell(params: RunShellParams, ctx: ToolContext) -> ToolResult:
         return ToolResult(
             ok=is_ok,
             output=full_output,
-            summary=f"Executed: {argv[0]} (exit {exit_code})",
+            summary=f"Executed: {cmd_head} (exit {exit_code})",
         )
     except FileNotFoundError:
         return ToolResult(
             ok=False,
-            output=f"Command not found: {argv[0]}",
-            summary=f"Command not found: {argv[0]}",
+            output=f"Command not found: {cmd_head}",
+            summary=f"Command not found: {cmd_head}",
         )
     except Exception as exc:
         return ToolResult(
             ok=False,
-            output=f"Error executing subprocess: {exc}",
-            summary="Subprocess error",
+            output=f"Error executing shell command: {exc}",
+            summary="Shell execution error",
         )
 
 

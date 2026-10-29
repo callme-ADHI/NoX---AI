@@ -303,6 +303,50 @@ async def test_dynamic_approval_run_shell_polling(
     assert emitted_events[0]["tool"] == "run_shell"
 
 
+@pytest.mark.asyncio
+async def test_dynamic_approval_run_shell_redirection_and_expansion(
+    mock_config: Settings,
+    migrated_db: aiosqlite.Connection,
+    tmp_path: Path,
+) -> None:
+    """run_shell correctly executes shell redirection and sequence pipelines."""
+    out_file = tmp_path / "seq_test.txt"
+
+    ctx = ToolContext(
+        run_id="run_seq_redirection_test",
+        config=mock_config,
+        db=migrated_db,
+        poll_approval=True,
+        approval_timeout=2.0,
+    )
+
+    async def background_approver() -> None:
+        for _ in range(20):
+            await asyncio.sleep(0.05)
+            cursor = await migrated_db.execute(
+                "SELECT id FROM approvals "
+                "WHERE run_id = 'run_seq_redirection_test' AND status = 'pending'"
+            )
+            row = await cursor.fetchone()
+            if row is not None:
+                await approve_approval(row["id"], db=migrated_db)
+                return
+
+    task = asyncio.create_task(background_approver())
+    result = await run_shell(
+        RunShellParams(command=f"seq 1 50 > '{out_file}'"),
+        ctx,
+    )
+    await task
+
+    assert result.ok is True
+    assert out_file.exists()
+    lines = out_file.read_text().strip().splitlines()
+    assert len(lines) == 50
+    assert lines[0] == "1"
+    assert lines[-1] == "50"
+
+
 def test_cli_tools_approve_and_deny(tmp_path: Path) -> None:
     """nx tools approve and nx tools deny CLI commands."""
     db_file = tmp_path / "nox.db"

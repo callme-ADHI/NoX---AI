@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import shlex
 import socket
@@ -184,7 +185,8 @@ def validate_path(
     Resolves symlinks to their canonical destinations to prevent symlink bypass.
     """
     try:
-        path = Path(path_str).expanduser()
+        expanded_str = os.path.expandvars(os.path.expanduser(path_str))
+        path = Path(expanded_str)
         # Resolve path (even if it does not exist yet)
         resolved = path.resolve()
     except Exception as exc:
@@ -195,7 +197,7 @@ def validate_path(
 
     # Check denied paths first
     for denied in denied_paths:
-        denied_resolved = Path(denied).expanduser().resolve()
+        denied_resolved = Path(os.path.expandvars(os.path.expanduser(denied))).resolve()
         if resolved == denied_resolved or denied_resolved in resolved.parents:
             raise SecurityViolation(
                 f"Access denied: Path '{resolved}' is inside restricted directory "
@@ -205,7 +207,7 @@ def validate_path(
     # Check allowed roots
     allowed = False
     for root in allowed_roots:
-        root_resolved = Path(root).expanduser().resolve()
+        root_resolved = Path(os.path.expandvars(os.path.expanduser(root))).resolve()
         if resolved == root_resolved or root_resolved in resolved.parents:
             allowed = True
             break
