@@ -108,6 +108,58 @@ def calculate_hybrid_score(
     return 0.55 * c + 0.20 * b + 0.15 * r + 0.10 * u
 
 
+def apply_mmr_reranking(
+    candidates: list[ScoredMemory],
+    lambda_mult: float = 0.7,
+    top_n: int = 10,
+) -> list[ScoredMemory]:
+    """Maximal Marginal Relevance (MMR) for result diversity and redundancy suppression."""
+    if not candidates:
+        return []
+
+    # Pinned candidates always prioritized
+    pinned = [c for c in candidates if c.is_pinned]
+    unpinned = [c for c in candidates if not c.is_pinned]
+
+    selected: list[ScoredMemory] = []
+    selected.extend(pinned)
+
+    remaining = list(unpinned)
+    while remaining and len(selected) < top_n:
+        best_cand = None
+        best_mmr_score = -float("inf")
+
+        for cand in remaining:
+            # Relevance component
+            relevance = cand.score
+            # Redundancy penalty: similarity to already selected text/content
+            redundancy = 0.0
+            if selected:
+                cand_text = getattr(cand.item, "value", "") or getattr(cand.item, "summary", "")
+                overlap_scores = []
+                for s in selected:
+                    s_text = getattr(s.item, "value", "") or getattr(s.item, "summary", "")
+                    # Fast token/character overlap heuristic
+                    overlap = len(
+                        set(cand_text.lower().split()) & set(s_text.lower().split())
+                    ) / max(1, len(set(cand_text.lower().split())))
+                    overlap_scores.append(overlap)
+                redundancy = max(overlap_scores) if overlap_scores else 0.0
+
+            mmr_score = lambda_mult * relevance - (1.0 - lambda_mult) * redundancy
+            if mmr_score > best_mmr_score:
+                best_mmr_score = mmr_score
+                best_cand = cand
+
+        if best_cand:
+            selected.append(best_cand)
+            remaining.remove(best_cand)
+        else:
+            break
+
+    return selected
+
+
 async def recall_memories(
     query: str,
     *,
@@ -224,9 +276,9 @@ async def recall_memories(
             )
         )
 
-    # 6. Rank: Pinned facts rank first, then descending by score
+    # 6. Rank with MMR Diversity
     # We sort by (is_pinned DESC, score DESC)
-    candidates.sort(key=lambda m: (1 if m.is_pinned else 0, m.score), reverse=True)
+    candidates = apply_mmr_reranking(candidates, top_n=actual_top_k * 2)
 
     # 7. Select top_k fitting within token budget
     selected_facts: list[Fact] = []
