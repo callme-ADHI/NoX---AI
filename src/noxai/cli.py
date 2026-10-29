@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 
 from noxai.commands.audit import audit_app
+from noxai.commands.briefing_cmd import briefing_app
 from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.jobs import jobs_app
@@ -58,6 +59,7 @@ app.add_typer(memory_app, name="memory")
 app.add_typer(reminders_app, name="reminders")
 app.add_typer(sources_app, name="sources")
 app.add_typer(briefings_app, name="briefings")
+app.add_typer(briefing_app, name="briefing")
 app.add_typer(audit_app, name="audit")
 app.add_typer(service_app, name="service")
 

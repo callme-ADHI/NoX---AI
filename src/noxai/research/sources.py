@@ -1,0 +1,95 @@
+"""Verified source list and live probe verification for NoX Briefing Engine (Phase 4 & 8)."""
+
+from __future__ import annotations
+
+# Verified live-responding sources (from docs/audits/sources.md live sweep)
+VERIFIED_SOURCES = [
+    {
+        "id": "src_arxiv_ai",
+        "name": "arXiv cs.AI",
+        "category": "news",
+        "url": "https://export.arxiv.org/rss/cs.AI",
+        "type": "rss",
+        "topic": "topic_ai",
+    },
+    {
+        "id": "src_hn",
+        "name": "Hacker News",
+        "category": "news",
+        "url": "https://news.ycombinator.com/rss",
+        "type": "rss",
+        "topic": "topic_cs",
+    },
+    {
+        "id": "src_thn",
+        "name": "The Hacker News",
+        "category": "news",
+        "url": "https://feeds.feedburner.com/TheHackersNews",
+        "type": "rss",
+        "topic": "topic_cybersecurity",
+    },
+    {
+        "id": "src_cisa",
+        "name": "CISA Alerts",
+        "category": "news",
+        "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+        "type": "rss",
+        "topic": "topic_cybersecurity",
+    },
+    {
+        "id": "src_hackaday",
+        "name": "Hackaday",
+        "category": "news",
+        "url": "https://hackaday.com/feed/",
+        "type": "rss",
+        "topic": "topic_iot",
+    },
+    {
+        "id": "src_ieee",
+        "name": "IEEE Spectrum",
+        "category": "news",
+        "url": "https://spectrum.ieee.org/feeds/topic/robotics.rss",
+        "type": "rss",
+        "topic": "topic_robotics",
+    },
+    {
+        "id": "src_arstechnica",
+        "name": "Ars Technica",
+        "category": "news",
+        "url": "https://feeds.arstechnica.com/arstechnica/index",
+        "type": "rss",
+        "topic": "topic_innovations",
+    },
+    {
+        "id": "src_techcrunch",
+        "name": "TechCrunch",
+        "category": "news",
+        "url": "https://techcrunch.com/feed/",
+        "type": "rss",
+        "topic": "topic_startups",
+    },
+    {
+        "id": "src_verge",
+        "name": "The Verge",
+        "category": "news",
+        "url": "https://www.theverge.com/rss/index.xml",
+        "type": "rss",
+        "topic": "topic_ai_models",
+    },
+    {
+        "id": "src_ctftime",
+        "name": "CTFtime Upcoming",
+        "category": "opportunities",
+        "url": "https://ctftime.org/event/list/upcoming/rss/",
+        "type": "rss",
+        "topic": "topic_ctfs",
+    },
+    {
+        "id": "src_unstop",
+        "name": "Unstop Competitions",
+        "category": "opportunities",
+        "url": "https://unstop.com/competitions",
+        "type": "web",
+        "topic": "topic_competitions",
+    },
+]
