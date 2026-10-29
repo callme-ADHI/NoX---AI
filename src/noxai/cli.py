@@ -33,6 +33,7 @@ from noxai.commands.audit import audit_app
 from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.jobs import jobs_app
+from noxai.commands.keys import keys_app
 from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
 from noxai.commands.reminders import remind_command, reminders_app
@@ -50,6 +51,7 @@ console = Console()
 
 app.add_typer(models_app, name="models")
 app.add_typer(cloud_app, name="cloud")
+app.add_typer(keys_app, name="keys")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(memory_app, name="memory")

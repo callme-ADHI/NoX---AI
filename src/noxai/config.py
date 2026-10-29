@@ -148,6 +148,9 @@ class MemoryConfig(_StrictModel):
     recall_top_k: int = 6
     recall_token_budget: int = 800
     episode_archive_days: int = 90
+    token_budget: int = 1200
+    half_life_days: float = 30.0
+    archive_after_days: int = 90
 
 
 class SafetyConfig(_StrictModel):
@@ -184,6 +187,7 @@ class UIConfig(_StrictModel):
     """UI launcher configuration."""
 
     launcher_cmd: list[str] = ["chromium", "--app={url}"]
+    stars: str = "calm"
 
 
 class PrivacyConfig(_StrictModel):
@@ -192,6 +196,53 @@ class PrivacyConfig(_StrictModel):
     chat_to_cloud: bool = True
     cloud_profile_card: bool = False
     private_mode: bool = False
+
+
+class KeypoolConfig(_StrictModel):
+    """NVIDIA key pool allocation and rate parameters (Phase 3)."""
+
+    rpm_per_key: int = 35
+    concurrency_per_key: int = 2
+    reserve_interactive: bool = True
+    cooldown_base_s: float = 5.0
+    cooldown_max_s: float = 120.0
+    wide_mode: bool = True
+
+
+class BriefingConfig(_StrictModel):
+    """Automated briefing engine settings (Phase 4)."""
+
+    enabled: bool = True
+    timezone: str = "Asia/Kolkata"
+    morning_start: str = "04:00"
+    evening_start: str = "18:00"
+    catchup_on_boot: bool = True
+    max_items_news_per_topic: int = 6
+    max_items_opportunities: int = 10
+    freshness_hours_news: int = 48
+    freshness_days_papers: int = 7
+    notify_on_start: bool = False
+    notify_on_done: bool = True
+    staging_retention_days: int = 3
+    run_timeout_minutes: int = 15
+    topic_timeout_minutes: int = 5
+
+
+class ResearchConfig(_StrictModel):
+    """Web research module configuration (Phase 8)."""
+
+    user_agent: str = "NoX-Research/1.0 (+https://github.com/callme-ADHI/NoX---AI)"
+    per_domain_rps: float = 1.0
+    fetch_timeout_s: float = 12.0
+    max_bytes: int = 1_000_000
+    cache_ttl_h: int = 24
+    deny_domains: list[str] = ["pinterest.com", "quora.com"]
+    boost_domains: list[str] = [
+        "arxiv.org",
+        "github.com",
+        "news.ycombinator.com",
+        "thehackernews.com",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +265,9 @@ class Settings(BaseModel):
     gate: GateConfig = GateConfig()
     ui: UIConfig = UIConfig()
     privacy: PrivacyConfig = PrivacyConfig()
+    keypool: KeypoolConfig = KeypoolConfig()
+    briefing: BriefingConfig = BriefingConfig()
+    research: ResearchConfig = ResearchConfig()
 
     # Secrets (loaded separately, not from TOML)
     nvidia_api_key: SecretStr | None = None
