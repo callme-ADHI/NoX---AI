@@ -320,7 +320,7 @@ def test_check_provider_topology() -> None:
     # 1. Invalid cfg
     assert doctor.check_provider_topology(None).status == "FAIL"
 
-    # 2. Brain not local -> FAIL
+    # 2. Brain nvidia & Heavy nvidia -> PASS
     cfg = SimpleNamespace(
         models=SimpleNamespace(
             roles={
@@ -329,7 +329,7 @@ def test_check_provider_topology() -> None:
             }
         )
     )
-    assert doctor.check_provider_topology(cfg).status == "FAIL"
+    assert doctor.check_provider_topology(cfg).status == "PASS"
 
     # 3. Heavy is local -> FAIL
     cfg.models.roles["brain"].provider = "ollama"
@@ -339,6 +339,10 @@ def test_check_provider_topology() -> None:
     # 4. Brain local & Heavy non-local -> PASS
     cfg.models.roles["heavy"].provider = "nvidia"
     assert doctor.check_provider_topology(cfg).status == "PASS"
+
+    # 5. Unsupported provider -> FAIL
+    cfg.models.roles["brain"].provider = "unsupported"
+    assert doctor.check_provider_topology(cfg).status == "FAIL"
 
 
 def test_run_doctor_cli_output(capsys: pytest.CaptureFixture[str]) -> None:

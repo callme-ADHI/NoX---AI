@@ -77,43 +77,78 @@ def _model_present(model_name: str, ollama_models: list[dict[str, Any]]) -> bool
 
 def check_models(cfg: Any, ollama_models: list[dict[str, Any]]) -> list[DoctorCheck]:
     checks = []
-    brain_m = (
-        cfg.models.roles["brain"].model if (cfg and "brain" in cfg.models.roles) else "qwen2.5:14b"
-    )
-    brain_ok = _model_present(brain_m, ollama_models)
-    checks.append(
-        DoctorCheck(
-            f"Brain model in Ollama ({brain_m})",
-            "PASS" if brain_ok else "FAIL",
-            f"Pull it: ollama pull {brain_m}",
-        )
-    )
+    roles = getattr(cfg.models, "roles", {}) if (cfg and hasattr(cfg, "models")) else {}
 
-    embed_m = (
-        cfg.models.roles["embed"].model
-        if (cfg and "embed" in cfg.models.roles)
-        else "nomic-embed-text"
-    )
-    embed_ok = _model_present(embed_m, ollama_models)
-    checks.append(
-        DoctorCheck(
-            f"Embed model in Ollama ({embed_m})",
-            "PASS" if embed_ok else "FAIL",
-            f"Pull it: ollama pull {embed_m}",
+    brain_cfg = roles.get("brain")
+    brain_m = getattr(brain_cfg, "model", "qwen2.5:14b") if brain_cfg else "qwen2.5:14b"
+    brain_prov = getattr(brain_cfg, "provider", "ollama") if brain_cfg else "ollama"
+    if brain_prov == "ollama":
+        brain_ok = _model_present(brain_m, ollama_models)
+        checks.append(
+            DoctorCheck(
+                f"Brain model in Ollama ({brain_m})",
+                "PASS" if brain_ok else "FAIL",
+                f"Pull it: ollama pull {brain_m}",
+            )
         )
-    )
+    elif brain_prov == "nvidia":
+        checks.append(
+            DoctorCheck(
+                f"Brain model in NVIDIA ({brain_m})",
+                "PASS",
+                "",
+            )
+        )
+    else:
+        checks.append(
+            DoctorCheck(
+                f"Brain model ({brain_m}) via {brain_prov}",
+                "PASS",
+                "",
+            )
+        )
 
-    vision_m = (
-        cfg.models.roles["vision"].model if (cfg and "vision" in cfg.models.roles) else "gemma4:e4b"
-    )
-    vision_ok = _model_present(vision_m, ollama_models)
-    checks.append(
-        DoctorCheck(
-            f"Vision model in Ollama ({vision_m})",
-            "PASS" if vision_ok else "WARN",
-            f"Pull it: ollama pull {vision_m}",
+    embed_cfg = roles.get("embed")
+    embed_m = getattr(embed_cfg, "model", "nomic-embed-text") if embed_cfg else "nomic-embed-text"
+    embed_prov = getattr(embed_cfg, "provider", "ollama") if embed_cfg else "ollama"
+    if embed_prov == "ollama":
+        embed_ok = _model_present(embed_m, ollama_models)
+        checks.append(
+            DoctorCheck(
+                f"Embed model in Ollama ({embed_m})",
+                "PASS" if embed_ok else "FAIL",
+                f"Pull it: ollama pull {embed_m}",
+            )
         )
-    )
+    else:
+        checks.append(
+            DoctorCheck(
+                f"Embed model ({embed_m}) via {embed_prov}",
+                "PASS",
+                "",
+            )
+        )
+
+    vision_cfg = roles.get("vision")
+    vision_m = getattr(vision_cfg, "model", "gemma4:e4b") if vision_cfg else "gemma4:e4b"
+    vision_prov = getattr(vision_cfg, "provider", "ollama") if vision_cfg else "ollama"
+    if vision_prov == "ollama":
+        vision_ok = _model_present(vision_m, ollama_models)
+        checks.append(
+            DoctorCheck(
+                f"Vision model in Ollama ({vision_m})",
+                "PASS" if vision_ok else "WARN",
+                f"Pull it: ollama pull {vision_m}",
+            )
+        )
+    else:
+        checks.append(
+            DoctorCheck(
+                f"Vision model ({vision_m}) via {vision_prov}",
+                "PASS",
+                "",
+            )
+        )
 
     return checks
 
@@ -395,19 +430,32 @@ def check_config_loads() -> tuple[DoctorCheck, Any]:
 
 
 def check_provider_topology(cfg: Any) -> DoctorCheck:
-    if not cfg:
+    if not cfg or not hasattr(cfg, "models") or not hasattr(cfg.models, "roles"):
         return DoctorCheck(
             "Provider topology", "FAIL", "Cannot verify topology without valid config"
         )
     brain_p = cfg.models.roles.get("brain", None)
     heavy_p = cfg.models.roles.get("heavy", None)
-    if not brain_p or brain_p.provider != "ollama":
-        return DoctorCheck("Provider topology", "FAIL", "Brain provider must be local (ollama)")
-    if heavy_p and heavy_p.provider == "ollama":
+    if not brain_p:
+        return DoctorCheck("Provider topology", "FAIL", "Brain role missing in config")
+
+    brain_prov = getattr(brain_p, "provider", "ollama")
+    heavy_prov = getattr(heavy_p, "provider", "nvidia") if heavy_p else None
+
+    if brain_prov not in ("ollama", "nvidia"):
+        return DoctorCheck(
+            "Provider topology", "FAIL", f"Unsupported brain provider '{brain_prov}'"
+        )
+    if heavy_p and heavy_prov == "ollama":
         return DoctorCheck(
             "Provider topology", "FAIL", "Heavy provider must be non-local (e.g. nvidia)"
         )
-    return DoctorCheck("Provider topology: brain (local) / heavy (cloud)", "PASS", "")
+
+    summary_brain = "local" if brain_prov == "ollama" else "cloud"
+    summary_heavy = "cloud" if (heavy_prov and heavy_prov != "ollama") else (heavy_prov or "none")
+    return DoctorCheck(
+        f"Provider topology: brain ({summary_brain}) / heavy ({summary_heavy})", "PASS", ""
+    )
 
 
 def check_lock_state() -> DoctorCheck:

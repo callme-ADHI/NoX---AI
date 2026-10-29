@@ -414,7 +414,7 @@ class TaskCenter:
                 await asyncio.sleep(0.01)
                 final_output = f"Completed task: {task.title}"
             else:
-                allow_cloud = (task.lane == TaskLane.CLOUD)
+                allow_cloud = task.lane == TaskLane.CLOUD
                 loop = AgentLoop(
                     config=self.config,
                     router=self.router,
