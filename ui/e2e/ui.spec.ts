@@ -100,6 +100,18 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'jobs.png'), fullPage: true });
     await checkAxe(page, 'Jobs');
 
+    // Page 3b: Tasks
+    await page.click('button:has-text("Tasks")');
+    await page.waitForTimeout(500);
+    await expect(page.locator('h1:has-text("Task Center")')).toBeVisible();
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'tasks.png'), fullPage: true });
+
+    // Page 3c: KeyPool
+    await page.click('button:has-text("KeyPool")');
+    await page.waitForTimeout(500);
+    await expect(page.locator('h1:has-text("NVIDIA API Key Pool")')).toBeVisible();
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'keys.png'), fullPage: true });
+
     // Page 4: Memory
     await page.click('button:has-text("Memory")');
     await page.waitForTimeout(500);

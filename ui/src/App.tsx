@@ -6,6 +6,7 @@ import { ChatPage } from './pages/ChatPage';
 import { BriefingsPage } from './pages/BriefingsPage';
 import { JobsPage } from './pages/JobsPage';
 import { TasksPage } from './pages/TasksPage';
+import { KeysPage } from './pages/KeysPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { ActivityPage } from './pages/ActivityPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -111,6 +112,8 @@ export const App: React.FC = () => {
         return <JobsPage />;
       case 'tasks':
         return <TasksPage />;
+      case 'keys':
+        return <KeysPage />;
       case 'memory':
         return <MemoryPage />;
       case 'activity':

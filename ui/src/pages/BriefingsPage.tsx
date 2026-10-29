@@ -8,18 +8,38 @@ import {
   Loader2,
   Copy,
   Check,
+  ExternalLink,
+  Sparkles,
+  ShieldCheck,
+  Send,
 } from 'lucide-react';
 import { Briefing } from '../types';
 import { api } from '../services/api';
 import { SafeMarkdown } from '../components/SafeMarkdown';
+
+const FEEDBACK_TAGS = [
+  'Actionable',
+  'Too generic',
+  'Irrelevant topic',
+  'High priority',
+  'Already knew this',
+  'Great sources',
+];
 
 export const BriefingsPage: React.FC = () => {
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [selectedBriefing, setSelectedBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [feedbackNote, setFeedbackNote] = useState('');
   const [copied, setCopied] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<'morning' | 'evening'>('morning');
+
+  // Granular feedback state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState<'like' | 'dislike'>('like');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [feedbackReason, setFeedbackReason] = useState('');
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   useEffect(() => {
     loadBriefings();
@@ -40,58 +60,123 @@ export const BriefingsPage: React.FC = () => {
     }
   };
 
-  const handleRunNow = async () => {
+  const handleRunSlot = async (slot: 'morning' | 'evening') => {
     setRunning(true);
     try {
-      const jobs = await api.getJobs();
-      const briefingJob = jobs.find((j) => j.name === 'daily-briefing');
-      if (briefingJob) {
-        await api.runJob(briefingJob.id);
-        setTimeout(loadBriefings, 3000);
-      }
+      await api.runBriefingSlot(slot, true);
+      setTimeout(loadBriefings, 4000);
     } catch (err) {
-      console.error('Failed to trigger daily briefing:', err);
+      console.error('Failed to trigger briefing:', err);
     } finally {
       setRunning(false);
     }
   };
 
-  const handleFeedback = async (id: number, rating: number) => {
+  const openFeedback = (rating: 'like' | 'dislike') => {
+    setFeedbackRating(rating);
+    setShowFeedbackModal(true);
+    setSelectedTags([]);
+    setFeedbackReason('');
+  };
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!selectedBriefing) return;
     try {
-      await api.submitBriefingFeedback(id, rating, feedbackNote || undefined);
+      await api.submitDetailedBriefingFeedback(String(selectedBriefing.id), {
+        rating: feedbackRating,
+        tags: selectedTags,
+        reason_text: feedbackReason || undefined,
+      });
+      // Also update standard rating
+      const numericRating = feedbackRating === 'like' ? 1 : -1;
+      await api.submitBriefingFeedback(selectedBriefing.id, numericRating, feedbackReason || undefined);
+
       setBriefings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, feedback: rating } : b))
+        prev.map((b) => (b.id === selectedBriefing.id ? { ...b, feedback: numericRating } : b))
       );
-      if (selectedBriefing?.id === id) {
-        setSelectedBriefing((prev) => (prev ? { ...prev, feedback: rating } : null));
-      }
-      setFeedbackNote('');
+      setSelectedBriefing((prev) =>
+        prev ? { ...prev, feedback: numericRating } : null
+      );
+      setFeedbackSubmitted(true);
+      setTimeout(() => {
+        setFeedbackSubmitted(false);
+        setShowFeedbackModal(false);
+      }, 1500);
     } catch (err) {
-      console.error('Submit feedback error:', err);
+      console.error('Failed to submit feedback:', err);
     }
   };
 
+  // Helper to extract TL;DR from markdown
+  const extractTldr = (md: string) => {
+    const match = md.match(/##\s+Executive Summary \(TL;DR\)\s*\n+([\s\S]*?)(?=\n##|\Z)/i);
+    return match ? match[1].trim() : null;
+  };
+
+  const tldrContent = selectedBriefing ? extractTldr(selectedBriefing.markdown) : null;
+
   return (
     <div className="flex-1 flex overflow-hidden bg-background">
-      {/* Sidebar: History list */}
-      <aside className="w-72 bg-surface border-r border-border flex flex-col shrink-0">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Newspaper className="w-4 h-4 text-accent" />
-            <h2 className="text-sm font-semibold text-text">Briefings Archive</h2>
+      {/* Sidebar: Archive list */}
+      <aside className="w-72 bg-surface/80 backdrop-blur-md border-r border-border flex flex-col shrink-0">
+        <div className="p-4 border-b border-border flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Newspaper className="w-4 h-4 text-accent" />
+              <h2 className="text-sm font-semibold text-text">Briefings Archive</h2>
+            </div>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-raised text-muted font-mono">
+              Asia/Kolkata
+            </span>
           </div>
-          <button
-            onClick={handleRunNow}
-            disabled={running}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 text-xs font-medium transition-colors"
-          >
-            {running ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Play className="w-3.5 h-3.5 fill-current" />
-            )}
-            Run Now
-          </button>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                setSelectedSlot('morning');
+                handleRunSlot('morning');
+              }}
+              disabled={running}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                selectedSlot === 'morning'
+                  ? 'bg-accent/15 text-accent border-accent/30'
+                  : 'bg-raised/50 text-muted border-border hover:text-text'
+              }`}
+            >
+              {running && selectedSlot === 'morning' ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3 fill-current" />
+              )}
+              Morning 04:00
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedSlot('evening');
+                handleRunSlot('evening');
+              }}
+              disabled={running}
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                selectedSlot === 'evening'
+                  ? 'bg-accent/15 text-accent border-accent/30'
+                  : 'bg-raised/50 text-muted border-border hover:text-text'
+              }`}
+            >
+              {running && selectedSlot === 'evening' ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3 fill-current" />
+              )}
+              Evening 18:00
+            </button>
+          </div>
         </div>
 
         <div
@@ -105,7 +190,7 @@ export const BriefingsPage: React.FC = () => {
             </div>
           ) : briefings.length === 0 ? (
             <div className="p-4 text-center text-xs text-muted">
-              No briefings delivered yet. Click "Run Now" to generate one.
+              No briefings delivered yet. Click a slot above to generate one.
             </div>
           ) : (
             briefings.map((b) => {
@@ -132,7 +217,7 @@ export const BriefingsPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1 text-[11px] text-muted">
                     <Calendar className="w-3 h-3" />
-                    <span>{b.created_at ? new Date(b.created_at).toLocaleDateString() : 'Today'}</span>
+                    <span>{b.created_at ? new Date(b.created_at).toLocaleString() : 'Today'}</span>
                   </div>
                 </div>
               );
@@ -146,15 +231,25 @@ export const BriefingsPage: React.FC = () => {
         {selectedBriefing ? (
           <div className="flex flex-col gap-6">
             {/* Briefing Header Card */}
-            <div className="p-6 rounded-xl bg-surface border border-border shadow-sm flex flex-col gap-4">
+            <div className="p-6 rounded-xl bg-surface/80 backdrop-blur-md border border-border shadow-sm flex flex-col gap-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <h1 className="text-xl font-bold text-text mb-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-accent/15 text-accent border border-accent/30 uppercase tracking-wider font-mono">
+                      Verified Briefing
+                    </span>
+                    <span className="text-xs text-muted">
+                      {new Date(selectedBriefing.created_at).toLocaleDateString(undefined, {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                  <h1 className="text-xl font-bold text-text">
                     {selectedBriefing.title || 'Cybersecurity & Tech Briefing'}
                   </h1>
-                  <span className="text-xs text-muted">
-                    Delivered on {new Date(selectedBriefing.created_at).toLocaleString()}
-                  </span>
                 </div>
 
                 {/* Actions & Feedback controls */}
@@ -172,35 +267,137 @@ export const BriefingsPage: React.FC = () => {
                     <span>{copied ? 'Copied' : 'Copy'}</span>
                   </button>
                   <button
-                    onClick={() => handleFeedback(selectedBriefing.id, 1)}
-                    className={`p-2 rounded-lg border transition-colors ${
+                    onClick={() => openFeedback('like')}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                       selectedBriefing.feedback === 1
                         ? 'bg-success/20 border-success/40 text-success'
                         : 'bg-raised border-border text-muted hover:text-text'
                     }`}
-                    title="Helpful briefing"
+                    title="Thumbs up & tune prompt"
                   >
-                    <ThumbsUp className="w-4 h-4" />
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    <span>Relevant</span>
                   </button>
                   <button
-                    onClick={() => handleFeedback(selectedBriefing.id, -1)}
-                    className={`p-2 rounded-lg border transition-colors ${
+                    onClick={() => openFeedback('dislike')}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
                       selectedBriefing.feedback === -1
                         ? 'bg-danger/20 border-danger/40 text-danger'
                         : 'bg-raised border-border text-muted hover:text-text'
                     }`}
-                    title="Not relevant"
+                    title="Thumbs down & tune prompt"
                   >
-                    <ThumbsDown className="w-4 h-4" />
+                    <ThumbsDown className="w-3.5 h-3.5" />
+                    <span>Not Relevant</span>
                   </button>
                 </div>
               </div>
+
+              {/* Granular Feedback Drawer / Modal */}
+              {showFeedbackModal && (
+                <div className="mt-3 p-4 rounded-lg bg-raised/60 border border-border flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-accent" />
+                      {feedbackRating === 'like' ? 'What worked well?' : 'Why was this not relevant?'}
+                      <span className="text-[10px] text-muted font-normal">
+                        (Tunes self-rewriting prompt weights)
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => setShowFeedbackModal(false)}
+                      className="text-xs text-muted hover:text-text"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {FEEDBACK_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        onClick={() => toggleTag(tag)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                          selectedTags.includes(tag)
+                            ? 'bg-accent text-black border-accent'
+                            : 'bg-surface text-muted border-border hover:text-text'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Optional notes or topic refinement guidance..."
+                      value={feedbackReason}
+                      onChange={(e) => setFeedbackReason(e.target.value)}
+                      className="flex-1 bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-text placeholder-muted focus:outline-none focus:border-accent"
+                    />
+                    <button
+                      onClick={handleSubmitFeedback}
+                      disabled={feedbackSubmitted}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black font-semibold text-xs hover:bg-accent/90 transition-colors"
+                    >
+                      {feedbackSubmitted ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                      {feedbackSubmitted ? 'Saved' : 'Submit'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
+            {/* TL;DR Highlight Card if present */}
+            {tldrContent && (
+              <div className="p-5 rounded-xl bg-accent/5 border border-accent/25 shadow-sm flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 text-accent text-xs font-semibold uppercase tracking-wider font-mono">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Executive Summary (TL;DR)
+                </div>
+                <div className="text-xs text-text/90 leading-relaxed font-sans">
+                  <SafeMarkdown content={tldrContent} />
+                </div>
+              </div>
+            )}
+
             {/* Briefing Markdown Content */}
-            <div className="p-6 md:p-8 rounded-xl bg-surface border border-border shadow-sm leading-relaxed text-xs text-text font-sans">
+            <div className="p-6 md:p-8 rounded-xl bg-surface/80 backdrop-blur-md border border-border shadow-sm leading-relaxed text-xs text-text font-sans">
               <SafeMarkdown content={selectedBriefing.markdown} />
             </div>
+
+            {/* Verified Sources Index */}
+            {Array.isArray(selectedBriefing.sources) && selectedBriefing.sources.length > 0 && (
+              <div className="p-5 rounded-xl bg-surface/70 backdrop-blur-md border border-border shadow-sm flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-success" />
+                  <h3 className="text-xs font-semibold text-text uppercase tracking-wider">
+                    Anti-Hallucination Source Index ({selectedBriefing.sources.length} Verified)
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                  {selectedBriefing.sources.map((src: any, idx: number) => {
+                    const url = typeof src === 'string' ? src : src.url || '';
+                    const title = typeof src === 'object' ? src.title || url : url;
+                    return (
+                      <a
+                        key={idx}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-raised/40 hover:bg-raised/70 border border-border/50 text-text transition-colors group"
+                      >
+                        <span className="truncate pr-2 text-muted group-hover:text-text font-mono text-[11px]">
+                          {title}
+                        </span>
+                        <ExternalLink className="w-3.5 h-3.5 text-muted group-hover:text-accent shrink-0" />
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center text-muted">

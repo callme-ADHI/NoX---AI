@@ -101,6 +101,19 @@ class BriefingFeedback(BaseModel):
     note: str | None = None
 
 
+class DetailedBriefingFeedback(BaseModel):
+    rating: str = Field(..., description="'like' or 'dislike'")
+    topic_id: str | None = None
+    item_id: str | None = None
+    reason_text: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class RunBriefingRequest(BaseModel):
+    slot: str = Field(default="morning", description="'morning' or 'evening'")
+    force: bool = False
+
+
 class FactUpdate(BaseModel):
     value: str
 
@@ -1116,6 +1129,110 @@ async def rate_briefing(briefing_id: int, fb: BriefingFeedback) -> dict[str, boo
         )
         await db.commit()
     return {"ok": True}
+
+
+@api_router.post("/briefings/run", dependencies=WRITE_DEPS)
+async def run_briefing_slot(req: RunBriefingRequest) -> dict[str, Any]:
+    """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
+    from noxai.tasks.models import TaskLane, TaskPriority
+    from noxai.tasks.supervisor import get_task_supervisor
+
+    sup = get_task_supervisor()
+    slot = req.slot if req.slot in ("morning", "evening") else "morning"
+
+    async def _briefing_handler(task: Any, cancel_event: asyncio.Event) -> Any:
+        from noxai.briefing.engine import run_briefing_pipeline
+
+        return await run_briefing_pipeline(slot=slot, force=req.force, cancel_event=cancel_event)
+
+    if sup:
+        task = await sup.submit_task(
+            title=f"Daily Briefing ({slot})",
+            prompt=f"Generate {slot} briefing",
+            lane=TaskLane.CLOUD,
+            priority=TaskPriority.HIGH,
+            kind="briefing",
+            handler=_briefing_handler,
+        )
+        return {"ok": True, "task_id": task.id, "slot": slot, "status": "queued"}
+    else:
+        from noxai.briefing.engine import run_briefing_pipeline
+
+        res = await run_briefing_pipeline(slot=slot, force=req.force)
+        return {"ok": True, "slot": slot, "result": res}
+
+
+@api_router.post("/briefings/{briefing_id}/feedback/detailed", dependencies=WRITE_DEPS)
+async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback) -> dict[str, Any]:
+    """Submit granular feedback for briefing self-rewriting prompt engine."""
+    from noxai.briefing.feedback import record_feedback
+
+    fb_id = await record_feedback(
+        briefing_id=briefing_id,
+        rating=fb.rating,
+        topic_id=fb.topic_id,
+        item_id=fb.item_id,
+        reason_text=fb.reason_text,
+        tags=fb.tags,
+    )
+    return {"ok": True, "feedback_id": fb_id}
+
+
+@api_router.get("/keys", dependencies=READ_DEPS)
+@api_router.get("/keys/status", dependencies=READ_DEPS)
+async def get_keys_status() -> list[dict[str, Any]]:
+    """Return live status of the NVIDIA API KeyPool."""
+    from noxai.config import get_config
+    from noxai.models.keypool import KeyPool
+
+    cfg = get_config()
+    pool = KeyPool(config=cfg)
+    return pool.get_status_table()
+
+
+@api_router.post("/keys/test", dependencies=WRITE_DEPS)
+async def test_keys_endpoint() -> list[dict[str, Any]]:
+    """Live probe all configured NVIDIA keys against /v1/models."""
+    import time
+
+    import httpx
+
+    from noxai.config import get_config
+    from noxai.models.keypool import KeyPool
+
+    cfg = get_config()
+    pool = KeyPool(config=cfg)
+    results = []
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for idx, key in enumerate(pool._keys):
+            t0 = time.perf_counter()
+            try:
+                r = await client.get(
+                    "https://integrate.api.nvidia.com/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                lat_ms = round((time.perf_counter() - t0) * 1000, 1)
+                results.append(
+                    {
+                        "key_id": f"key_{idx + 1}",
+                        "masked": f"nvapi-****{key[-4:]}" if len(key) >= 8 else "nvapi-****",
+                        "status_code": r.status_code,
+                        "latency_ms": lat_ms,
+                        "ok": r.status_code == 200,
+                    }
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "key_id": f"key_{idx + 1}",
+                        "masked": f"nvapi-****{key[-4:]}" if len(key) >= 8 else "nvapi-****",
+                        "status_code": 0,
+                        "latency_ms": 0.0,
+                        "ok": False,
+                        "error": str(exc),
+                    }
+                )
+    return results
 
 
 # ---------------------------------------------------------------------------

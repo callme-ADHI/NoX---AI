@@ -123,6 +123,7 @@ export interface Briefing {
   title: string;
   markdown: string;
   sources_json?: string;
+  sources?: Array<string | { url: string; title?: string }>;
   feedback?: number | null;
   feedback_note?: string;
   created_at: string;

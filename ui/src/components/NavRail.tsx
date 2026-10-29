@@ -9,10 +9,11 @@ import {
   Wifi,
   WifiOff,
   ListTodo,
+  KeyRound,
 } from 'lucide-react';
 import { SystemStatus } from '../types';
 
-export type TabType = 'chat' | 'briefings' | 'jobs' | 'tasks' | 'memory' | 'activity' | 'settings';
+export type TabType = 'chat' | 'briefings' | 'jobs' | 'tasks' | 'keys' | 'memory' | 'activity' | 'settings';
 
 interface NavRailProps {
   activeTab: TabType;
@@ -32,6 +33,7 @@ export const NavRail: React.FC<NavRailProps> = ({
     { id: 'briefings', label: 'Briefings', icon: Newspaper },
     { id: 'jobs', label: 'Jobs', icon: Calendar },
     { id: 'tasks', label: 'Tasks', icon: ListTodo },
+    { id: 'keys', label: 'KeyPool', icon: KeyRound },
     { id: 'memory', label: 'Memory', icon: Database },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },

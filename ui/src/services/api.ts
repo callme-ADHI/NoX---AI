@@ -235,4 +235,51 @@ export const api = {
   // Egress Ledger
   getEgressLedger: (limit = 50) =>
     request<EgressRecord[]>(`/egress?limit=${limit}`),
+
+  // KeyPool (Phase 3)
+  getKeysStatus: () =>
+    request<Array<{
+      key_id: string;
+      masked: string;
+      status: string;
+      in_flight: number;
+      rpm_limit: number;
+      tokens_left: number;
+      ewma_latency_ms: number;
+      total_requests_today: number;
+      rate_limit_count_today: number;
+      pinned_job_id: string | null;
+      cooldown_until: number | null;
+    }>>('/keys/status'),
+
+  testKeys: () =>
+    request<Array<{
+      key_id: string;
+      masked: string;
+      status_code: number;
+      latency_ms: number;
+      ok: boolean;
+      error?: string;
+    }>>('/keys/test', { method: 'POST' }),
+
+  runBriefingSlot: (slot: 'morning' | 'evening' = 'morning', force = false) =>
+    request<{ ok: boolean; task_id?: string; slot: string; status?: string }>('/briefings/run', {
+      method: 'POST',
+      body: JSON.stringify({ slot, force }),
+    }),
+
+  submitDetailedBriefingFeedback: (
+    briefingId: string,
+    feedback: {
+      rating: 'like' | 'dislike';
+      topic_id?: string;
+      item_id?: string;
+      reason_text?: string;
+      tags?: string[];
+    }
+  ) =>
+    request<{ ok: boolean; feedback_id: string }>(`/briefings/${briefingId}/feedback/detailed`, {
+      method: 'POST',
+      body: JSON.stringify(feedback),
+    }),
 };
