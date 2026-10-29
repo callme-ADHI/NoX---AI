@@ -1,3 +1,4 @@
+import { Starfield } from "./components/Starfield";
 import React, { useEffect, useState } from 'react';
 import { NavRail, TabType } from './components/NavRail';
 import { CommandPalette } from './components/CommandPalette';
@@ -122,7 +123,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-text font-sans antialiased">
+    <div className="flex h-screen w-screen overflow-hidden bg-background text-text font-sans antialiased relative">
+      <Starfield mode="calm" />
       {/* Slim Left Navigation Rail (Desktop) */}
       <NavRail
         activeTab={activeTab}

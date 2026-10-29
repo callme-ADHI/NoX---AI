@@ -8,23 +8,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: '#0a0a0b',
-        surface: '#111113',
-        raised: '#17171a',
-        border: '#222226',
-        text: '#e8e8ec',
-        muted: '#8a8a94',
+        background: '#05060F',
+        nightSky: '#0B1026',
+        surface: 'rgba(16, 22, 48, 0.70)',
+        raised: 'rgba(24, 32, 68, 0.85)',
+        border: 'rgba(160, 180, 255, 0.15)',
+        text: '#E6EAFF',
+        muted: '#8A94C4',
         accent: {
-          DEFAULT: '#7c9cff',
-          hover: '#6889f0',
+          DEFAULT: '#C9D4FF',
+          hover: '#E2E8FF',
+          violet: '#7C6CFF',
         },
-        success: '#4ade80',
-        warning: '#fbbf24',
-        danger: '#f87171',
+        success: '#4FE3C1',
+        warning: '#F6C36B',
+        danger: '#FF6B8A',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'monospace'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
         DEFAULT: '10px',
@@ -32,8 +34,9 @@ export default {
         md: '10px',
         sm: '8px',
       },
-      transitionDuration: {
-        DEFAULT: '150ms',
+      backdropBlur: {
+        xs: '2px',
+        glass: '12px',
       },
     },
   },
