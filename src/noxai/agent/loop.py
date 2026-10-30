@@ -303,8 +303,8 @@ class AgentLoop:
         messages.append(system_message)
         t_prompt_build_total = (time.perf_counter() - t_prompt_0) * 1000
 
-        # Load existing conversation messages from DB if conversation_id provided (local runs only)
-        if not allow_cloud and conversation_id and db is not None:
+        # Load existing conversation messages from DB if conversation_id provided
+        if conversation_id and db is not None:
             try:
                 async with db.execute(
                     """
