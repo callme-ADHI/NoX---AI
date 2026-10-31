@@ -439,3 +439,11 @@ overwrite or wipe the user's persistent memory store without owner intervention.
 
 **Rationale:** Matches the product identity ("NoX = night, dark, focused"), meets WCAG AA contrast standards, and provides immediate visibility into key allocation and briefing tuning.
 
+---
+
+### D-041: Secure Feed Parsing with DefusedXML and Frontmatter Serialization
+
+**Decision:** Adopted `defusedxml` for XML/RSS ingestion and `python-frontmatter` for notes vault serialization. Replaced `xml.etree.ElementTree` with `defusedxml.ElementTree` to protect against XML entity expansion (Billion Laughs) and SSRF payload parsing.
+
+**Rationale:** Safeguards against adversarial XML in public RSS feeds and provides standard frontmatter parsing for Markdown vault notes.
+

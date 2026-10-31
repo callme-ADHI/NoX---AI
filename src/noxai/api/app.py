@@ -271,16 +271,25 @@ def create_app(
         set_task_supervisor(supervisor)
         log.info("TaskSupervisor active in daemon.")
 
-        # 8. Start background JobScheduler
+        # 8. Start background JobScheduler and BriefingScheduler
         scheduler: JobScheduler | None = None
+        briefing_sched: Any | None = None
         if start_scheduler:
             log.info("8. Starting JobScheduler...")
             scheduler = JobScheduler(config=cfg)
             app.state.scheduler = scheduler
             await scheduler.start()
             log.info("JobScheduler started in daemon.")
+
+            log.info("8b. Starting BriefingScheduler (04:00 & 18:00 Asia/Kolkata)...")
+            from noxai.briefing.scheduler import BriefingScheduler
+
+            briefing_sched = BriefingScheduler(config=cfg, supervisor=supervisor)
+            app.state.briefing_scheduler = briefing_sched
+            await briefing_sched.start()
+            log.info("BriefingScheduler started in daemon.")
         else:
-            log.info("8. JobScheduler startup skipped.")
+            log.info("8. JobScheduler & BriefingScheduler startup skipped.")
 
         # 9. Start approval timeout sweeper
         log.info("9. Starting approval timeout sweeper...")
@@ -332,7 +341,10 @@ def create_app(
             await app.state.supervisor.stop()
             set_task_supervisor(None)
 
-        # 2. Stop scheduler
+        # 2. Stop schedulers
+        if briefing_sched is not None:
+            log.info("Stopping BriefingScheduler...")
+            await briefing_sched.stop()
         if scheduler is not None:
             log.info("Stopping JobScheduler...")
             await scheduler.stop()

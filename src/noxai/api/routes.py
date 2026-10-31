@@ -1182,11 +1182,9 @@ async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback)
 @api_router.get("/keys/status", dependencies=READ_DEPS)
 async def get_keys_status() -> list[dict[str, Any]]:
     """Return live status of the NVIDIA API KeyPool."""
-    from noxai.config import get_config
-    from noxai.models.keypool import KeyPool
+    from noxai.models.keypool import get_default_keypool
 
-    cfg = get_config()
-    pool = KeyPool(config=cfg)
+    pool = get_default_keypool()
     return pool.get_status_table()
 
 
@@ -1197,25 +1195,23 @@ async def test_keys_endpoint() -> list[dict[str, Any]]:
 
     import httpx
 
-    from noxai.config import get_config
-    from noxai.models.keypool import KeyPool
+    from noxai.models.keypool import get_default_keypool
 
-    cfg = get_config()
-    pool = KeyPool(config=cfg)
+    pool = get_default_keypool()
     results = []
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for idx, key in enumerate(pool._keys):
+        for k_id, k_state in pool._keys.items():
             t0 = time.perf_counter()
             try:
                 r = await client.get(
                     "https://integrate.api.nvidia.com/v1/models",
-                    headers={"Authorization": f"Bearer {key}"},
+                    headers={"Authorization": f"Bearer {k_state.api_key}"},
                 )
                 lat_ms = round((time.perf_counter() - t0) * 1000, 1)
                 results.append(
                     {
-                        "key_id": f"key_{idx + 1}",
-                        "masked": f"nvapi-****{key[-4:]}" if len(key) >= 8 else "nvapi-****",
+                        "key_id": k_id,
+                        "masked": k_state.masked_display,
                         "status_code": r.status_code,
                         "latency_ms": lat_ms,
                         "ok": r.status_code == 200,
@@ -1224,8 +1220,8 @@ async def test_keys_endpoint() -> list[dict[str, Any]]:
             except Exception as exc:
                 results.append(
                     {
-                        "key_id": f"key_{idx + 1}",
-                        "masked": f"nvapi-****{key[-4:]}" if len(key) >= 8 else "nvapi-****",
+                        "key_id": k_id,
+                        "masked": k_state.masked_display,
                         "status_code": 0,
                         "latency_ms": 0.0,
                         "ok": False,

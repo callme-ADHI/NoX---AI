@@ -46,6 +46,32 @@ def set_task_supervisor(sup: TaskSupervisor | None) -> None:
     _global_supervisor = sup
 
 
+TaskHandler = Callable[[Task, asyncio.Event], Coroutine[Any, Any, Any]]
+
+
+class TaskHandlerRegistry:
+    """Registry mapping task kind to handler functions across daemon restarts."""
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, TaskHandler] = {}
+
+    def register(self, kind: str, handler: TaskHandler) -> None:
+        self._handlers[kind] = handler
+
+    def get(self, kind: str) -> TaskHandler | None:
+        return self._handlers.get(kind)
+
+    def has(self, kind: str) -> bool:
+        return kind in self._handlers
+
+
+global_task_registry = TaskHandlerRegistry()
+
+
+def get_task_registry() -> TaskHandlerRegistry:
+    return global_task_registry
+
+
 class TaskSupervisor:
     """Daemon-lifecycle supervisor for detached background tasks and DAG pipelines."""
 
@@ -55,6 +81,7 @@ class TaskSupervisor:
         router: ModelRouter | None = None,
         registry: ToolRegistry | None = None,
         event_bus: EventBus | None = None,
+        task_registry: TaskHandlerRegistry | None = None,
         max_concurrent_global: int = 4,
         max_concurrent_interactive: int = 2,
         heartbeat_interval_sec: float = 3.0,
@@ -64,6 +91,7 @@ class TaskSupervisor:
         self.router = router
         self.registry = registry or default_registry
         self.event_bus = event_bus or global_event_bus
+        self.task_registry = task_registry or global_task_registry
         self.max_concurrent_global = max_concurrent_global
         self.max_concurrent_interactive = max_concurrent_interactive
         self.heartbeat_interval_sec = heartbeat_interval_sec
@@ -71,14 +99,17 @@ class TaskSupervisor:
 
         self._running_tasks: dict[str, asyncio.Task[Any]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
-        self._task_handlers: dict[
-            str, Callable[[Task, asyncio.Event], Coroutine[Any, Any, Any]]
-        ] = {}
+        self._task_handlers: dict[str, TaskHandler] = {}
 
         self._worker_loop_task: asyncio.Task[None] | None = None
         self._heartbeat_loop_task: asyncio.Task[None] | None = None
         self._stopped = False
         self._lock = asyncio.Lock()
+
+    def register_handler(self, kind: str, handler: TaskHandler) -> None:
+        """Register a handler function for all tasks of a specific kind."""
+        self.task_registry.register(kind, handler)
+
 
     async def start(self) -> None:
         """Start the supervisor worker loop and heartbeat task."""
@@ -137,7 +168,7 @@ class TaskSupervisor:
         log.info("TaskSupervisor shutdown complete.")
 
     async def recover_interrupted_tasks(self, db: aiosqlite.Connection) -> int:
-        """Find tasks left in 'running' with stale heartbeat and queue for resume."""
+        """Find tasks left in 'interrupted' or 'running' with stale heartbeat and queue for resume."""
         now_utc = datetime.now(UTC)
         cutoff_iso = (now_utc - timedelta(seconds=self.stale_threshold_sec)).isoformat()
 
@@ -145,7 +176,7 @@ class TaskSupervisor:
             db,
             """
             SELECT id, kind, parent_id, attempts, max_attempts FROM tasks
-            WHERE status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at <= ?)
+            WHERE status = 'interrupted' OR (status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at <= ?))
             """,
             (cutoff_iso,),
         )
@@ -392,6 +423,11 @@ class TaskSupervisor:
         try:
             if task.id in self._task_handlers:
                 handler = self._task_handlers[task.id]
+                output_data = await handler(task, cancel_evt)
+                succeeded = True
+            elif self.task_registry and self.task_registry.has(task.kind):
+                handler = self.task_registry.get(task.kind)
+                assert handler is not None
                 output_data = await handler(task, cancel_evt)
                 succeeded = True
             else:

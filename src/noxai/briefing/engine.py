@@ -252,17 +252,8 @@ class BriefingPipeline:
                 collected_entries.extend(entries)
 
         if not collected_entries:
-            # Fallback synthetic candidates if offline / network down
-            collected_entries.append(
-                {
-                    "title": f"Recent developments in {topic_name}",
-                    "url": f"https://example.com/{topic_id}",
-                    "published_at": datetime.now(UTC).strftime("%Y-%m-%d"),
-                    "summary": f"Automated monitoring updates for {topic_name} sector.",
-                    "source_name": "NoX Sensor",
-                    "topic_id": topic_id,
-                }
-            )
+            log.warning("No entries collected for topic %s (%s) from sources", topic_id, topic_name)
+            return 0
 
         # Save to staging store
         staged_count = 0

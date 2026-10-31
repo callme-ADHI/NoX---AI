@@ -40,6 +40,8 @@ dependencies = [
     # Embeddings / vector math fallback
     "numpy>=2.2.0",
     # Taint / safety helpers (no external dep needed, stdlib only)
+    "defusedxml>=0.7.1",
+    "python-frontmatter>=1.3.0",
 ]
 
 [project.optional-dependencies]

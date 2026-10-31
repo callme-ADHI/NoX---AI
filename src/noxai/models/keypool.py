@@ -31,6 +31,7 @@ import httpx
 
 from noxai.config import Settings
 from noxai.db import execute, get_db
+from noxai.events import EventBus, global_event_bus, make_event
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class KeyState:
     cooldown_until: float = 0.0
     last_error: str | None = None
     last_used: float = field(default_factory=time.monotonic)
+    last_refill_at: float = field(default_factory=time.monotonic)
 
     # Lifetime / daily counters
     total_requests: int = 0
@@ -79,6 +81,17 @@ class KeyState:
             return "nvapi-****"
         return f"nvapi-****{self.api_key[-4:]}"
 
+    def refill_tokens(self, now: float | None = None) -> None:
+        """Continuously refill token bucket at rpm_limit / 60.0 tokens per second."""
+        t = now if now is not None else time.monotonic()
+        elapsed = t - self.last_refill_at
+        if elapsed > 0:
+            rate = float(self.rpm_limit) / 60.0
+            self.tokens_available = min(
+                float(self.rpm_limit), self.tokens_available + (elapsed * rate)
+            )
+            self.last_refill_at = t
+
     def is_available(self, now: float | None = None) -> bool:
         t = now if now is not None else time.monotonic()
         if self.status in (KeyStatus.INVALID, KeyStatus.DISABLED):
@@ -89,6 +102,7 @@ class KeyState:
             # Cooldown expired -> recover cautiously (TCP-like slow start)
             self.status = KeyStatus.ACTIVE
             self.tokens_available = max(1.0, self.tokens_available)
+        self.refill_tokens(t)
         return self.in_flight < self.concurrency_limit and self.tokens_available >= 1.0
 
 
@@ -192,10 +206,12 @@ class KeyPool:
         keys: list[str] | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         transport: httpx.AsyncBaseTransport | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         self.config = config
         self.base_url = base_url.rstrip("/")
         self.transport = transport
+        self.event_bus = event_bus or global_event_bus
         self._lock = asyncio.Lock()
 
         # Load keys from config if not passed
@@ -238,6 +254,27 @@ class KeyPool:
     def healthy_keys_count(self) -> int:
         return sum(1 for k in self._keys.values() if k.status == KeyStatus.ACTIVE)
 
+    def is_empty(self) -> bool:
+        return len(self._keys) == 0
+
+    def get_all_keys(self) -> list[str]:
+        return [k.api_key for k in self._keys.values()]
+
+    def add_key(self, api_key: str) -> str:
+        clean = api_key.strip()
+        for k_id, state in self._keys.items():
+            if state.api_key == clean:
+                return k_id
+        k_id = f"k{len(self._keys) + 1}"
+        self._keys[k_id] = KeyState(
+            key_id=k_id,
+            api_key=clean,
+            rpm_limit=self.config.keypool.rpm_per_key,
+            concurrency_limit=self.config.keypool.concurrency_per_key,
+            tokens_available=float(self.config.keypool.rpm_per_key),
+        )
+        return k_id
+
     def get_snapshot(self) -> PoolSnapshot:
         """Create an immutable snapshot of current pool state."""
         return PoolSnapshot(
@@ -257,6 +294,12 @@ class KeyPool:
                 transport=self.transport,
             )
         return self._http_clients[key_id]
+
+    async def release_job(self, job_id: str) -> None:
+        """Release pinned key and clean up active job tracking."""
+        async with self._lock:
+            self._active_jobs.pop(job_id, None)
+            self._pinned_assignments.pop(job_id, None)
 
     @asynccontextmanager
     async def lease(
@@ -280,6 +323,7 @@ class KeyPool:
                 raise RuntimeError("All NVIDIA API keys in pool are INVALID or in COOLDOWN.")
 
             key_state = self._keys[chosen_key_id]
+            key_state.refill_tokens(time.monotonic())
             key_state.in_flight += 1
             key_state.tokens_available = max(0.0, key_state.tokens_available - 1.0)
             key_state.last_used = time.monotonic()
@@ -309,9 +353,6 @@ class KeyPool:
 
                 if priority == 0:
                     self._interactive_in_flight = max(0, self._interactive_in_flight - 1)
-                if job_id and job_id in self._active_jobs:
-                    # Clean job tracking if no in-flight requests remain
-                    pass
 
     async def report_outcome(
         self,
@@ -356,6 +397,30 @@ class KeyPool:
                 k.status = KeyStatus.INVALID
                 k.last_error = f"HTTP {status_code} Invalid / Forbidden key"
                 log.error("Key %s marked INVALID (HTTP %d).", k.key_id, status_code)
+            elif status_code in (404, 410):
+                k.total_errors += 1
+                k.consecutive_errors += 1
+                k.last_error = f"HTTP {status_code} Model endpoint not found or deprecated"
+                log.critical(
+                    "CRITICAL: NVIDIA API returned HTTP %d for key %s! Model name is invalid or deprecated.",
+                    status_code,
+                    k.key_id,
+                )
+                if self.event_bus:
+                    try:
+                        await self.event_bus.publish(
+                            make_event(
+                                "model_error",
+                                {
+                                    "key_id": k.key_id,
+                                    "status_code": status_code,
+                                    "error": k.last_error,
+                                    "level": "critical",
+                                },
+                            )
+                        )
+                    except Exception as ev_exc:
+                        log.debug("Failed to publish model_error event: %s", ev_exc)
             else:
                 k.total_errors += 1
                 k.consecutive_errors += 1
@@ -489,3 +554,24 @@ class KeyPool:
                 }
             )
         return out
+
+
+_default_keypool: KeyPool | None = None
+
+
+def get_default_keypool(config: Settings | None = None) -> KeyPool:
+    """Return or initialize the shared global KeyPool instance."""
+    global _default_keypool
+    if _default_keypool is None:
+        from noxai.config import get_config
+
+        cfg = config or get_config()
+        _default_keypool = KeyPool(config=cfg)
+    return _default_keypool
+
+
+def set_default_keypool(pool: KeyPool | None) -> None:
+    """Explicitly set or reset the default KeyPool (for testing)."""
+    global _default_keypool
+    _default_keypool = pool
+
