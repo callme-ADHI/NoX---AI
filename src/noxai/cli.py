@@ -67,6 +67,22 @@ bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput com
 bench_app.command(name="local")(models_bench_local)
 app.add_typer(bench_app, name="bench")
 
+eval_app = typer.Typer(name="eval", help="Evaluation commands.")
+
+
+@eval_app.command(name="conversation")
+def eval_conversation() -> None:
+    """Run the 12-scenario Conversation Memory System (CMS) evaluation."""
+    import asyncio
+    from noxai.evals.conversation_eval import run_conversation_eval
+
+    success = asyncio.run(run_conversation_eval())
+    if not success:
+        raise typer.Exit(1)
+
+
+app.add_typer(eval_app, name="eval")
+
 app.command(name="remind")(remind_command)
 app.command(name="session-env")(session_env_command)
 
@@ -297,13 +313,19 @@ def chat_cmd(
     allow_cloud: bool = typer.Option(
         True, "--allow-cloud/--no-cloud", help="Allow cloud model if eligible."
     ),
+    cont: bool = typer.Option(
+        False, "--continue", "-c", help="Continue the most recent conversation."
+    ),
+    conv_id: str | None = typer.Option(
+        None, "--conv", help="Specific conversation ID to continue."
+    ),
     trace: bool = typer.Option(False, "--trace", help="Print detailed latency stage trace."),
 ) -> None:
     """Send a one-shot chat message to NoX."""
     import asyncio
 
     from noxai.config import get_config
-    from noxai.db import get_db, run_migrations
+    from noxai.db import fetch_one, get_db, run_migrations
     from noxai.events import global_event_bus
     from noxai.models.router import ModelRouter
     from noxai.orchestrator import orchestrate_chat_turn
@@ -314,6 +336,15 @@ def chat_cmd(
         router = ModelRouter(config=cfg)
 
         async with get_db() as db:
+            conversation_id = conv_id
+            if cont and not conversation_id:
+                last_conv = await fetch_one(
+                    db,
+                    "SELECT id FROM conversations ORDER BY updated_at DESC LIMIT 1",
+                )
+                if last_conv:
+                    conversation_id = str(last_conv["id"])
+
             console.print(f"[bold cyan]You:[/] {message}\n")
             console.print("[bold green]NoX:[/] ", end="")
 
@@ -322,6 +353,7 @@ def chat_cmd(
 
             result = await orchestrate_chat_turn(
                 message=message,
+                conversation_id=conversation_id,
                 allow_cloud=allow_cloud,
                 db=db,
                 router=router,

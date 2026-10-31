@@ -362,54 +362,40 @@ async def orchestrate_chat_turn(
         target_role = "resident"
         fallback_reason = "DEGRADED"
 
-    # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7)
+    # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
     t_prompt_0 = time.perf_counter()
     all_specs = tools if tools is not None else reg.get_specs()
     front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
 
-    # Load prior conversation history (§G3.2)
-    history_messages: list[Message] = []
-    if actual_conv_id and active_db is not None:
-        try:
-            rows = await fetch_all(
-                active_db,
-                """
-                SELECT role, content, tool_call_id, tool_name, taint_flags
-                FROM messages
-                WHERE conversation_id = ? AND id != ?
-                ORDER BY created_at ASC, rowid ASC
-                """,
-                (actual_conv_id, current_msg_id),
-            )
-            for row in rows:
-                r_role, r_content, r_tcid, r_tname, r_tflags = (
-                    row["role"],
-                    row["content"],
-                    row["tool_call_id"],
-                    row["tool_name"],
-                    row["taint_flags"],
-                )
-                msg_content = Content(
-                    text=str(r_content or ""),
-                    taint=TaintFlag(int(r_tflags or 0)),
-                )
-                history_messages.append(
-                    Message(
-                        role=str(r_role),
-                        content=msg_content,
-                        tool_call_id=r_tcid,
-                        name=r_tname,
-                    )
-                )
-        except Exception as exc:
-            log.warning("Failed to load conversation history for %s: %s", actual_conv_id, exc)
+    from noxai.memory.context import build_context
+
+    if active_db is not None:
+        ctx_front = await build_context(
+            conversation_id=actual_conv_id,
+            current_user_message=user_msg,
+            db=active_db,
+            router=rtr,
+            allow_cloud=True,
+            base_system_prompt=_build_cloud_system_prompt(),
+            exclude_message_id=current_msg_id,
+        )
+        ctx_local = await build_context(
+            conversation_id=actual_conv_id,
+            current_user_message=user_msg,
+            db=active_db,
+            router=rtr,
+            allow_cloud=False,
+            base_system_prompt=_build_local_system_prompt(),
+            exclude_message_id=current_msg_id,
+        )
+        cloud_turn_messages = ctx_front.messages
+        local_turn_messages = ctx_local.messages
+    else:
+        cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
+        local_turn_messages = [_build_local_system_prompt(), user_msg]
 
     if target_role == "front":
-        # Slim cloud front-desk prompt (<1500 tokens target)
-        sys_msg = _build_cloud_system_prompt()
         selected_tools = front_desk_specs
-
-        cloud_turn_messages = [sys_msg, *history_messages, user_msg]
 
         # Evaluate Egress Filter (§1.2, §G3.2)
         try:
@@ -439,7 +425,7 @@ async def orchestrate_chat_turn(
             # Privacy policy v2 blocked cloud transmission
             target_role = "resident"
             fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
-            messages_to_send = [_build_local_system_prompt(), *history_messages, user_msg]
+            messages_to_send = local_turn_messages
             selected_tools = []
         else:
             messages_to_send = (
@@ -449,8 +435,7 @@ async def orchestrate_chat_turn(
             )
     else:
         # Local execution (resident model unless multi-step tools require brain)
-        sys_msg = _build_local_system_prompt()
-        messages_to_send = [sys_msg, *history_messages, user_msg]
+        messages_to_send = local_turn_messages
         selected_tools = []
 
     t_prompt = (time.perf_counter() - t_prompt_0) * 1000.0
@@ -797,6 +782,21 @@ async def orchestrate_chat_turn(
         )
 
     await _safe_db_write(_write_assistant_msg)
+
+    # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
+    if actual_conv_id:
+        async def _bg_cms() -> None:
+            try:
+                from noxai.db import get_db
+                from noxai.memory.post_process import process_conversation_turn
+                async with get_db() as bg_db:
+                    await process_conversation_turn(actual_conv_id, bg_db, router=rtr)
+            except Exception as exc:
+                log.debug("Background CMS post-process error: %s", exc)
+
+        t_bg = asyncio.create_task(_bg_cms())
+        _background_tasks.add(t_bg)
+        t_bg.add_done_callback(_background_tasks.discard)
 
     # Publish completion events
     await bus.publish(
