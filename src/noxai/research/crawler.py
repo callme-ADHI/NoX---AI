@@ -93,7 +93,7 @@ class WebResearcher:
         headers: dict[str, str] | None = None,
         timeout: float = 10.0,
         max_redirects: int = 5,
-        **kwargs,
+        **kwargs: Any,
     ) -> httpx.Response:
         """Perform request with per-hop SSRF validation across all redirects."""
         current_url = url

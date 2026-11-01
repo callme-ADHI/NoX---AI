@@ -264,6 +264,27 @@ class BriefingPipeline:
                 # Also record in outputs table for UI compatibility
                 md_text = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
                 sources_list = [{"url": it.get("url", ""), "title": it.get("title", "")} for it in analyst_data.get("items", [])]
+                job_row = await fetch_one(db, "SELECT id FROM jobs WHERE name = 'daily-briefing'")
+                job_id = job_row["id"] if job_row else "daily-briefing"
+                if not job_row:
+                    await execute(
+                        db,
+                        """
+                        INSERT INTO jobs (id, name, schedule_type, schedule_expr, instruction)
+                        VALUES (?, 'daily-briefing', 'cron', '0 8 * * *', 'Generate daily briefing')
+                        ON CONFLICT(name) DO NOTHING
+                        """,
+                        (job_id,),
+                    )
+                await execute(
+                    db,
+                    """
+                    INSERT INTO job_runs (id, job_id, started_at, finished_at, status, output_markdown)
+                    VALUES (?, ?, datetime('now'), ?, 'ok', ?)
+                    ON CONFLICT(id) DO UPDATE SET status = 'ok', finished_at = ?
+                    """,
+                    (run_id, job_id, fin_iso, md_text, fin_iso),
+                )
                 await execute(
                     db,
                     """

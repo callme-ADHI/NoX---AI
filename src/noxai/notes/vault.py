@@ -9,18 +9,18 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 import re
 import time
+import uuid
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-import uuid
 
 import aiosqlite
 import frontmatter
 
 from noxai.config import Settings, get_config
-from noxai.db import execute, fetch_all, fetch_one, get_db
+from noxai.db import execute, fetch_one, get_db
 
 log = logging.getLogger(__name__)
 
@@ -392,7 +392,8 @@ class NotesVault:
                     opps.append(meta)
                 if meta.get("status") in ("new", "saved"):
                     reading_queue.append(meta)
-            except Exception:
+            except Exception as exc:
+                log.debug("Failed reading metadata from %s: %s", md_file, exc)
                 continue
 
         # 1. Opportunities Board

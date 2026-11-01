@@ -26,7 +26,7 @@ from noxai.memory.recall import recall_memories
 from noxai.models.base import Message, ToolCall, ToolSpec
 from noxai.models.router import ModelRouter
 from noxai.router.intent import IntentType, analyze_intent
-from noxai.taint import Content, TaintFlag
+from noxai.taint import Content, DataClass, TaintFlag
 from noxai.tools.registry import ToolContext, ToolRegistry
 from noxai.tools.registry import registry as default_registry
 

@@ -28,7 +28,7 @@ from typing import Any
 import aiosqlite
 
 from noxai.config import Settings, get_config
-from noxai.db import execute, fetch_all
+from noxai.db import execute
 from noxai.events import EventBus, global_event_bus, make_event
 from noxai.models.base import Message, ToolCall, ToolSpec
 from noxai.models.cloud_health import CloudHealthState, get_cloud_health
@@ -384,8 +384,8 @@ async def orchestrate_chat_turn(
             text=final_text,
             model_name="planner-dag",
             provider_name="dag",
-            is_local=not allow_cloud,
-            duration_ms=(time.perf_counter() - t_route_0) * 1000.0,
+            is_cloud=allow_cloud,
+            duration_seconds=(time.perf_counter() - t_route_0),
         )
 
     # 3. CloudHealth check and engine determination (§G3.3, §G3.4)
@@ -798,9 +798,9 @@ async def orchestrate_chat_turn(
         final_text = f"✅ {last_tool_res_text}"
     from noxai.agent.loop import extract_citations
 
-    for c in extract_citations(final_text):
-        if c not in citations_collected:
-            citations_collected.append(c)
+    for cite_url in extract_citations(final_text):
+        if cite_url not in citations_collected:
+            citations_collected.append(cite_url)
 
     # Determine effective model and provider info
     actual_model_name = str(model_used_record.get("model", "unknown"))
