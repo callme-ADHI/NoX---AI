@@ -316,6 +316,78 @@ async def orchestrate_chat_turn(
 
     await _safe_db_write(_write_user_msg)
 
+    # 2b. Check complexity gate / `/deep` override for deep planning DAG (§6.4)
+    if message.strip().startswith("/deep"):
+        from noxai.agent.executor import DAGExecutor
+        clean_goal = message.strip()[5:].strip()
+        executor = DAGExecutor(
+            router=rtr,
+            registry=reg,
+            config=cfg,
+            event_bus=bus,
+        )
+        exec_res = await executor.execute_plan(
+            goal=clean_goal,
+            conversation_id=actual_conv_id,
+            allow_cloud=allow_cloud,
+            db=active_db,
+            run_id=actual_run_id,
+        )
+        final_text = exec_res.final_text or "Task execution completed."
+
+        async def _write_assistant_deep(conn: Any) -> None:
+            await execute(
+                conn,
+                """
+                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
+                VALUES (?, ?, 'assistant', ?, ?)
+                """,
+                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text, 0),
+            )
+            await execute(
+                conn,
+                "UPDATE conversations SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+                (actual_conv_id,),
+            )
+
+        await _safe_db_write(_write_assistant_deep)
+
+        if on_token:
+            on_token(final_text)
+
+        await bus.publish(
+            make_event(
+                "message_done",
+                {
+                    "text": final_text,
+                    "lane": "deep",
+                    "model_name": "planner-dag",
+                    "is_cloud": allow_cloud,
+                    "latency_ms": int((time.perf_counter() - t_route_0) * 1000.0),
+                    "fallback_reason": None,
+                },
+                run_id=actual_run_id,
+            ),
+            db=active_db,
+        )
+        await bus.publish(
+            make_event("run_done", {"status": "done"}, run_id=actual_run_id),
+            db=active_db,
+        )
+
+        if db_ctx is not None:
+            await db_ctx.__aexit__(None, None, None)
+
+        return ChatTurnResult(
+            run_id=actual_run_id,
+            conversation_id=actual_conv_id,
+            text=final_text,
+            model_name="planner-dag",
+            provider_name="dag",
+            is_local=not allow_cloud,
+            duration_ms=(time.perf_counter() - t_route_0) * 1000.0,
+        )
+
     # 3. CloudHealth check and engine determination (§G3.3, §G3.4)
     nvidia_provider = getattr(rtr, "providers", {}).get("nvidia")
     ch = getattr(nvidia_provider, "cloud_health", None) or get_cloud_health()
@@ -426,7 +498,7 @@ async def orchestrate_chat_turn(
             target_role = "resident"
             fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
             messages_to_send = local_turn_messages
-            selected_tools = []
+            selected_tools = all_specs
         else:
             messages_to_send = (
                 egress_decision.sanitized_messages
@@ -436,7 +508,9 @@ async def orchestrate_chat_turn(
     else:
         # Local execution (resident model unless multi-step tools require brain)
         messages_to_send = local_turn_messages
-        selected_tools = []
+        selected_tools = all_specs
+        if selected_tools:
+            target_role = "brain"
 
     t_prompt = (time.perf_counter() - t_prompt_0) * 1000.0
 
@@ -731,7 +805,7 @@ async def orchestrate_chat_turn(
     # Determine effective model and provider info
     actual_model_name = str(model_used_record.get("model", "unknown"))
     actual_provider_name = str(model_used_record.get("provider", "unknown"))
-    actual_is_local = bool(model_used_record.get("is_local", target_role == "resident"))
+    actual_is_local = bool(model_used_record.get("is_local", target_role in ("resident", "brain")))
     actual_fallback_reason = model_used_record.get("fallback_reason") or fallback_reason
 
     prompt_tokens_est = sum(len(m.get_text()) for m in messages_to_send) // 4

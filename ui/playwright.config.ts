@@ -14,11 +14,11 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'rm -f /tmp/nox_test_playwright.db* && python -c "from tests.fixtures.populate import populate_realistic_db; populate_realistic_db(\'/tmp/nox_test_playwright.db\')" && NOX_TEST_MODE=1 ../.venv/bin/nx run --test-db /tmp/nox_test_playwright.db',
+    command: 'rm -f /tmp/nox_test_playwright.db* && .venv/bin/python -c "from tests.fixtures.populate import populate_realistic_db; populate_realistic_db(\'/tmp/nox_test_playwright.db\')" && NOX_TEST_MODE=1 .venv/bin/nx run --test-db /tmp/nox_test_playwright.db',
     cwd: path.resolve('..'),
     url: 'http://127.0.0.1:7777/api/status',
     timeout: 25000,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
   projects: [
     {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeUrl, escapeHtml, parseSafeMarkdown } from '../utils/sanitizer';
+import { sanitizeUrl, isSafeHttpUrl, escapeHtml, parseSafeMarkdown } from '../utils/sanitizer';
 
 describe('Markdown and URL Sanitizer', () => {
   describe('sanitizeUrl', () => {
@@ -28,6 +28,24 @@ describe('Markdown and URL Sanitizer', () => {
       expect(sanitizeUrl('')).toBe('#');
       expect(sanitizeUrl(null)).toBe('#');
       expect(sanitizeUrl(undefined)).toBe('#');
+    });
+  });
+
+  describe('isSafeHttpUrl', () => {
+    it('accepts valid http and https URLs', () => {
+      expect(isSafeHttpUrl('https://example.com/article')).toBe(true);
+      expect(isSafeHttpUrl('http://insecure.org/page?id=1')).toBe(true);
+      expect(isSafeHttpUrl('  https://cisa.gov/advisory  ')).toBe(true);
+    });
+
+    it('strictly rejects dangerous and non-http protocols (e.g. javascript:)', () => {
+      expect(isSafeHttpUrl('javascript:alert(1)')).toBe(false);
+      expect(isSafeHttpUrl('javascript:void(0)')).toBe(false);
+      expect(isSafeHttpUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+      expect(isSafeHttpUrl('file:///etc/passwd')).toBe(false);
+      expect(isSafeHttpUrl('')).toBe(false);
+      expect(isSafeHttpUrl(null)).toBe(false);
+      expect(isSafeHttpUrl(undefined)).toBe(false);
     });
   });
 

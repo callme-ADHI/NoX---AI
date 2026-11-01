@@ -1131,6 +1131,27 @@ async def rate_briefing(briefing_id: int, fb: BriefingFeedback) -> dict[str, boo
     return {"ok": True}
 
 
+@api_router.get("/briefings/{briefing_id}/items", dependencies=READ_DEPS)
+async def get_briefing_items(briefing_id: str) -> list[dict[str, Any]]:
+    """Retrieve structured briefing items for card rendering."""
+    async with get_db() as db:
+        # Check if briefing_id matches outputs.id or briefing_runs.id
+        row = await fetch_one(db, "SELECT job_run_id FROM outputs WHERE id = ?", (briefing_id,))
+        run_id = row["job_run_id"] if row else briefing_id
+
+        rows = await fetch_all(
+            db,
+            """
+            SELECT id, briefing_id, topic_id, category, title, summary, source_name, url, created_at
+            FROM briefing_items
+            WHERE briefing_id = ?
+            ORDER BY created_at ASC
+            """,
+            (run_id,),
+        )
+        return [dict(r) for r in rows]
+
+
 @api_router.post("/briefings/run", dependencies=WRITE_DEPS)
 async def run_briefing_slot(req: RunBriefingRequest) -> dict[str, Any]:
     """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
@@ -1276,6 +1297,122 @@ async def test_keys_endpoint() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Memory Browser
 # ---------------------------------------------------------------------------
+
+
+class ThreadSummaryUpdate(BaseModel):
+    summary: str
+
+
+@api_router.get("/memory/thread/{conv_id}", dependencies=READ_DEPS)
+async def get_thread_memory(conv_id: str) -> dict[str, Any]:
+    """Retrieve full CMS L1-L3 thread state, summary, and entities."""
+    import json
+    async with get_db() as db:
+        csum = await fetch_one(
+            db,
+            """
+            SELECT fold_index, summary_markdown, key_facts_json, active_topics_json, token_count, created_at
+            FROM conv_summaries WHERE conversation_id = ?
+            ORDER BY fold_index DESC LIMIT 1
+            """,
+            (conv_id,),
+        )
+        cstate = await fetch_one(
+            db,
+            """
+            SELECT active_goals, working_hypotheses, open_questions, entities_in_focus,
+                   user_preferences, meta_json, updated_at
+            FROM conv_state WHERE conversation_id = ?
+            """,
+            (conv_id,),
+        )
+        facts = await fetch_all(
+            db,
+            """
+            SELECT key, value, category, confidence FROM facts
+            WHERE pinned = 1 AND deleted_at IS NULL
+            LIMIT 5
+            """,
+        )
+
+        return {
+            "conversation_id": conv_id,
+            "summary": csum["summary_markdown"] if csum else None,
+            "fold_index": csum["fold_index"] if csum else 0,
+            "token_count": csum["token_count"] if csum else 0,
+            "active_goals": json.loads(cstate["active_goals"]) if cstate else [],
+            "entities_in_focus": json.loads(cstate["entities_in_focus"]) if cstate else [],
+            "open_questions": json.loads(cstate["open_questions"]) if cstate else [],
+            "working_hypotheses": json.loads(cstate["working_hypotheses"]) if cstate else [],
+            "active_facts": [dict(f) for f in facts],
+        }
+
+
+@api_router.patch("/memory/thread/{conv_id}/summary", dependencies=WRITE_DEPS)
+async def update_thread_summary(conv_id: str, body: ThreadSummaryUpdate) -> dict[str, Any]:
+    """Manually update or override conversation summary."""
+    async with get_db() as db:
+        csum = await fetch_one(
+            db,
+            "SELECT id FROM conv_summaries WHERE conversation_id = ? ORDER BY fold_index DESC LIMIT 1",
+            (conv_id,),
+        )
+        if csum:
+            await execute(
+                db,
+                "UPDATE conv_summaries SET summary_markdown = ? WHERE id = ?",
+                (body.summary, csum["id"]),
+            )
+        else:
+            import uuid
+            csum_id = f"csum_{uuid.uuid4().hex[:8]}"
+            await execute(
+                db,
+                """
+                INSERT INTO conv_summaries (id, conversation_id, fold_index, summary_markdown, token_count)
+                VALUES (?, ?, 0, ?, ?)
+                """,
+                (csum_id, conv_id, body.summary, len(body.summary.split())),
+            )
+        await db.commit()
+    return {"ok": True, "summary": body.summary}
+
+
+@api_router.post("/memory/thread/{conv_id}/reset", dependencies=WRITE_DEPS)
+async def reset_thread_memory(conv_id: str) -> dict[str, Any]:
+    """Reset memory folds and working state for a conversation thread."""
+    async with get_db() as db:
+        await execute(db, "DELETE FROM conv_summaries WHERE conversation_id = ?", (conv_id,))
+        await execute(db, "DELETE FROM conv_state WHERE conversation_id = ?", (conv_id,))
+        await execute(db, "DELETE FROM msg_chunks WHERE conversation_id = ?", (conv_id,))
+        await db.commit()
+    return {"ok": True, "reset": conv_id}
+
+
+@api_router.post("/memory/thread/{conv_id}/export", dependencies=WRITE_DEPS)
+async def export_thread_to_vault(conv_id: str) -> dict[str, Any]:
+    """Export thread digest note to Notes Vault."""
+    from noxai.notes.vault import NotesVault
+    async with get_db() as db:
+        conv = await fetch_one(db, "SELECT title FROM conversations WHERE id = ?", (conv_id,))
+        csum = await fetch_one(
+            db,
+            "SELECT summary_markdown FROM conv_summaries WHERE conversation_id = ? ORDER BY fold_index DESC LIMIT 1",
+            (conv_id,),
+        )
+        title = conv["title"] if conv else f"Chat {conv_id}"
+        summary = csum["summary_markdown"] if csum else "No summary recorded."
+
+    vault = NotesVault()
+    path = vault.export_conversation_thread(
+        conv_id=conv_id,
+        title=title,
+        summary=summary,
+        decisions=[],
+        open_questions=[],
+        links=[],
+    )
+    return {"ok": True, "path": str(path), "uri": vault.get_vault_uri()}
 
 
 @api_router.get("/memory/facts", response_model=list[FactResponse], dependencies=READ_DEPS)

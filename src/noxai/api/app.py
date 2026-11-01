@@ -274,7 +274,7 @@ def create_app(
         # 8. Start background JobScheduler and BriefingScheduler
         scheduler: JobScheduler | None = None
         briefing_sched: Any | None = None
-        if start_scheduler:
+        if start_scheduler and not test_mode:
             log.info("8. Starting JobScheduler...")
             scheduler = JobScheduler(config=cfg)
             app.state.scheduler = scheduler

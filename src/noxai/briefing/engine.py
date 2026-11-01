@@ -261,6 +261,17 @@ class BriefingPipeline:
                         run_id,
                     ),
                 )
+                # Also record in outputs table for UI compatibility
+                md_text = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+                sources_list = [{"url": it.get("url", ""), "title": it.get("title", "")} for it in analyst_data.get("items", [])]
+                await execute(
+                    db,
+                    """
+                    INSERT INTO outputs (job_run_id, title, markdown, sources_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (run_id, title, md_text, json.dumps(sources_list)),
+                )
                 await db.commit()
 
             # Trigger notification

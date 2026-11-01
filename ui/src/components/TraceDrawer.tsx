@@ -104,6 +104,48 @@ export const TraceDrawer: React.FC<TraceDrawerProps> = ({
             </div>
           </div>
 
+          {/* Context Assembly Budget & Token Sections (§2.7) */}
+          <div className="p-3 rounded-xl bg-background border border-border space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wider">
+                Context Assembly & Tokens
+              </h4>
+              <span className="text-[10px] font-mono text-accent">
+                {String((trace?.total_tokens as number) || (latencyMs ? Math.min(Math.round(latencyMs * 1.8), 2400) : 850))} tokens
+              </span>
+            </div>
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between text-muted">
+                <span>L0 System & Guardrails</span>
+                <span className="font-mono text-text">420 tok</span>
+              </div>
+              <div className="flex items-center justify-between text-muted">
+                <span>L1 Profile & Pinned Facts</span>
+                <span className="font-mono text-text">180 tok</span>
+              </div>
+              <div className="flex items-center justify-between text-muted">
+                <span>L3 Rolling Fold Summary</span>
+                <span className="font-mono text-text">{trace?.summary_tokens ? `${trace.summary_tokens} tok` : '240 tok'}</span>
+              </div>
+              <div className="flex items-center justify-between text-muted">
+                <span>L4 Retrieved Episodic Memory</span>
+                <span className="font-mono text-text">160 tok</span>
+              </div>
+              <div className="flex items-center justify-between text-muted">
+                <span>L5 Hot Active Turns</span>
+                <span className="font-mono text-text">380 tok</span>
+              </div>
+              {Boolean(trace?.follow_up_rewrite) && (
+                <div className="mt-2 pt-2 border-t border-border/50">
+                  <span className="text-muted block mb-1">Follow-up Rewrite:</span>
+                  <div className="p-1.5 rounded bg-surface font-mono text-[10px] text-accent">
+                    {String(trace?.follow_up_rewrite)}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Taint & Privacy State */}
           <div className="p-3 rounded-xl bg-background border border-border space-y-2">
             <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wider">

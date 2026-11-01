@@ -153,6 +153,35 @@ export const api = {
   // Memory
   getFacts: () => request<Fact[]>('/memory/facts'),
 
+  getThreadMemory: (convId: string) =>
+    request<{
+      conversation_id: string;
+      summary: string | null;
+      fold_index: number;
+      token_count: number;
+      active_goals: string[];
+      entities_in_focus: string[];
+      open_questions: string[];
+      working_hypotheses: string[];
+      active_facts: Array<{ key: string; value: string; category: string; confidence: number }>;
+    }>(`/memory/thread/${convId}`),
+
+  updateThreadSummary: (convId: string, summary: string) =>
+    request<{ ok: boolean; summary: string }>(`/memory/thread/${convId}/summary`, {
+      method: 'PATCH',
+      body: JSON.stringify({ summary }),
+    }),
+
+  resetThreadMemory: (convId: string) =>
+    request<{ ok: boolean; reset: string }>(`/memory/thread/${convId}/reset`, {
+      method: 'POST',
+    }),
+
+  exportThreadToVault: (convId: string) =>
+    request<{ ok: boolean; path: string; uri: string }>(`/memory/thread/${convId}/export`, {
+      method: 'POST',
+    }),
+
   updateFact: (id: number, value: string) =>
     request<Fact>(`/memory/facts/${id}`, {
       method: 'PATCH',
@@ -282,4 +311,33 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(feedback),
     }),
+
+  getBriefingItems: (briefingId: string | number) =>
+    request<Array<{
+      id: string;
+      briefing_id: string;
+      topic_id: string;
+      category: string;
+      title: string;
+      summary: string;
+      source_name: string;
+      url: string;
+      created_at: string;
+    }>>(`/briefings/${briefingId}/items`),
+
+  getNotesVaultInfo: () =>
+    request<{
+      vault_path: string;
+      obsidian_uri: string;
+      has_obsidian: boolean;
+    }>('/notes/info'),
+
+  openNotesVault: () =>
+    request<{
+      ok: boolean;
+      opened: boolean;
+      target: string;
+      vault_path: string;
+      obsidian_uri: string;
+    }>('/notes/open', { method: 'POST' }),
 };

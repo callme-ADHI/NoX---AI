@@ -41,6 +41,7 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({
 
   return (
     <div
+      data-testid="approval-card"
       className={`p-4 rounded-xl border ${
         isDangerous
           ? 'bg-danger/5 border-danger/40'

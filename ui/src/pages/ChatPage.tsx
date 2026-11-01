@@ -14,6 +14,7 @@ import {
   Unlock,
   X,
   ListTodo,
+  Brain,
 } from 'lucide-react';
 import {
   ApprovalRequest,
@@ -34,6 +35,7 @@ import { ToolCallCard } from '../components/ToolCallCard';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { RouteChip } from '../components/RouteChip';
 import { TraceDrawer } from '../components/TraceDrawer';
+import { ThreadMemoryDrawer } from '../components/ThreadMemoryDrawer';
 import { CloudStatusIndicator } from '../components/CloudStatusIndicator';
 
 export const ChatPage: React.FC = () => {
@@ -41,7 +43,7 @@ export const ChatPage: React.FC = () => {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [allowCloud, setAllowCloud] = useState(true);
+  const [allowCloud, setAllowCloud] = useState(false);
   const [isPrivateMode, setIsPrivateMode] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -55,6 +57,7 @@ export const ChatPage: React.FC = () => {
   const [streamingText, setStreamingText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedTraceMessage, setSelectedTraceMessage] = useState<Message | null>(null);
+  const [showMemoryDrawer, setShowMemoryDrawer] = useState(false);
 
   // Background tasks & system status
   const [activeTasks, setActiveTasks] = useState<Task[]>([]);
@@ -554,6 +557,7 @@ export const ChatPage: React.FC = () => {
                     onClick={(e) => handleDeleteConversation(e, c.id)}
                     className="opacity-70 hover:opacity-100 p-1 text-muted hover:text-danger rounded transition-all"
                     title="Delete conversation"
+                    aria-label="Delete conversation"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -602,6 +606,7 @@ export const ChatPage: React.FC = () => {
                     onClick={() => handleCancelActiveTask(t.id)}
                     className="p-0.5 hover:text-danger rounded"
                     title="Cancel background task"
+                    aria-label="Cancel background task"
                   >
                     <X className="w-2.5 h-2.5" />
                   </button>
@@ -612,6 +617,20 @@ export const ChatPage: React.FC = () => {
 
           {/* Controls: Delete Chat, Private Mode Toggle and Cloud Status (§F7.3, §F7.4) */}
           <div className="flex items-center gap-2.5">
+            {/* Memory Drawer Toggle (§2.7) */}
+            {activeConvId && (
+              <button
+                type="button"
+                aria-label="What NoX remembers here"
+                onClick={() => setShowMemoryDrawer(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-muted hover:text-accent hover:bg-accent/10 border border-border transition-colors"
+                title="What NoX remembers here"
+              >
+                <Brain className="w-3.5 h-3.5 text-accent" />
+                <span className="hidden sm:inline font-mono text-[11px]">Memory</span>
+              </button>
+            )}
+
             {/* Delete Active Chat Button */}
             {activeConvId && (
               <button
@@ -735,6 +754,7 @@ export const ChatPage: React.FC = () => {
                     onClick={() => handleCopyMessage(msg.id, msg.content)}
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-raised border border-border text-muted hover:text-text transition-all"
                     title="Copy message"
+                    aria-label="Copy message"
                   >
                     {copiedId === msg.id ? (
                       <Check className="w-3 h-3 text-success" />
@@ -819,6 +839,7 @@ export const ChatPage: React.FC = () => {
                 <button
                   onClick={handleStop}
                   className="flex items-center gap-1 text-[11px] text-danger hover:underline font-medium"
+                  aria-label="Stop generation"
                 >
                   <Square className="w-3 h-3 fill-current" />
                   Stop generation
@@ -876,6 +897,13 @@ export const ChatPage: React.FC = () => {
         isCloud={selectedTraceMessage?.is_cloud}
         latencyMs={selectedTraceMessage?.latency_ms}
         trace={selectedTraceMessage?.trace}
+      />
+
+      {/* What NoX Remembers Here Memory Drawer (§2.7) */}
+      <ThreadMemoryDrawer
+        isOpen={showMemoryDrawer}
+        onClose={() => setShowMemoryDrawer(false)}
+        convId={activeConvId}
       />
     </div>
   );

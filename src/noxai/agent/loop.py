@@ -297,6 +297,7 @@ class AgentLoop:
             role="system",
             content=Content(
                 text=system_text,
+                data_class=DataClass.LOCAL_ONLY if recalled_mem_list else DataClass.PUBLIC,
                 taint=TaintFlag.PRIVATE if recalled_mem_list else TaintFlag.NONE,
             ),
         )
@@ -319,6 +320,7 @@ class AgentLoop:
                         role, content_text, tc_id, t_name, t_flags = row
                         msg_content = Content(
                             text=str(content_text),
+                            data_class=DataClass.CHAT,
                             taint=TaintFlag(int(t_flags or 0)),
                         )
                         messages.append(

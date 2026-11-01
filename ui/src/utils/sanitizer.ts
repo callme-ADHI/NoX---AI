@@ -49,6 +49,16 @@ export function sanitizeUrl(url: string | null | undefined): string {
 }
 
 /**
+ * Validates that a URL is strictly HTTP or HTTPS.
+ * Rejects javascript:, data:, file:, and malformed protocols.
+ */
+export function isSafeHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const s = url.trim().toLowerCase();
+  return s.startsWith('http://') || s.startsWith('https://');
+}
+
+/**
  * HTML escapes raw strings so they render inertly as text.
  */
 export function escapeHtml(str: string): string {

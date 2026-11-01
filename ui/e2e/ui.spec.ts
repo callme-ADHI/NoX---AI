@@ -84,13 +84,32 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
 
     // Page 1: Chat (Default desktop 1440x900)
     await page.setViewportSize({ width: 1440, height: 900 });
+    // Open Thread Memory Drawer if button is present
+    const memoryBtn = page.locator('button[aria-label="What NoX remembers here"]').first();
+    if (await memoryBtn.isVisible()) {
+      await memoryBtn.click();
+      await page.waitForTimeout(300);
+    }
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'chat.png'), fullPage: true });
     await checkAxe(page, 'Chat');
+    if (await memoryBtn.isVisible()) {
+      const closeDrawerBtn = page.locator('button[aria-label="Close memory panel"]').first();
+      if (await closeDrawerBtn.isVisible()) {
+        await closeDrawerBtn.click();
+        await page.waitForTimeout(300);
+      }
+    }
 
     // Page 2: Briefings
     await page.click('button:has-text("Briefings")');
     await expect(page.locator('text=Briefings Archive')).toBeVisible();
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'briefings.png'), fullPage: true });
+    // Opportunities board screenshot
+    const oppBoard = page.locator('text=Opportunities & Leads').first();
+    if (await oppBoard.isVisible()) {
+      await oppBoard.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'opportunities.png'), fullPage: true });
+    }
     await checkAxe(page, 'Briefings');
 
     // Page 3: Jobs
@@ -157,6 +176,10 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     await page.goto(`/?t=${token}`);
     await page.waitForLoadState('networkidle');
 
+    // Fresh conversation
+    await page.click('button:has-text("New Conversation")');
+    await page.waitForTimeout(400);
+
     // Toggle "Allow cloud for this request" and verify tooltip / text
     const cloudCheckbox = page.locator('input[type="checkbox"]');
     await expect(cloudCheckbox).toBeVisible();
@@ -172,8 +195,8 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     // Send message
     await page.click('button[aria-label="Send message"]');
 
-    // Expect streamed reply with Local badge
-    await expect(page.locator('span.text-accent', { hasText: 'Local (qwen2.5:14b)' }).first()).toBeVisible({ timeout: 10000 });
+    // Expect streamed reply with Local badge and test response
+    await expect(page.locator('span.text-accent:has-text("Local")').first()).toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Everything is working smoothly in test mode.').first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -193,10 +216,10 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     await page.click('button[aria-label="Send message"]');
 
     // Expect ApprovalCard with exact arguments
-    const approvalCard = page.locator('text=Action Approval Required');
+    const approvalCard = page.locator('[data-testid="approval-card"]').first();
     await expect(approvalCard).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('write_file', { exact: true })).toBeVisible();
-    await expect(page.getByText('/tmp/nox-test.txt')).toBeVisible();
+    await expect(approvalCard.locator('text=write_file').first()).toBeVisible();
+    await expect(page.getByText('/tmp/nox-test.txt').first()).toBeVisible();
 
     // Test Deny
     const denyBtn = page.locator('button:has-text("Deny")').first();

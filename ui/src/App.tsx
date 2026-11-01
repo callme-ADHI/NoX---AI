@@ -160,11 +160,11 @@ export const App: React.FC = () => {
 
         {/* Floating Notification Toasts */}
         {notifications.length > 0 && (
-          <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-auto">
+          <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
             {notifications.map((n) => (
               <div
                 key={n.id}
-                className="bg-surface/95 backdrop-blur-md border border-accent/40 shadow-xl rounded-xl p-3.5 flex items-start gap-3 transition-all animate-in slide-in-from-top-2"
+                className="bg-surface/95 backdrop-blur-md border border-accent/40 shadow-xl rounded-xl p-3.5 flex items-start gap-3 transition-all animate-in slide-in-from-top-2 pointer-events-auto"
               >
                 <div className="p-2 rounded-lg bg-accent/15 text-accent mt-0.5">
                   <Bell className="w-4 h-4 animate-bounce" />
@@ -175,6 +175,8 @@ export const App: React.FC = () => {
                     <button
                       onClick={() => setNotifications((prev) => prev.filter((x) => x.id !== n.id))}
                       className="text-muted hover:text-text p-0.5 rounded ml-2"
+                      aria-label="Dismiss notification"
+                      title="Dismiss notification"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
