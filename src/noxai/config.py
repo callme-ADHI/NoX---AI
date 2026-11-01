@@ -245,6 +245,13 @@ class ResearchConfig(_StrictModel):
     ]
 
 
+class NotesConfig(_StrictModel):
+    """Notes Vault configuration (Phase 5)."""
+
+    vault_path: str = "~/Documents/NoX-Vault"
+    export_threads: bool = True
+
+
 # ---------------------------------------------------------------------------
 # Root config model
 # ---------------------------------------------------------------------------
@@ -268,6 +275,7 @@ class Settings(BaseModel):
     keypool: KeypoolConfig = KeypoolConfig()
     briefing: BriefingConfig = BriefingConfig()
     research: ResearchConfig = ResearchConfig()
+    notes: NotesConfig = NotesConfig()
 
     # Secrets (loaded separately, not from TOML)
     nvidia_api_key: SecretStr | None = None

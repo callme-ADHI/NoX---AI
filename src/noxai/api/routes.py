@@ -1178,6 +1178,48 @@ async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback)
     return {"ok": True, "feedback_id": fb_id}
 
 
+@api_router.get("/notes/info", dependencies=READ_DEPS)
+async def get_notes_vault_info() -> dict[str, Any]:
+    """Retrieve Notes Vault path, Obsidian URI, and system editor status."""
+    import shutil
+    from noxai.notes.vault import NotesVault
+
+    vault = NotesVault()
+    return {
+        "vault_path": str(vault.vault_path),
+        "obsidian_uri": vault.get_vault_uri(),
+        "has_obsidian": bool(shutil.which("obsidian")),
+    }
+
+
+@api_router.post("/notes/open", dependencies=WRITE_DEPS)
+async def open_notes_vault() -> dict[str, Any]:
+    """Open Notes Vault in Obsidian or system default application."""
+    import shutil
+    import subprocess
+    from noxai.notes.vault import NotesVault
+
+    vault = NotesVault()
+    path_str = str(vault.vault_path)
+    uri = vault.get_vault_uri()
+    opened = False
+    target = path_str
+    if shutil.which("obsidian"):
+        try:
+            subprocess.Popen(["obsidian", uri], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            opened = True
+            target = uri
+        except Exception:
+            pass
+    if not opened and shutil.which("xdg-open"):
+        try:
+            subprocess.Popen(["xdg-open", path_str], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            opened = True
+        except Exception:
+            pass
+    return {"ok": True, "opened": opened, "target": target, "vault_path": path_str, "obsidian_uri": uri}
+
+
 @api_router.get("/keys", dependencies=READ_DEPS)
 @api_router.get("/keys/status", dependencies=READ_DEPS)
 async def get_keys_status() -> list[dict[str, Any]]:

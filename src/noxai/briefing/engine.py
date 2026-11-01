@@ -496,6 +496,16 @@ class BriefingPipeline:
         file_path = BRIEFINGS_DIR / f"{date_str}-{slot}.md"
         file_path.write_text(content, encoding="utf-8")
         log.info("Wrote briefing markdown to %s", file_path)
+
+        # Export to Notes Vault (Obsidian-compatible Markdown Vault)
+        try:
+            from noxai.notes.vault import NotesVault
+            vault = NotesVault(config=self.config)
+            await vault.sync_vault_to_db()
+            vault.export_briefing_run(run_id, date_str, slot, analyst_data, generation_seconds)
+        except Exception as exc:
+            log.warning("Notes vault export error: %s", exc)
+
         return file_path
 
     async def _run_cleanup(self, run_id: str) -> None:

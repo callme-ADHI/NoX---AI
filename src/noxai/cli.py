@@ -37,6 +37,7 @@ from noxai.commands.jobs import jobs_app
 from noxai.commands.keys import keys_app
 from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
+from noxai.commands.notes import notes_app
 from noxai.commands.reminders import remind_command, reminders_app
 from noxai.commands.service import service_app, session_env_command
 from noxai.commands.sources import sources_app
@@ -56,6 +57,7 @@ app.add_typer(keys_app, name="keys")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(memory_app, name="memory")
+app.add_typer(notes_app, name="notes")
 app.add_typer(reminders_app, name="reminders")
 app.add_typer(sources_app, name="sources")
 app.add_typer(briefings_app, name="briefings")
