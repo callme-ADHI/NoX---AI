@@ -393,6 +393,107 @@ def check_systemd_unit(unit_path: Path = SERVICE_UNIT_PATH) -> DoctorCheck:
         return DoctorCheck("systemd user unit", "WARN", str(exc))
 
 
+def check_noxd_enabled() -> DoctorCheck:
+    """Check if systemd user unit noxd.service is enabled."""
+    try:
+        proc = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "noxd.service"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        state = proc.stdout.strip()
+        if state == "enabled":
+            return DoctorCheck("noxd enabled", "PASS", "")
+        return DoctorCheck(
+            "noxd enabled",
+            "WARN",
+            f"noxd is {state}; enable with 'systemctl --user enable noxd.service'",
+        )
+    except Exception as exc:
+        return DoctorCheck("noxd enabled", "WARN", str(exc))
+
+
+def check_linger() -> DoctorCheck:
+    """Check if user linger is enabled via loginctl."""
+    user = os.environ.get("USER", "")
+    if not user:
+        try:
+            import pwd
+
+            user = pwd.getpwuid(os.getuid()).pw_name
+        except Exception:
+            user = "current-user"
+
+    try:
+        proc = subprocess.run(
+            ["loginctl", "show-user", user, "-p", "Linger"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        out = proc.stdout.strip()
+        if "Linger=yes" in out:
+            return DoctorCheck("linger (enabled)", "PASS", "Daemon persists across user logout")
+        return DoctorCheck(
+            "linger",
+            "WARN",
+            "loginctl linger is disabled; daemon starts at login and boot catch-up covers "
+            "missed slots. Run 'loginctl enable-linger' for unattended 04:00 runs.",
+        )
+    except Exception as exc:
+        return DoctorCheck("linger", "WARN", f"loginctl check notice: {exc}")
+
+
+def check_briefing_scheduler_running(cfg: Any) -> DoctorCheck:
+    """Check if daemon briefing scheduler is active and reachable."""
+    from noxai.api.auth import load_session_token
+
+    host = (
+        getattr(cfg.server, "host", "127.0.0.1") if cfg and hasattr(cfg, "server") else "127.0.0.1"
+    )
+    port = getattr(cfg.server, "port", 7777) if cfg and hasattr(cfg, "server") else 7777
+    token = load_session_token() or ""
+
+    try:
+        resp = httpx.get(
+            f"http://{host}:{port}/api/briefings/status",
+            headers={"Authorization": f"Bearer {token}", "X-Nox-Client": "cli"},
+            timeout=1.5,
+        )
+        if resp.status_code == 200:
+            return DoctorCheck("briefing scheduler running", "PASS", "Daemon scheduler active")
+        return DoctorCheck(
+            "briefing scheduler running",
+            "WARN",
+            f"Scheduler returned HTTP {resp.status_code}",
+        )
+    except Exception:
+        return DoctorCheck(
+            "briefing scheduler running",
+            "WARN",
+            "Daemon offline; briefings run via systemd user unit on startup",
+        )
+
+
+def check_next_briefing_times(cfg: Any) -> DoctorCheck:
+    """Check configured next morning and evening briefing run times."""
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    try:
+        sched = BriefingScheduler(config=cfg)
+        runs = sched.get_next_runs()
+        m_at = runs[0]["at"][11:16]
+        e_at = runs[1]["at"][11:16]
+        return DoctorCheck(
+            "next morning/evening run times",
+            "PASS",
+            f"Morning: {m_at}, Evening: {e_at} ({sched.timezone})",
+        )
+    except Exception as exc:
+        return DoctorCheck("next morning/evening run times", "WARN", str(exc))
+
+
 def check_gate(cfg: Any) -> DoctorCheck:
     if not cfg:
         return DoctorCheck("Gate mode: token_only", "PASS", "")
@@ -593,6 +694,14 @@ def run_all_checks() -> list[DoctorCheck]:
 
     # 19. Compositor
     checks.append(check_compositor())
+
+    # 20. Briefing scheduler & next runs
+    checks.append(check_briefing_scheduler_running(cfg))
+    checks.append(check_next_briefing_times(cfg))
+
+    # 21. noxd enabled & linger
+    checks.append(check_noxd_enabled())
+    checks.append(check_linger())
 
     return checks
 

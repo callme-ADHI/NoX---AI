@@ -23,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -38,7 +39,16 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path("~/.local/share/nox").expanduser()
-DB_PATH = DATA_DIR / "nox.db"
+
+
+def get_db_path() -> Path:
+    """Return the active database path, allowing NOX_DATABASE_PATH override."""
+    if "NOX_DATABASE_PATH" in os.environ:
+        return Path(os.environ["NOX_DATABASE_PATH"])
+    return DATA_DIR / "nox.db"
+
+
+DB_PATH = get_db_path()
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # ---------------------------------------------------------------------------
@@ -120,8 +130,9 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
     The connection is committed on clean exit and rolled back on exception.
     """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+    path = get_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(path, timeout=30.0) as db:
         await _configure_async_connection(db)
         try:
             yield db
@@ -186,10 +197,11 @@ async def run_migrations() -> None:
     This function is idempotent: running it twice on the same database is safe
     and produces no errors.
     """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    path = get_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     # Use sync sqlite3 for migrations to keep them simple and atomic
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(path)
     _configure_sync_connection(conn)
 
     try:

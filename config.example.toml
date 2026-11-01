@@ -87,6 +87,34 @@ staging_retention_days = 3
 run_timeout_minutes = 15
 topic_timeout_minutes = 5
 
+[briefing.quotas]
+internships_target = 10
+hackathons_target = 8
+competitions_target = 5
+ctf_max = 3
+startup_ideas = 3
+news_per_topic = 4
+
+[briefing.eligibility_profile]
+nationality = "India"
+level = "undergraduate"
+field = "computer science"
+
+[briefing.value_weights]
+accommodation_provided = 30
+accommodation_partial = 15
+stipend_yes = 25
+travel_covered = 15
+travel_partial = 7
+abroad = 15
+visa_support = 5
+known_reputable_org = 5
+eligibility_yes = 5
+eligibility_unknown = -5
+deadline_open_gt_7d = 5
+deadline_closing_lte_7d = 8
+rolling = 2
+
 [research]
 user_agent = "NoX-Research/1.0 (+https://github.com/callme-ADHI/NoX---AI)"
 per_domain_rps = 1.0

@@ -8,7 +8,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from noxai.api.auth import (
@@ -110,7 +110,7 @@ class DetailedBriefingFeedback(BaseModel):
 
 
 class RunBriefingRequest(BaseModel):
-    slot: str = Field(default="morning", description="'morning' or 'evening'")
+    slot: str | None = Field(default=None, description="'morning' or 'evening' (optional; defaults to current window)")
     force: bool = False
 
 
@@ -1089,6 +1089,57 @@ async def list_briefings(
         return results
 
 
+@api_router.post("/briefings/run", dependencies=WRITE_DEPS)
+async def run_briefing_slot(request: Request, req: RunBriefingRequest | None = None) -> Any:
+    """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
+    from fastapi.responses import JSONResponse
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    sched: BriefingScheduler | None = getattr(request.app.state, "briefing_scheduler", None)
+    if not sched:
+        from noxai.tasks.supervisor import get_task_supervisor
+
+        sup = get_task_supervisor()
+        sched = BriefingScheduler(supervisor=sup)
+
+    slot_val = req.slot if req and req.slot in ("morning", "evening") else None
+    res = await sched.manual_run(slot=slot_val)
+    if res.get("active"):
+        return JSONResponse(status_code=200, content=res)
+    return JSONResponse(status_code=202, content=res)
+
+
+@api_router.get("/briefings/status", dependencies=READ_DEPS)
+async def get_briefing_status(request: Request) -> dict[str, Any]:
+    """Retrieve live status, active progress, and next scheduled runs."""
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    sched: BriefingScheduler | None = getattr(request.app.state, "briefing_scheduler", None)
+    if not sched:
+        from noxai.tasks.supervisor import get_task_supervisor
+
+        sup = get_task_supervisor()
+        sched = BriefingScheduler(supervisor=sup)
+
+    return await sched.get_status()
+
+
+@api_router.post("/briefings/runs/{run_id}/cancel", dependencies=WRITE_DEPS)
+async def cancel_briefing_run_endpoint(run_id: str, request: Request) -> dict[str, Any]:
+    """Explicitly cancel an active briefing run."""
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    sched: BriefingScheduler | None = getattr(request.app.state, "briefing_scheduler", None)
+    if not sched:
+        from noxai.tasks.supervisor import get_task_supervisor
+
+        sup = get_task_supervisor()
+        sched = BriefingScheduler(supervisor=sup)
+
+    ok = await sched.cancel_run(run_id)
+    return {"ok": ok, "run_id": run_id}
+
+
 @api_router.get("/briefings/{briefing_id}", response_model=BriefingResponse, dependencies=READ_DEPS)
 async def get_briefing(briefing_id: int) -> BriefingResponse:
     """Read a full briefing document."""
@@ -1151,36 +1202,6 @@ async def get_briefing_items(briefing_id: str) -> list[dict[str, Any]]:
         )
         return [dict(r) for r in rows]
 
-
-@api_router.post("/briefings/run", dependencies=WRITE_DEPS)
-async def run_briefing_slot(req: RunBriefingRequest) -> dict[str, Any]:
-    """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
-    from noxai.tasks.models import TaskLane, TaskPriority
-    from noxai.tasks.supervisor import get_task_supervisor
-
-    sup = get_task_supervisor()
-    slot = req.slot if req.slot in ("morning", "evening") else "morning"
-
-    async def _briefing_handler(task: Any, cancel_event: asyncio.Event) -> Any:
-        from noxai.briefing.engine import run_briefing_pipeline
-
-        return await run_briefing_pipeline(slot=slot, force=req.force, cancel_event=cancel_event)
-
-    if sup:
-        task = await sup.submit_task(
-            title=f"Daily Briefing ({slot})",
-            prompt=f"Generate {slot} briefing",
-            lane=TaskLane.CLOUD,
-            priority=TaskPriority.HIGH,
-            kind="briefing",
-            handler=_briefing_handler,
-        )
-        return {"ok": True, "task_id": task.id, "slot": slot, "status": "queued"}
-    else:
-        from noxai.briefing.engine import run_briefing_pipeline
-
-        res = await run_briefing_pipeline(slot=slot, force=req.force)
-        return {"ok": True, "slot": slot, "result": res}
 
 
 @api_router.post("/briefings/{briefing_id}/feedback/detailed", dependencies=WRITE_DEPS)

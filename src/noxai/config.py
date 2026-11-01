@@ -9,6 +9,7 @@ The file format is simple KEY=VALUE lines; no shell expansion is performed.
 
 from __future__ import annotations
 
+import os
 import re
 import stat
 import tomllib
@@ -209,6 +210,43 @@ class KeypoolConfig(_StrictModel):
     wide_mode: bool = True
 
 
+class BriefingQuotasConfig(_StrictModel):
+    """Briefing item category targets and limits (Session J)."""
+
+    internships_target: int = 10
+    hackathons_target: int = 8
+    competitions_target: int = 5
+    ctf_max: int = 3
+    startup_ideas: int = 3
+    news_per_topic: int = 4
+
+
+class BriefingEligibilityProfile(_StrictModel):
+    """Local user eligibility profile for program matching (never sent to cloud)."""
+
+    nationality: str = "India"
+    level: str = "undergraduate"
+    field: str = "computer science"
+
+
+class BriefingValueWeights(_StrictModel):
+    """Value scoring weights for internships and opportunities."""
+
+    accommodation_provided: int = 30
+    accommodation_partial: int = 15
+    stipend_yes: int = 25
+    travel_covered: int = 15
+    travel_partial: int = 7
+    abroad: int = 15
+    visa_support: int = 5
+    known_reputable_org: int = 5
+    eligibility_yes: int = 5
+    eligibility_unknown: int = -5
+    deadline_open_gt_7d: int = 5
+    deadline_closing_lte_7d: int = 8
+    rolling: int = 2
+
+
 class BriefingConfig(_StrictModel):
     """Automated briefing engine settings (Phase 4)."""
 
@@ -226,6 +264,11 @@ class BriefingConfig(_StrictModel):
     staging_retention_days: int = 3
     run_timeout_minutes: int = 15
     topic_timeout_minutes: int = 5
+    quotas: BriefingQuotasConfig = Field(default_factory=BriefingQuotasConfig)
+    eligibility_profile: BriefingEligibilityProfile = Field(
+        default_factory=BriefingEligibilityProfile
+    )
+    value_weights: BriefingValueWeights = Field(default_factory=BriefingValueWeights)
 
 
 class ResearchConfig(_StrictModel):
@@ -417,6 +460,18 @@ def load_config() -> Settings:
         if key:
             raw["nvidia_api_key"] = key
             raw["nvidia_api_keys"] = [key]
+
+    # Environment overrides for briefing slot start times
+    if "NOX_BRIEFING_MORNING_START" in os.environ:
+        raw.setdefault("briefing", {})["morning_start"] = os.environ[
+            "NOX_BRIEFING_MORNING_START"
+        ].strip()
+    if "NOX_BRIEFING_EVENING_START" in os.environ:
+        raw.setdefault("briefing", {})["evening_start"] = os.environ[
+            "NOX_BRIEFING_EVENING_START"
+        ].strip()
+    if "NOX_SERVER_PORT" in os.environ:
+        raw.setdefault("server", {})["port"] = int(os.environ["NOX_SERVER_PORT"].strip())
 
     try:
         settings = Settings(**raw)

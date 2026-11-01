@@ -29,8 +29,8 @@ from pydantic import BaseModel, Field
 
 from noxai.config import Settings
 from noxai.db import execute, fetch_all, fetch_one, get_db
-from noxai.events import EventBus, global_event_bus
-from noxai.models.keypool import AllocationMode, KeyPool
+from noxai.events import EventBus, global_event_bus, make_event
+from noxai.models.keypool import KeyPool
 from noxai.research.crawler import WebResearcher
 from noxai.research.sources import VERIFIED_SOURCES
 
@@ -76,7 +76,6 @@ def normalize_url(url: str) -> str:
         return parsed._replace(path=path, query=clean_query, fragment="").geturl()
     except Exception:
         return url
-
 
 
 # Default Topic Seeds per Section 5.2 Stage A
@@ -160,68 +159,89 @@ class BriefingPipeline:
         slot: str = "morning",
         date_str: str | None = None,
         force: bool = False,
+        run_id: str | None = None,
+        rev: int = 1,
+        trigger: str = "scheduled",
+        cancel_event: asyncio.Event | None = None,
     ) -> str:
         """Run the full briefing DAG for (date, slot). Returns briefing_id."""
         today = date_str or datetime.now(UTC).strftime("%Y-%m-%d")
         BRIEFINGS_DIR.mkdir(parents=True, exist_ok=True)
         STAGING_DIR.mkdir(parents=True, exist_ok=True)
 
+        effective_run_id = run_id or f"brun_{uuid.uuid4().hex[:12]}"
+        slot_name = "Morning" if slot == "morning" else "Evening"
+        title = f"NoX {slot_name} Intelligence Briefing — {today}"
+        if rev > 1:
+            title += f" (rev {rev})"
+        now_iso = datetime.now(UTC).isoformat()
+
         async with get_db() as db:
             await seed_briefing_topics_if_needed(db)
             existing = await fetch_one(
                 db,
-                "SELECT id, state FROM briefing_runs WHERE date = ? AND slot = ?",
-                (today, slot),
+                "SELECT id, state FROM briefing_runs WHERE date = ? AND slot = ? AND rev = ?",
+                (today, slot, rev),
             )
             if existing and not force:
                 if existing["state"] in ("running", "succeeded"):
                     log.info(
-                        "Briefing for %s %s already exists (%s). Skipping.",
+                        "Briefing for %s %s (rev %d) already exists (%s). Skipping.",
                         today,
                         slot,
+                        rev,
                         existing["state"],
                     )
                     return str(existing["id"])
 
-            run_id = f"brun_{uuid.uuid4().hex[:12]}"
-            slot_name = "Morning" if slot == "morning" else "Evening"
-            title = f"NoX {slot_name} Intelligence Briefing — {today}"
-            now_iso = datetime.now(UTC).isoformat()
-
-            if existing and force:
+            if existing:
+                effective_run_id = str(existing["id"])
                 await execute(
                     db,
                     """
                     UPDATE briefing_runs
                     SET state = 'running', started_at = ?, error = NULL WHERE id = ?
                     """,
-                    (now_iso, str(existing["id"])),
+                    (now_iso, effective_run_id),
                 )
-                run_id = str(existing["id"])
             else:
                 await execute(
                     db,
                     """
-                    INSERT INTO briefing_runs (id, date, slot, state, title, started_at)
-                    VALUES (?, ?, ?, 'running', ?, ?)
-                    ON CONFLICT(date, slot) DO UPDATE SET
+                    INSERT INTO briefing_runs (
+                        id, date, slot, state, trigger, rev, title, started_at
+                    )
+                    VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
+                    ON CONFLICT(date, slot, rev) DO UPDATE SET
                         state = 'running',
                         started_at = excluded.started_at,
                         error = NULL
                     """,
-                    (run_id, today, slot, title, now_iso),
+                    (effective_run_id, today, slot, trigger, rev, title, now_iso),
                 )
             await db.commit()
 
+        run_id = effective_run_id
         t0 = datetime.now(UTC)
-        log.info("Starting Briefing Pipeline: %s (%s)", title, run_id)
+        log.info("Starting Briefing Pipeline: %s (%s, rev=%d)", title, run_id, rev)
 
         try:
-            # STAGE A: Plan topics
+            # STAGE A: Plan topics and seed topic run progress
             async with get_db() as db:
                 topics = await fetch_all(
                     db, "SELECT * FROM briefing_topics WHERE enabled = 1 ORDER BY weight DESC"
                 )
+                for t in topics:
+                    await execute(
+                        db,
+                        """
+                        INSERT INTO briefing_topic_runs (run_id, topic_id, state)
+                        VALUES (?, ?, 'queued')
+                        ON CONFLICT(run_id, topic_id) DO NOTHING
+                        """,
+                        (run_id, t["id"]),
+                    )
+                await db.commit()
 
             # STAGE B: Parallel topic research workers (Phase 3 WIDE mode)
             stage_b_tasks = [self._run_topic_worker(run_id, t) for t in topics]
@@ -263,7 +283,10 @@ class BriefingPipeline:
                 )
                 # Also record in outputs table for UI compatibility
                 md_text = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
-                sources_list = [{"url": it.get("url", ""), "title": it.get("title", "")} for it in analyst_data.get("items", [])]
+                sources_list = [
+                    {"url": it.get("url", ""), "title": it.get("title", "")}
+                    for it in analyst_data.get("items", [])
+                ]
                 job_row = await fetch_one(db, "SELECT id FROM jobs WHERE name = 'daily-briefing'")
                 job_id = job_row["id"] if job_row else "daily-briefing"
                 if not job_row:
@@ -279,7 +302,9 @@ class BriefingPipeline:
                 await execute(
                     db,
                     """
-                    INSERT INTO job_runs (id, job_id, started_at, finished_at, status, output_markdown)
+                    INSERT INTO job_runs (
+                        id, job_id, started_at, finished_at, status, output_markdown
+                    )
                     VALUES (?, ?, datetime('now'), ?, 'ok', ?)
                     ON CONFLICT(id) DO UPDATE SET status = 'ok', finished_at = ?
                     """,
@@ -323,68 +348,166 @@ class BriefingPipeline:
             topic_weight = 1.0
         sources = json.loads(topic_row["sources_json"]) if topic_row["sources_json"] else []
 
-        collected_entries: list[dict[str, str]] = []
-        for src in sources:
-            if src.get("type") == "rss":
-                entries = await self.researcher.fetch_feed(src["url"], src["name"], topic_id)
-                collected_entries.extend(entries)
-
-        if not collected_entries:
-            log.warning("No entries collected for topic %s (%s) from sources", topic_id, topic_name)
-            return 0
-
-        # Save to staging store using validated CandidateItem Pydantic models
-        staged_count = 0
+        # Check if already completed (enables resuming across daemon restart)
         async with get_db() as db:
-            for idx, item in enumerate(collected_entries[:6]):
-                item_id = f"item_{uuid.uuid4().hex[:8]}"
-                raw_url = item["url"]
-                canon_url = normalize_url(raw_url)
+            existing_tr = await fetch_one(
+                db,
+                "SELECT state FROM briefing_topic_runs WHERE run_id = ? AND topic_id = ?",
+                (run_id, topic_id),
+            )
+            if existing_tr and existing_tr["state"] == "done":
+                log.info("Topic %s already completed for run %s. Skipping.", topic_id, run_id)
+                return 0
 
-                summary = item["summary"]
-                # Enrich via Trafilatura readability extraction for top items
-                if idx < 2:
-                    try:
-                        body = await asyncio.wait_for(self.researcher.extract_article(raw_url), timeout=3.0)
-                        if body and len(body) >= 100:
-                            summary = body.replace("\n", " ")[:350] + "..."
-                    except Exception:
-                        pass
+            now_iso = datetime.now(UTC).isoformat()
+            await execute(
+                db,
+                """
+                UPDATE briefing_topic_runs
+                SET state = 'collecting', started_at = ?
+                WHERE run_id = ? AND topic_id = ?
+                """,
+                (now_iso, run_id, topic_id),
+            )
+            await db.commit()
 
-                candidate = CandidateItem(
-                    item_id=item_id,
-                    title=item["title"],
-                    summary=summary,
-                    url=raw_url,
-                    canonical_url=canon_url,
-                    source_name=item["source_name"],
-                    published_at=item.get("published_at"),
-                    category=category,
-                    topic_id=topic_id,
-                    topic_name=topic_name,
-                    takeaway=f"Critical progress in {topic_name}.",
-                    why_it_matters=f"Direct impact on engineering decisions in {category}.",
-                    relevance_score=topic_weight,
-                    verified_link=True,
+        await self.event_bus.publish(
+            make_event(
+                "briefing_progress",
+                {"run_id": run_id, "topic_id": topic_id, "state": "collecting"},
+            )
+        )
+
+        try:
+            collected_entries: list[dict[str, str]] = []
+            for src in sources:
+                if src.get("type") == "rss":
+                    entries = await self.researcher.fetch_feed(src["url"], src["name"], topic_id)
+                    collected_entries.extend(entries)
+
+            if not collected_entries:
+                log.warning(
+                    "No entries collected for topic %s (%s) from sources", topic_id, topic_name
                 )
+                async with get_db() as db:
+                    now_iso = datetime.now(UTC).isoformat()
+                    await execute(
+                        db,
+                        """
+                        UPDATE briefing_topic_runs
+                        SET state = 'done', items_staged = 0, finished_at = ?
+                        WHERE run_id = ? AND topic_id = ?
+                        """,
+                        (now_iso, run_id, topic_id),
+                    )
+                    await db.commit()
+                return 0
 
+            async with get_db() as db:
                 await execute(
                     db,
                     """
-                    INSERT INTO briefing_staging (run_id, topic_id, item_id, payload_json, status)
-                    VALUES (?, ?, ?, ?, 'ready')
-                    ON CONFLICT(run_id, topic_id, item_id) DO NOTHING
+                    UPDATE briefing_topic_runs
+                    SET state = 'extracting'
+                    WHERE run_id = ? AND topic_id = ?
                     """,
-                    (run_id, topic_id, item_id, json.dumps(candidate.model_dump())),
+                    (run_id, topic_id),
                 )
-                staged_count += 1
-            await db.commit()
+                await db.commit()
 
-        log.info("Topic worker %s completed with %d staged items.", topic_name, staged_count)
-        return staged_count
+            # Save to staging store using validated CandidateItem Pydantic models
+            staged_count = 0
+            async with get_db() as db:
+                for idx, item in enumerate(collected_entries[:6]):
+                    item_id = f"item_{uuid.uuid4().hex[:8]}"
+                    raw_url = item["url"]
+                    canon_url = normalize_url(raw_url)
+
+                    summary = item["summary"]
+                    # Enrich via Trafilatura readability extraction for top items
+                    if idx < 2:
+                        try:
+                            body = await asyncio.wait_for(
+                                self.researcher.extract_article(raw_url), timeout=3.0
+                            )
+                            if body and len(body) >= 100:
+                                summary = body.replace("\n", " ")[:350] + "..."
+                        except Exception:
+                            log.debug("Article extraction skipped for %s", raw_url)
+
+                    candidate = CandidateItem(
+                        item_id=item_id,
+                        title=item["title"],
+                        summary=summary,
+                        url=raw_url,
+                        canonical_url=canon_url,
+                        source_name=item["source_name"],
+                        published_at=item.get("published_at"),
+                        category=category,
+                        topic_id=topic_id,
+                        topic_name=topic_name,
+                        takeaway=f"Critical progress in {topic_name}.",
+                        why_it_matters=f"Direct impact on engineering decisions in {category}.",
+                        relevance_score=topic_weight,
+                        verified_link=True,
+                    )
+
+                    await execute(
+                        db,
+                        """
+                        INSERT INTO briefing_staging (
+                            run_id, topic_id, item_id, payload_json, status
+                        )
+                        VALUES (?, ?, ?, ?, 'ready')
+                        ON CONFLICT(run_id, topic_id, item_id) DO NOTHING
+                        """,
+                        (run_id, topic_id, item_id, json.dumps(candidate.model_dump())),
+                    )
+                    staged_count += 1
+
+                now_iso = datetime.now(UTC).isoformat()
+                await execute(
+                    db,
+                    """
+                    UPDATE briefing_topic_runs
+                    SET state = 'done', items_staged = ?, finished_at = ?
+                    WHERE run_id = ? AND topic_id = ?
+                    """,
+                    (staged_count, now_iso, run_id, topic_id),
+                )
+                await db.commit()
+
+            await self.event_bus.publish(
+                make_event(
+                    "briefing_progress",
+                    {
+                        "run_id": run_id,
+                        "topic_id": topic_id,
+                        "state": "done",
+                        "items": staged_count,
+                    },
+                )
+            )
+            log.info("Topic worker %s completed with %d staged items.", topic_name, staged_count)
+            return staged_count
+        except Exception as exc:
+            log.warning("Topic worker %s failed: %s", topic_id, exc)
+            async with get_db() as db:
+                now_iso = datetime.now(UTC).isoformat()
+                await execute(
+                    db,
+                    """
+                    UPDATE briefing_topic_runs
+                    SET state = 'failed', error = ?, finished_at = ?
+                    WHERE run_id = ? AND topic_id = ?
+                    """,
+                    (str(exc), now_iso, run_id, topic_id),
+                )
+                await db.commit()
+            return 0
 
     async def _run_analyst(self, run_id: str, slot: str, today_str: str) -> dict[str, Any]:
-        """Cross-topic dedupe by canonical URL & title tokens, rank by relevance, pick Top 3, and build TL;DR."""
+        """Cross-topic dedupe by canonical URL & title tokens, rank by relevance, and pick Top 3."""
         async with get_db() as db:
             rows = await fetch_all(
                 db,
@@ -431,7 +554,8 @@ class BriefingPipeline:
 
         # 4-line crisp TL;DR
         tldr_lines = [
-            f"⚡ Radar: {len(deduped)} verified items across {len(DEFAULT_TOPICS)} technical domains.",
+            f"⚡ Radar: {len(deduped)} verified items across "
+            f"{len(DEFAULT_TOPICS)} technical domains.",
             "🛡️ High-priority threat advisories and system vulnerabilities tracked.",
             "🤖 Frontier AI launches, model releases, and research preprints indexed.",
             "🏆 Verified hackathons, CTFs, and tech competitions closing soon.",
@@ -532,6 +656,7 @@ class BriefingPipeline:
         # Export to Notes Vault (Obsidian-compatible Markdown Vault)
         try:
             from noxai.notes.vault import NotesVault
+
             vault = NotesVault(config=self.config)
             await vault.sync_vault_to_db()
             vault.export_briefing_run(run_id, date_str, slot, analyst_data, generation_seconds)
@@ -559,3 +684,32 @@ class BriefingPipeline:
             subprocess.run(["notify-send", "-a", "NoX", title, msg], check=False)
         except Exception as exc:
             log.debug("Notification error: %s", exc)
+
+
+# Compatibility aliases
+BriefingEngine = BriefingPipeline
+
+
+async def run_briefing_pipeline(
+    slot: str = "morning",
+    date_str: str | None = None,
+    force: bool = False,
+    run_id: str | None = None,
+    rev: int = 1,
+    trigger: str = "scheduled",
+    cancel_event: asyncio.Event | None = None,
+) -> str:
+    """Convenience helper to run BriefingPipeline."""
+    from noxai.config import get_config
+
+    cfg = get_config()
+    pipeline = BriefingPipeline(config=cfg)
+    return await pipeline.execute_run(
+        slot=slot,
+        date_str=date_str,
+        force=force,
+        run_id=run_id,
+        rev=rev,
+        trigger=trigger,
+        cancel_event=cancel_event,
+    )
