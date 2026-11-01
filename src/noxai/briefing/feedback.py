@@ -94,7 +94,26 @@ async def check_and_rewrite_topic_prompt(topic_id: str, db: aiosqlite.Connection
         "ORDER BY version DESC LIMIT 1",
         (f"topic_{topic_id}",),
     )
-    curr_version = int(active_row["version"]) if active_row else 1
+    if not active_row:
+        base_pv_id = f"pv_{uuid.uuid4().hex[:10]}"
+        await execute(
+            db,
+            """
+            INSERT INTO prompt_versions
+            (id, scope, version, text, changelog, created_by, parent_version, status)
+            VALUES (?, ?, 1, 'Default extraction prompt for topic.', 'Initial baseline', 'seed', NULL, 'candidate')
+            """,
+            (base_pv_id, f"topic_{topic_id}"),
+        )
+        curr_version = 1
+    else:
+        curr_version = int(active_row["version"])
+        await execute(
+            db,
+            "UPDATE prompt_versions SET status = 'candidate' WHERE id = ?",
+            (str(active_row["id"]),),
+        )
+
     new_version = curr_version + 1
 
     # Extract feedback guidelines (DATA ONLY, treated as untrusted)
@@ -129,3 +148,72 @@ async def check_and_rewrite_topic_prompt(topic_id: str, db: aiosqlite.Connection
     await db.commit()
     log.info("Auto-rewrote prompt for %s to version %d: %s", topic_id, new_version, changelog)
     return new_pv_id
+
+
+async def revert_topic_prompt(topic_id: str, db: aiosqlite.Connection) -> str | None:
+    """Rollback current active prompt version to its parent version."""
+    active_row = await fetch_one(
+        db,
+        "SELECT * FROM prompt_versions WHERE scope = ? AND status = 'active' "
+        "ORDER BY version DESC LIMIT 1",
+        (f"topic_{topic_id}",),
+    )
+    if not active_row or active_row["parent_version"] is None:
+        log.warning("No parent version to revert to for %s", topic_id)
+        return None
+
+    parent_ver = int(active_row["parent_version"])
+    curr_id = str(active_row["id"])
+
+    # Mark current as reverted
+    await execute(
+        db,
+        "UPDATE prompt_versions SET status = 'reverted' WHERE id = ?",
+        (curr_id,),
+    )
+    # Reactivate parent version
+    await execute(
+        db,
+        "UPDATE prompt_versions SET status = 'active' WHERE scope = ? AND version = ?",
+        (f"topic_{topic_id}", parent_ver),
+    )
+    await db.commit()
+    log.info(
+        "Reverted prompt for %s from version %d back to version %d",
+        topic_id,
+        int(active_row["version"]),
+        parent_ver,
+    )
+    return str(parent_ver)
+
+
+async def check_and_auto_revert(topic_id: str, db: aiosqlite.Connection) -> str | None:
+    """Safety net: auto-revert rewritten prompt if subsequent feedback receives >= 2 dislikes."""
+    active_row = await fetch_one(
+        db,
+        "SELECT * FROM prompt_versions WHERE scope = ? AND status = 'active' "
+        "ORDER BY version DESC LIMIT 1",
+        (f"topic_{topic_id}",),
+    )
+    if not active_row or active_row["parent_version"] is None:
+        return None
+
+    # Check feedback received under this rewritten prompt version
+    neg_rows = await fetch_all(
+        db,
+        """
+        SELECT id FROM briefing_feedback
+        WHERE topic_id = ? AND rating = 'dislike' AND created_at >= ?
+        """,
+        (topic_id, active_row["created_at"]),
+    )
+    if len(neg_rows) >= 2:
+        log.warning(
+            "Auto-reverting topic %s prompt: received %d dislikes under active version %d",
+            topic_id,
+            len(neg_rows),
+            int(active_row["version"]),
+        )
+        return await revert_topic_prompt(topic_id, db)
+    return None
+

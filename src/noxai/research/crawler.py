@@ -215,3 +215,25 @@ class WebResearcher:
         except Exception:
             return False
 
+    async def extract_article(self, url: str) -> str:
+        """Fetch article HTML with SSRF guard and extract readable text via trafilatura."""
+        if not await self.is_ssrf_safe(url):
+            return ""
+        try:
+            resp = await self._safe_request("GET", url, timeout=4.0)
+            if resp.status_code != 200:
+                return ""
+            import trafilatura
+
+            text = trafilatura.extract(
+                resp.text,
+                include_comments=False,
+                include_tables=True,
+                output_format="txt",
+            )
+            return (text or "").strip()
+        except Exception as exc:
+            log.debug("Trafilatura extraction error on %s: %s", url, exc)
+            return ""
+
+
