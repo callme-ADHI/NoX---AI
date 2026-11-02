@@ -199,22 +199,90 @@ class WebResearcher:
 
         return entries
 
-    async def verify_link(self, url: str) -> bool:
-        """Verify link exists and returns HTTP 200 / 30x with SSRF guard."""
-        try:
-            resp = await self._safe_request("HEAD", url, timeout=5.0)
-            if resp.status_code in (200, 301, 302, 307, 308):
-                return True
-            # Retry with GET for servers blocking HEAD
-            resp_get = await self._safe_request(
-                "GET",
-                url,
-                timeout=5.0,
-                headers={"User-Agent": self.config.research.user_agent, "Range": "bytes=0-100"},
-            )
-            return resp_get.status_code in (200, 206, 301, 302)
-        except Exception:
-            return False
+    async def verify_link(
+        self,
+        url: str,
+        *,
+        known_fetched: bool = False,
+    ) -> tuple[bool, int, str]:
+        """Strict link verification (Section 4.7).
+
+        HEAD then GET, 2 tries, 10s timeout.
+        2xx/3xx pass.
+        401/403/429 count as 'blocked or login' and are kept only if known_fetched is True.
+        404/410/5xx/timeout/DNS failure and soft-404 pages (title or text says not found) are dropped.
+        Returns: (passed: bool, status_code: int, reason: str).
+        """
+        for attempt in range(2):
+            try:
+                # 1. Try HEAD first
+                try:
+                    resp = await self._safe_request("HEAD", url, timeout=10.0)
+                    code = resp.status_code
+                    if code in (200, 206, 301, 302, 307, 308):
+                        return True, code, "ok"
+                    if code in (401, 403, 429):
+                        if known_fetched:
+                            return True, code, "blocked_or_login_kept"
+                        return False, code, "blocked_or_login"
+                    if code in (404, 410):
+                        return False, code, "not_found"
+                    if code >= 500:
+                        if attempt == 0:
+                            await asyncio.sleep(0.5)
+                            continue
+                        return False, code, "server_error"
+                except Exception:
+                    # HEAD failed or unsupported, proceed to GET
+                    pass
+
+                # 2. Try GET with range request or full body
+                resp_get = await self._safe_request(
+                    "GET",
+                    url,
+                    timeout=10.0,
+                    headers={
+                        "User-Agent": self.config.research.user_agent,
+                        "Range": "bytes=0-4096",
+                    },
+                )
+                code = resp_get.status_code
+                if code in (200, 206, 301, 302, 307, 308):
+                    # Soft-404 check on body snippet
+                    body_lower = resp_get.text.lower()
+                    if any(
+                        s in body_lower
+                        for s in (
+                            "<title>404",
+                            "<title>page not found",
+                            "<title>not found</title>",
+                            "<h1>404",
+                            "404 not found",
+                            "page could not be found",
+                            "this page doesn't exist",
+                        )
+                    ):
+                        return False, 404, "soft_404"
+                    return True, code, "ok"
+                if code in (401, 403, 429):
+                    if known_fetched:
+                        return True, code, "blocked_or_login_kept"
+                    return False, code, "blocked_or_login"
+                if code in (404, 410):
+                    return False, code, "not_found"
+                if code >= 500:
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
+                    return False, code, "server_error"
+
+            except Exception as exc:
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+                    continue
+                return False, 0, f"error: {exc.__class__.__name__}"
+
+        return False, 0, "timeout_or_failed"
 
     async def extract_article(self, url: str) -> str:
         """Fetch article HTML with SSRF guard and extract readable text via trafilatura."""

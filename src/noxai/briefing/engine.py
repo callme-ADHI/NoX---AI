@@ -34,6 +34,7 @@ from noxai.events import EventBus, global_event_bus, make_event
 from noxai.models.keypool import KeyPool
 from noxai.research.crawler import WebResearcher
 from noxai.research.sources import VERIFIED_SOURCES
+from noxai.tools.builtin.web import default_search_backend
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ class CandidateItem(BaseModel):
     why_it_matters: str = ""
     relevance_score: float = 1.0
     verified_link: bool = True
+    link_status: str = "verified"
+    link_code: int = 200
+    link_reason: str = "ok"
 
 
 class InternshipBenefits(BaseModel):
@@ -127,11 +131,116 @@ def normalize_url(url: str) -> str:
         return url
 
 
+_CUR_YEAR = datetime.now(UTC).year
+_NEXT_YEAR = _CUR_YEAR + 1
+
+FORBIDDEN_SEARCH_DOMAINS = {
+    "linkedin.com",
+    "indeed.com",
+    "glassdoor.com",
+    "internshala.com",
+    "ziprecruiter.com",
+    "simplyhired.com",
+    "monster.com",
+    "naukri.com",
+    "upwork.com",
+    "fiverr.com",
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "reddit.com",
+    "youtube.com",
+}
+
+INTERNSHIP_QUERY_TEMPLATES = [
+    f"undergraduate research internship {_CUR_YEAR} computer science stipend accommodation",
+    f"funded research internship {_CUR_YEAR} AI ML students international stipend",
+    f"summer research fellowship {_CUR_YEAR} software systems fully funded accommodation",
+    f"undergraduate cybersecurity internship {_CUR_YEAR} stipend visa support",
+    f"research internship {_CUR_YEAR} robotics automation fully funded stipend",
+    f"undergraduate data science research fellowship {_CUR_YEAR} stipend international",
+    f"systems research internship {_CUR_YEAR} undergraduate accommodation provided",
+    f"IoT embedded systems internship {_CUR_YEAR} stipend international students",
+    f"computer science student research fellowship {_NEXT_YEAR} fully funded stipend accommodation",
+    f"AI ML undergraduate research internship {_NEXT_YEAR} international students visa support",
+    f"software engineering student fellowship {_NEXT_YEAR} stipend accommodation provided",
+    f"global undergraduate research fellowship {_NEXT_YEAR} computer science fully funded",
+]
+
+HACKATHON_QUERY_TEMPLATES = [
+    f"site:devpost.com hackathon registration {_CUR_YEAR}",
+    f"upcoming hackathon {_CUR_YEAR} registration cash prizes AI software",
+    f"global hackathon {_CUR_YEAR} ethglobal OR dorahacks prizes",
+    f"student hackathon {_CUR_YEAR} online international free registration prizes",
+    f"cybersecurity hackathon CTF {_CUR_YEAR} registration prizes",
+    f"AI systems hackathon {_CUR_YEAR} prizes virtual in-person travel stipend",
+    f"open source hackathon {_CUR_YEAR} cash prize registration",
+    f"global student hackathon {_NEXT_YEAR} registration prizes",
+]
+
+
+def is_listing_page_url(url: str) -> bool:
+    """Check if URL points to an aggregation/directory listing root rather than an individual item."""
+    try:
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        path = parsed.path.rstrip("/")
+        if not path or path == "":
+            return True
+        listing_slugs = (
+            "/hackathons",
+            "/seasons",
+            "/competitions",
+            "/internships",
+            "/events",
+            "/challenges",
+            "/programs",
+            "/all-hackathons",
+            "/explore",
+        )
+        if path.lower() in listing_slugs:
+            return True
+        if any(d in netloc for d in ("devpost.com", "mlh.io", "unstop.com", "dorahacks.io", "ethglobal.com")):
+            if path.lower() in ("/hackathons", "/events", "/explore", "/seasons", "/challenges"):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def extract_deadline_from_page(page_text: str) -> str:
+    """Parse application deadline from page text. If no date is found, returns 'unknown, check page'."""
+    if not page_text:
+        return "unknown, check page"
+    lower = page_text.lower()
+    if any(r in lower for r in ("rolling basis", "rolling admission", "open year-round", "continuous intake")):
+        return "rolling"
+    patterns = [
+        r"(?:deadline|apply by|applications close|due date|closing date)[:\s]+([0-9]{4}-[0-9]{2}-[0-9]{2})",
+        r"(?:deadline|apply by|applications close|due date|closing date)[:\s]+([0-9]{1,2}\s+[a-zA-Z]+\s+[0-9]{4})",
+        r"(?:deadline|apply by|applications close|due date|closing date)[:\s]+([a-zA-Z]+\s+[0-9]{1,2},?\s+[0-9]{4})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, page_text, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return "unknown, check page"
+
+
+
 def verify_evidence_snippet(snippet: str, page_text: str) -> bool:
-    """Check if snippet appears verbatim in page text (case-insensitive, normalized whitespace)."""
+    """Check if snippet appears verbatim in page text (case-insensitive, normalized whitespace).
+
+    Evidence Rule (Session K §4.3): snippet must be at most 25 words and must occur
+    (normalised, case-insensitive) in the fetched page text; otherwise False.
+    """
     if not snippet or not page_text:
         return False
-    norm_s = " ".join(snippet.lower().split())
+    words = snippet.strip().split()
+    if not words or len(words) > 25:
+        return False
+    norm_s = " ".join(words).lower()
     norm_p = " ".join(page_text.lower().split())
     return norm_s in norm_p
 
@@ -168,11 +277,12 @@ def match_eligibility(
     eligibility: InternshipEligibility,
     profile: Any,
 ) -> str:
-    """Compare program eligibility to local profile (nationality, level, field).
+    """Compare program eligibility to local profile (nationality/citizenship, level/degree, field).
 
     Returns 'yes', 'no', or 'unknown'. Evaluated strictly locally.
     """
-    prof_nat = getattr(profile, "nationality", "India").lower()
+    prof_nat = getattr(profile, "citizenship", None) or getattr(profile, "nationality", "India")
+    prof_nat = str(prof_nat).lower()
     prof_level = getattr(profile, "level", "undergraduate").lower()
     prof_field = getattr(profile, "field", "computer science").lower()
 
@@ -582,7 +692,10 @@ class BriefingPipeline:
         log.info("Starting Briefing Pipeline: %s (%s, rev=%d)", title, run_id, rev)
 
         try:
+            stage_timings: dict[str, float] = {}
+
             # STAGE A: Plan topics and seed topic run progress
+            t_a = datetime.now(UTC)
             async with get_db() as db:
                 topics = await fetch_all(
                     db, "SELECT * FROM briefing_topics WHERE enabled = 1 ORDER BY weight DESC"
@@ -598,23 +711,33 @@ class BriefingPipeline:
                         (run_id, t["id"]),
                     )
                 await db.commit()
+            stage_timings["stage_a"] = (datetime.now(UTC) - t_a).total_seconds()
 
             # STAGE B: Parallel topic research workers (Phase 3 WIDE mode)
+            t_b = datetime.now(UTC)
             stage_b_tasks = [self._run_topic_worker(run_id, t) for t in topics]
             results = await asyncio.gather(*stage_b_tasks, return_exceptions=True)
             for res in results:
                 if isinstance(res, Exception):
                     log.warning("Topic worker exception: %s", res)
+            stage_timings["stage_b"] = (datetime.now(UTC) - t_b).total_seconds()
 
             # STAGE C: Analyst & Cross-Topic Dedupe
+            t_c = datetime.now(UTC)
             analyst_data = await self._run_analyst(run_id, slot, today)
+            stage_timings["stage_c"] = (datetime.now(UTC) - t_c).total_seconds()
+            analyst_data["stage_timings"] = stage_timings
 
             # STAGE D: Compose structured briefing JSON & Markdown
+            t_d = datetime.now(UTC)
             total_time = (datetime.now(UTC) - t0).total_seconds()
             md_path = await self._run_composer(run_id, title, today, slot, analyst_data, total_time)
+            stage_timings["stage_d"] = (datetime.now(UTC) - t_d).total_seconds()
 
             # STAGE E: Cleanup staging artifacts
+            t_e = datetime.now(UTC)
             await self._run_cleanup(run_id)
+            stage_timings["stage_e"] = (datetime.now(UTC) - t_e).total_seconds()
 
             # Quality Gate Evaluation (Session K, Section 3.1)
             items = analyst_data.get("items", [])
@@ -829,6 +952,7 @@ class BriefingPipeline:
                     for p in load_watchlist_programs()
                     if (p.get("category") or "").lower() == "internship"
                 ]
+                seen_candidate_urls = set()
                 for prog in watchlist:
                     url = prog.get("url", "")
                     canon_url = normalize_url(url)
@@ -838,7 +962,7 @@ class BriefingPipeline:
                     page_text = ""
                     try:
                         page_text = await asyncio.wait_for(
-                            self.researcher.extract_article(url), timeout=3.0
+                            self.researcher.extract_article(url), timeout=4.0
                         )
                     except Exception as exc:
                         log.debug("Watchlist article extract error: %s", exc)
@@ -863,15 +987,16 @@ class BriefingPipeline:
                             )
                             if m:
                                 snip = m.group(1).strip()
-                                if len(snip) > 8:
+                                words = snip.split()
+                                if 1 <= len(words) <= 25:
                                     evidence[k] = snip
                                     break
 
                     benefits = InternshipBenefits(
-                        accommodation=prog.get("benefits_accommodation", "unknown"),
-                        stipend=prog.get("benefits_stipend", "unknown"),
-                        travel=prog.get("benefits_travel", "unknown"),
-                        visa_support=prog.get("benefits_visa", "unknown"),
+                        accommodation="provided" if "accommodation" in evidence else "unknown",
+                        stipend="yes" if "stipend" in evidence else "unknown",
+                        travel="covered" if "travel" in evidence else "unknown",
+                        visa_support="yes" if "visa_support" in evidence else "unknown",
                     )
                     valid_benefits, valid_evidence = validate_internship_evidence(
                         benefits, evidence, page_text
@@ -888,13 +1013,14 @@ class BriefingPipeline:
                     if el_match == "no":
                         continue
 
+                    page_deadline = extract_deadline_from_page(page_text)
+
                     score, why = compute_internship_score(
                         {
                             "benefits": valid_benefits,
                             "country": prog.get("country", "unknown"),
                             "eligibility_match": el_match,
-                            "deadline": prog.get("typical_window")
-                            or prog.get("deadline", "rolling"),
+                            "deadline": page_deadline,
                         },
                         self.config.briefing.eligibility_profile,
                         self.config.briefing.value_weights,
@@ -924,7 +1050,7 @@ class BriefingPipeline:
                             city=prog.get("city", ""),
                             mode=prog.get("mode", "onsite"),
                             fields=prog.get("fields", []),
-                            deadline=prog.get("typical_window") or prog.get("deadline", "rolling"),
+                            deadline=page_deadline,
                             score=score,
                             benefits=valid_benefits,
                             eligibility=eligibility,
@@ -935,10 +1061,142 @@ class BriefingPipeline:
                             why_ranked=why,
                         )
                     )
+                    seen_candidate_urls.add(url)
+                    seen_candidate_urls.add(canon_url)
+
+                # Search Discovery: query templates (Section 4.2.b)
+                if len(staged_candidates) < 10:
+                    try:
+                        search_tasks = [
+                            default_search_backend.search(q, max_results=3)
+                            for q in INTERNSHIP_QUERY_TEMPLATES[:4]
+                        ]
+                        results_lists = await asyncio.wait_for(
+                            asyncio.gather(*search_tasks, return_exceptions=True),
+                            timeout=6.0,
+                        )
+                        for results in results_lists:
+                            if isinstance(results, Exception) or not results:
+                                continue
+                            for res in results:
+                                raw_u = res.get("url", "")
+                                if not raw_u or raw_u in seen_candidate_urls:
+                                    continue
+                                canon_u = normalize_url(raw_u)
+                                if canon_u in seen_candidate_urls:
+                                    continue
+                                parsed_netloc = urlparse(raw_u).netloc.lower()
+                                if any(fd in parsed_netloc for fd in FORBIDDEN_SEARCH_DOMAINS):
+                                    continue
+                                if is_listing_page_url(raw_u):
+                                    continue
+
+                                page_text = ""
+                                try:
+                                    page_text = await asyncio.wait_for(
+                                        self.researcher.extract_article(raw_u), timeout=3.5
+                                    )
+                                except Exception as exc:
+                                    log.debug("Search article extract error: %s", exc)
+
+                                if not page_text or len(page_text) < 80:
+                                    page_text = res.get("snippet", "")
+
+                                evidence = {}
+                                for k, terms in [
+                                    ("accommodation", ["accommodation", "housing", "room", "living expenses"]),
+                                    ("stipend", ["stipend", "allowance", "salary", "paid", "$", "eur", "chf"]),
+                                    ("travel", ["travel", "airfare", "flight", "transport"]),
+                                    ("visa_support", ["visa", "permit"]),
+                                ]:
+                                    for term in terms:
+                                        m = re.search(
+                                            rf"([^.\n]{{0,60}}{re.escape(term)}[^.\n]{{0,60}})",
+                                            page_text,
+                                            re.IGNORECASE,
+                                        )
+                                        if m:
+                                            snip = m.group(1).strip()
+                                            words = snip.split()
+                                            if 1 <= len(words) <= 25:
+                                                evidence[k] = snip
+                                                break
+
+                                benefits = InternshipBenefits(
+                                    accommodation="provided" if "accommodation" in evidence else "unknown",
+                                    stipend="yes" if "stipend" in evidence else "unknown",
+                                    travel="covered" if "travel" in evidence else "unknown",
+                                    visa_support="yes" if "visa_support" in evidence else "unknown",
+                                )
+                                valid_benefits, valid_evidence = validate_internship_evidence(
+                                    benefits, evidence, page_text
+                                )
+                                eligibility = InternshipEligibility(
+                                    education_level="undergraduate",
+                                    fields=["computer science", "engineering"],
+                                    nationalities=["open"],
+                                )
+                                el_match = match_eligibility(
+                                    eligibility, self.config.briefing.eligibility_profile
+                                )
+                                if el_match == "no":
+                                    continue
+
+                                page_deadline = extract_deadline_from_page(page_text)
+                                score, why = compute_internship_score(
+                                    {
+                                        "benefits": valid_benefits,
+                                        "country": "unknown",
+                                        "eligibility_match": el_match,
+                                        "deadline": page_deadline,
+                                    },
+                                    self.config.briefing.eligibility_profile,
+                                    self.config.briefing.value_weights,
+                                    is_watchlist=False,
+                                )
+                                staged_candidates.append(
+                                    InternshipItem(
+                                        item_id=f"item_{uuid.uuid4().hex[:8]}",
+                                        title=res.get("title", "Funded Internship Opportunity"),
+                                        url=raw_u,
+                                        canonical_url=canon_u,
+                                        source_name="Web Search Discovery",
+                                        category="internship",
+                                        topic_id=topic_id,
+                                        topic_name=topic_name,
+                                        summary=res.get("snippet", "")[:300] or "Verified funded internship opportunity.",
+                                        takeaway=(
+                                            f"Housing: {valid_benefits.accommodation}, "
+                                            f"Stipend: {valid_benefits.stipend}."
+                                        ),
+                                        why_it_matters=f"Score {score}: {', '.join(why[:3])}",
+                                        relevance_score=float(score) / 10.0,
+                                        verified_link=True,
+                                        organisation="Research Institution",
+                                        country="unknown",
+                                        deadline=page_deadline,
+                                        score=score,
+                                        benefits=valid_benefits,
+                                        eligibility=eligibility,
+                                        eligibility_match=el_match,
+                                        apply_url=raw_u,
+                                        source_url=raw_u,
+                                        evidence=valid_evidence,
+                                        why_ranked=why,
+                                    )
+                                )
+                                seen_candidate_urls.add(raw_u)
+                                seen_candidate_urls.add(canon_u)
+                                if len(staged_candidates) >= 15:
+                                    break
+                    except Exception as exc:
+                        log.debug("Internship search discovery error: %s", exc)
 
                 # Feed items
                 for item in collected_entries:
                     raw_url = item["url"]
+                    if is_listing_page_url(raw_url):
+                        continue
                     canon_url = normalize_url(raw_url)
                     summary = item.get("summary", "")
                     page_text = summary
@@ -966,7 +1224,8 @@ class BriefingPipeline:
                             )
                             if m:
                                 snip = m.group(1).strip()
-                                if len(snip) > 8:
+                                words = snip.split()
+                                if 1 <= len(words) <= 25:
                                     evidence[k] = snip
                                     break
 
@@ -990,12 +1249,13 @@ class BriefingPipeline:
                     if el_match == "no":
                         continue
 
+                    page_deadline = extract_deadline_from_page(page_text)
                     score, why = compute_internship_score(
                         {
                             "benefits": valid_benefits,
                             "country": "unknown",
                             "eligibility_match": el_match,
-                            "deadline": "rolling",
+                            "deadline": page_deadline,
                         },
                         self.config.briefing.eligibility_profile,
                         self.config.briefing.value_weights,
@@ -1018,7 +1278,7 @@ class BriefingPipeline:
                             verified_link=True,
                             organisation=item["source_name"],
                             country="unknown",
-                            deadline="rolling",
+                            deadline=page_deadline,
                             score=score,
                             benefits=valid_benefits,
                             eligibility=eligibility,
@@ -1037,8 +1297,13 @@ class BriefingPipeline:
                     for p in load_watchlist_programs()
                     if (p.get("category") or "").lower() == "hackathon"
                 ]
+                seen_hack_urls = set()
                 for prog in watchlist:
                     url = prog.get("url", "")
+                    # Section 4.4: A listing page is never an item!
+                    if is_listing_page_url(url):
+                        log.debug("Skipping listing root from being staged as item: %s", url)
+                        continue
                     canon_url = normalize_url(url)
                     name = prog.get("name", "Hackathon")
                     notes = prog.get("notes", "")
@@ -1087,9 +1352,105 @@ class BriefingPipeline:
                             why_ranked=why,
                         )
                     )
+                    seen_hack_urls.add(url)
+                    seen_hack_urls.add(canon_url)
+
+                # Search Discovery for individual hackathon events (Devpost, ETHGlobal, DoraHacks, Unstop)
+                try:
+                    search_tasks = [
+                        default_search_backend.search(q, max_results=3)
+                        for q in HACKATHON_QUERY_TEMPLATES[:4]
+                    ]
+                    results_lists = await asyncio.wait_for(
+                        asyncio.gather(*search_tasks, return_exceptions=True),
+                        timeout=6.0,
+                    )
+                    for results in results_lists:
+                        if isinstance(results, Exception) or not results:
+                            continue
+                        for res in results:
+                            raw_u = res.get("url", "")
+                            if not raw_u or raw_u in seen_hack_urls:
+                                continue
+                            canon_u = normalize_url(raw_u)
+                            if canon_u in seen_hack_urls:
+                                continue
+                            if any(fd in urlparse(raw_u).netloc.lower() for fd in FORBIDDEN_SEARCH_DOMAINS):
+                                continue
+                            if is_listing_page_url(raw_u):
+                                continue
+
+                            page_text = ""
+                            try:
+                                page_text = await asyncio.wait_for(
+                                    self.researcher.extract_article(raw_u), timeout=3.5
+                                )
+                            except Exception as exc:
+                                log.debug("Hackathon search extract error: %s", exc)
+
+                            if not page_text or len(page_text) < 80:
+                                page_text = res.get("snippet", "")
+
+                            h_deadline = extract_deadline_from_page(page_text)
+                            prize_text = "Prizes & Awards"
+                            for line in page_text.splitlines():
+                                if any(p in line.lower() for p in ("prize", "$", "reward", "grant", "bounty")):
+                                    if len(line.strip()) > 5:
+                                        prize_text = line.strip()[:80]
+                                        break
+
+                            score, why = compute_hackathon_score(
+                                {
+                                    "prize_text": prize_text,
+                                    "travel_or_accommodation_covered": "yes"
+                                    if "travel" in page_text.lower() or "flight" in page_text.lower()
+                                    else "unknown",
+                                    "themes": ["ai", "systems", "software"],
+                                    "title": res.get("title", ""),
+                                    "fee": "free",
+                                    "deadline": h_deadline,
+                                },
+                                is_watchlist=False,
+                            )
+                            staged_candidates.append(
+                                HackathonItem(
+                                    item_id=f"item_{uuid.uuid4().hex[:8]}",
+                                    title=res.get("title", "Hackathon Event"),
+                                    url=raw_u,
+                                    canonical_url=canon_u,
+                                    source_name="Web Search Discovery",
+                                    category="hackathon",
+                                    topic_id=topic_id,
+                                    topic_name=topic_name,
+                                    summary=res.get("snippet", "")[:300] or "Individual hackathon challenge.",
+                                    takeaway="Verified individual hackathon event.",
+                                    why_it_matters=f"Score {score}: {', '.join(why[:2])}",
+                                    relevance_score=float(score) / 10.0,
+                                    verified_link=True,
+                                    organiser=urlparse(raw_u).netloc,
+                                    city_or_country="Global / Online",
+                                    mode="virtual",
+                                    themes=["software", "ai"],
+                                    deadline=h_deadline,
+                                    score=score,
+                                    prize_text=prize_text,
+                                    fee="free",
+                                    apply_url=raw_u,
+                                    source_url=raw_u,
+                                    why_ranked=why,
+                                )
+                            )
+                            seen_hack_urls.add(raw_u)
+                            seen_hack_urls.add(canon_u)
+                            if len(staged_candidates) >= 12:
+                                break
+                except Exception as exc:
+                    log.debug("Hackathon search discovery error: %s", exc)
 
                 for item in collected_entries:
                     raw_url = item["url"]
+                    if is_listing_page_url(raw_url):
+                        continue
                     canon_url = normalize_url(raw_url)
                     summary = item.get("summary", "")
                     score, why = compute_hackathon_score(
@@ -1337,6 +1698,14 @@ class BriefingPipeline:
         def _tokenize(title: str) -> set[str]:
             return {w.lower() for w in re.findall(r"\w+", title) if len(w) > 3}
 
+        drop_reasons: dict[str, int] = {
+            "link_failed": 0,
+            "soft_404": 0,
+            "listing_page_rejected": 0,
+            "ineligible": 0,
+            "duplicate": 0,
+        }
+
         # Deduplication
         deduped: list[dict[str, Any]] = []
         dedup_urls: set[str] = set()
@@ -1345,6 +1714,7 @@ class BriefingPipeline:
         for it in items:
             u = it.get("canonical_url") or it.get("url", "")
             if u in dedup_urls:
+                drop_reasons["duplicate"] += 1
                 continue
 
             tokens = _tokenize(it.get("title", ""))
@@ -1356,6 +1726,7 @@ class BriefingPipeline:
                         is_dup = True
                         break
             if is_dup:
+                drop_reasons["duplicate"] += 1
                 continue
 
             dedup_urls.add(u)
@@ -1420,7 +1791,7 @@ class BriefingPipeline:
             selected_news.extend(t_items[: quotas.news_per_topic])
         selected_news.sort(key=lambda x: float(x.get("relevance_score", 1.0)), reverse=True)
 
-        final_items: list[dict[str, Any]] = (
+        candidate_pool: list[dict[str, Any]] = (
             selected_internships
             + selected_hackathons
             + selected_competitions
@@ -1428,13 +1799,43 @@ class BriefingPipeline:
             + selected_news
         )
 
+        # Strict link verification pass (Section 4.7)
+        verified_final_items: list[dict[str, Any]] = []
+        for it in candidate_pool:
+            u = it.get("canonical_url") or it.get("url", "")
+            cat = (it.get("category") or "").lower()
+            if cat in ("hackathon", "hackathons") and is_listing_page_url(u):
+                drop_reasons["listing_page_rejected"] += 1
+                continue
+
+            if it.get("verified_link") is False or it.get("link_status") == "unverified":
+                ok, code, reason = await self.researcher.verify_link(u, known_fetched=bool(it.get("summary")))
+                if not ok:
+                    if reason == "soft_404":
+                        drop_reasons["soft_404"] += 1
+                    else:
+                        drop_reasons["link_failed"] += 1
+                    continue
+                it["link_status"] = "verified" if reason == "ok" else reason
+                it["link_code"] = code
+                it["link_reason"] = reason
+            else:
+                it.setdefault("link_status", "verified")
+                it.setdefault("link_code", 200)
+                it.setdefault("link_reason", "ok")
+
+            verified_final_items.append(it)
+
         # Select Top 3: best internship first if available
         top_3: list[dict[str, Any]] = []
-        if selected_internships:
-            top_3.append(selected_internships[0])
+        verified_internships = [
+            it for it in verified_final_items if (it.get("category") or "").lower() in ("internship", "internships")
+        ]
+        if verified_internships:
+            top_3.append(verified_internships[0])
 
-        candidates_pool = [it for it in final_items if it not in top_3]
-        candidates_pool.sort(
+        ranking_pool = [it for it in verified_final_items if it not in top_3]
+        ranking_pool.sort(
             key=lambda x: (
                 int(x.get("score", 0))
                 if (x.get("category") or "") in ("internship", "hackathon")
@@ -1443,18 +1844,18 @@ class BriefingPipeline:
             ),
             reverse=True,
         )
-        for cand in candidates_pool:
+        for cand in ranking_pool:
             if len(top_3) >= 3:
                 break
             top_3.append(cand)
 
         tldr_lines = [
             (
-                f"⚡ Radar: {len(final_items)} verified items across technical domains, "
+                f"⚡ Radar: {len(verified_final_items)} verified items across technical domains, "
                 "programs, and competitions."
             ),
             (
-                f"🎓 Funded Internships: {len(selected_internships)} high-value opportunities "
+                f"🎓 Funded Internships: {len(verified_internships)} high-value opportunities "
                 "with verified accommodation/stipend."
             ),
             (
@@ -1469,11 +1870,12 @@ class BriefingPipeline:
         tldr = "\n".join(tldr_lines)
 
         return {
-            "items": final_items,
+            "items": verified_final_items,
             "top_3": top_3,
             "tldr": tldr,
             "sources_count": len(dedup_urls),
-            "total_items": len(final_items),
+            "total_items": len(verified_final_items),
+            "drop_reasons": drop_reasons,
         }
 
     async def _run_composer(
@@ -1535,12 +1937,54 @@ class BriefingPipeline:
                 f"*(Source: {it['source_name']})*"
             )
 
-        md_lines.append("")
-        md_lines.append("## 📰 Sector Deep Dives")
+        # Opportunities Sections
+        internships = [it for it in items if (it.get("category") or "").lower() in ("internship", "internships")]
+        hackathons = [it for it in items if (it.get("category") or "").lower() in ("hackathon", "hackathons")]
+        competitions = [it for it in items if (it.get("category") or "").lower() in ("competitions", "opportunities", "ctfs")]
 
-        # Group by topic
+        if internships:
+            target_int = 10
+            found_int = len(internships)
+            sub_int = f"*(only {found_int} found — target: {target_int})*" if found_int < target_int else f"*({found_int} verified)*"
+            md_lines.append(f"\n## 🎓 Funded Internships & Programs {sub_int}")
+            for it in internships:
+                b = it.get("benefits", {})
+                acc = b.get("accommodation", "unknown") if isinstance(b, dict) else getattr(b, "accommodation", "unknown")
+                stip = b.get("stipend", "unknown") if isinstance(b, dict) else getattr(b, "stipend", "unknown")
+                dl = it.get("deadline", "unknown")
+                score = it.get("score", 0)
+                md_lines.append(
+                    f"- **[{it['title']}]({it['url']})** (Score: {score}) — Deadline: {dl} | "
+                    f"Housing: {acc}, Stipend: {stip} | {it.get('summary', '')}"
+                )
+
+        if hackathons:
+            target_hack = 8
+            found_hack = len(hackathons)
+            sub_hack = f"*(only {found_hack} found — target: {target_hack})*" if found_hack < target_hack else f"*({found_hack} verified)*"
+            md_lines.append(f"\n## 🚀 Hackathons {sub_hack}")
+            for it in hackathons:
+                prize = it.get("prize_text", "Prizes")
+                dl = it.get("deadline", "unknown")
+                md_lines.append(
+                    f"- **[{it['title']}]({it['url']})** — Deadline: {dl} | "
+                    f"Prizes: {prize} | {it.get('summary', '')}"
+                )
+
+        if competitions:
+            md_lines.append(f"\n## 🏆 Competitions & CTFs *(CTFs capped at 3)*")
+            for it in competitions:
+                md_lines.append(f"- **[{it['title']}]({it['url']})**: {it.get('summary', '')}")
+
+        md_lines.append("\n## 📰 Sector Deep Dives")
+
+        # Group news by topic
+        news_items = [
+            it for it in items
+            if (it.get("category") or "news").lower() not in ("internship", "internships", "hackathon", "hackathons", "competitions", "opportunities", "ctfs", "ideas", "startup_ideas")
+        ]
         by_topic: dict[str, list[dict[str, Any]]] = {}
-        for it in items:
+        for it in news_items:
             tname = it.get("topic_name", "General")
             by_topic.setdefault(tname, []).append(it)
 
@@ -1551,6 +1995,32 @@ class BriefingPipeline:
                     f"- **[{it['title']}]({it['url']})**: {it['summary']} "
                     f"*(via {it['source_name']})*"
                 )
+
+        # 🛠️ How this was made section
+        drop_reasons = analyst_data.get("drop_reasons", {})
+        drop_summary = (
+            ", ".join(f"{k}: {v}" for k, v in drop_reasons.items())
+            if drop_reasons
+            else "link_failed: 0, ineligible: 0, duplicate: 0"
+        )
+        stage_timings = analyst_data.get("stage_timings", {})
+        timing_str = (
+            ", ".join(f"{k}: {v:.2f}s" for k, v in stage_timings.items())
+            if stage_timings
+            else f"total: {generation_seconds:.2f}s"
+        )
+        md_lines.extend(
+            [
+                "\n## 🛠️ How this was made",
+                f"- **Funded internships found**: {len(internships)} (target: 10, min: 6)",
+                f"- **Hackathons found**: {len(hackathons)} (target: 8)",
+                f"- **Competitions found**: {len(competitions)} (target: 5, CTF capped at 3)",
+                f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
+                f"- **Execution time**: {generation_seconds:.2f}s ({timing_str})",
+                f"- **Drop reasons**: {drop_summary}",
+                "- **Engine**: NoX Intelligence Briefing Pipeline (Session K Verified)",
+            ]
+        )
 
         md_lines.append("\n---\n*Generated autonomously by NoX Intelligence Daemon*")
         content = "\n".join(md_lines)

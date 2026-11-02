@@ -243,8 +243,12 @@ class BriefingEligibilityProfile(_StrictModel):
     """Local user eligibility profile for program matching (never sent to cloud)."""
 
     nationality: str = "India"
+    citizenship: str = "India"
     level: str = "undergraduate"
+    degree: str = "Bachelor of Technology"
     field: str = "computer science"
+    graduation_year: int = 2026
+    country_of_study: str = "India"
 
 
 class BriefingValueWeights(_StrictModel):

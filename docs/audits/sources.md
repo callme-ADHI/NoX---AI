@@ -1,30 +1,33 @@
-# Verified Sources Audit (Phase 3 Live Probe)
+# Aggregator Probe Audit (Session K)
 
-Audit Date: 2026-10-31
-Verification: VERIFIED-LIVE (Live probe using WebResearcher with async DNS, defusedxml, and per-hop SSRF validation)
+Conducted on: `2026-11-02`  
+Agent: `NoX/0.1.0 (Desktop Intelligence Agent; +https://github.com/callme-ADHI/NoX---AI)`  
+Purpose: Probe major hackathon, competition, and challenge aggregators at startup; evaluate robots.txt compliance, HTTP response codes, and Trafilatura readable text extraction.
 
-## Live Sweep Results
+---
 
-| Source Name | Topic | URL | Type | Status | HTTP | Latency | Items Extracted | Verification |
-|---|---|---|---|---|---|---|---|---|
-| arXiv cs.AI | topic_ai | https://export.arxiv.org/rss/cs.AI | RSS | PASS | 200 | 1908.3ms | 15 | VERIFIED-LIVE |
-| Hacker News | topic_cs | https://news.ycombinator.com/rss | RSS | PASS | 200 | 1956.1ms | 15 | VERIFIED-LIVE |
-| The Hacker News | topic_cybersecurity | https://feeds.feedburner.com/TheHackersNews | RSS | PASS | 200 | 3132.8ms | 15 | VERIFIED-LIVE |
-| CISA Alerts | topic_cybersecurity | https://www.cisa.gov/cybersecurity-advisories/all.xml | RSS | PASS | 200 | 1787.0ms | 15 | VERIFIED-LIVE |
-| Hackaday | topic_iot | https://hackaday.com/feed/ | RSS | PASS | 200 | 2308.6ms | 7 | VERIFIED-LIVE |
-| IEEE Spectrum | topic_robotics | https://spectrum.ieee.org/feeds/topic/robotics.rss | RSS | PASS | 200 | 2429.6ms | 15 | VERIFIED-LIVE |
-| Ars Technica | topic_innovations | https://feeds.arstechnica.com/arstechnica/index | RSS | PASS | 200 | 5153.4ms | 15 | VERIFIED-LIVE |
-| TechCrunch | topic_startups | https://techcrunch.com/feed/ | RSS | PASS | 200 | 1938.6ms | 15 | VERIFIED-LIVE |
-| The Verge | topic_ai_models | https://www.theverge.com/rss/index.xml | RSS | PASS | 200 | 1700.8ms | 10 | VERIFIED-LIVE |
-| CTFtime Upcoming | topic_ctfs | https://ctftime.org/event/list/upcoming/rss/ | RSS | PASS | 200 | 1700.1ms | 15 | VERIFIED-LIVE |
-| Unstop Competitions | topic_competitions | https://unstop.com/competitions | Web | PASS | 200 | 4617.4ms | 1 | VERIFIED-LIVE |
+## 1. Live Aggregator Probe Results
 
-## Failed / Excluded Feeds (Historic)
-- BleepingComputer (`https://www.bleepingcomputer.com/feed/`): HTTP 403 Forbidden (Cloudflare bot block on server-side scraping).
-- Devpost (`https://devpost.com/hackathons`): HTTP 403 Forbidden (Cloudflare WAF).
+| Aggregator | Target URL | HTTP Status | robots.txt Allowed | Raw HTML Size | Trafilatura Extracted Text | Assessment & Strategy |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **Devpost** | `https://devpost.com/hackathons` | `200 OK` | `True` | 152,750 B | 973 chars | **Partial / Listing root**: Contains individual upcoming hackathons in HTML payload, but root `/hackathons` URL is a generic listing. Links to individual subdomains (`https://*.devpost.com`) must be extracted and followed. |
+| **Unstop** | `https://unstop.com/hackathons` | `200 OK` | `True` | 24,265 B | 160 chars | **Client SPA**: Heavily dynamic React hydration. Static GET returns minimal text. Must use search discovery or specific program URLs. |
+| **MLH** | `https://mlh.io/seasons/2025/events` | `200 OK` | `True` | 216,674 B | 108 chars | **Client SPA**: Event list rendered in browser via client-side components. |
+| **Hackathons.ca** | `https://hackathons.ca` | `Timeout` | N/A | 0 B | 0 chars | **Unreachable**: Connection timed out. Dropped from live candidate pool. |
+| **Kaggle** | `https://www.kaggle.com/competitions` | `200 OK` | `True` | 5,132 B | 0 chars | **Client SPA Shell**: React app shell without server-side table markup. Trafilatura returns empty text. Direct competition URLs or RSS required. |
+| **CTFtime** | `https://ctftime.org/event/list/upcoming` | `200 OK` | `True` | 20,644 B | 3,667 chars | **Fully Parseable**: Semantic HTML table of upcoming CTFs with dates, formats, rating weights, and event links. High extraction reliability. |
 
-## Safeguards Applied
-1. **Defused XML**: XML parsing switched from standard `xml.etree` to `defusedxml.ElementTree` preventing entity expansion attacks (Billion Laughs) and external DTD resolution.
-2. **Async DNS Resolution**: Hostname lookup using non-blocking `asyncio.get_running_loop().getaddrinfo`.
-3. **Per-hop SSRF Protection**: Full traversal inspection preventing redirects from public URLs to private (RFC 1918), loopback (`127.0.0.0/8`), cloud metadata (`169.254.169.254`), or link-local addresses.
-4. **NAT64 RFC 6052 Compatibility**: Safely unwraps `64:ff9b::/96` IPv4-mapped addresses to evaluate underlying IPv4 security.
+---
+
+## 2. Extraction & Ingestion Strategy
+
+1. **Individual Events Only (Spec §4.4)**:
+   - Root listing URLs (e.g. `https://devpost.com/hackathons`, `https://mlh.io/seasons`) are strictly disallowed from appearing as briefing items.
+   - For hackathons, individual event URLs (e.g., `https://hackmit.org`, `https://calhacks.io`, or `https://<event>.devpost.com`) are parsed and validated.
+
+2. **Search Discovery Integration (Spec §4.2)**:
+   - Aggregators that render client-side only (Kaggle, Unstop, MLH) are supplemented via DuckDuckGo search queries targeting specific upcoming events with server-rendered landing pages.
+
+3. **Robots.txt & Rate Limiting (Spec §4.2)**:
+   - Every domain's `robots.txt` is fetched, parsed, and respected before extraction. If disallow matches the user agent, the link is logged and dropped.
+   - Per-domain rate limit enforced (default 1.0 RPS).

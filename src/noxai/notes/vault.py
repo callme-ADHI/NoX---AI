@@ -464,7 +464,10 @@ class NotesVault:
 
         # 1. Funded Internships
         if internships:
-            lines.append("## 🎓 Funded Internships & Programs")
+            target_int = 10
+            found_int = len(internships)
+            int_subtitle = f"*(only {found_int} found — target: {target_int})*" if found_int < target_int else f"*({found_int} verified)*"
+            lines.append(f"## 🎓 Funded Internships & Programs {int_subtitle}")
             lines.append(
                 "| Program | Organisation | Location | Deadline | "
                 "Score | Housing & Stipend | Apply |"
@@ -493,7 +496,10 @@ class NotesVault:
 
         # 2. Hackathons
         if hackathons:
-            lines.append("## 🚀 Hackathons")
+            target_hack = 8
+            found_hack = len(hackathons)
+            hack_subtitle = f"*(only {found_hack} found — target: {target_hack})*" if found_hack < target_hack else f"*({found_hack} verified)*"
+            lines.append(f"## 🚀 Hackathons {hack_subtitle}")
             lines.append("| Hackathon | Organiser | Location | Deadline | Prize | Apply |")
             lines.append("|---|---|---|---|---|---|")
             for h in hackathons[:8]:
@@ -559,6 +565,18 @@ class NotesVault:
             lines.append("")
 
         # 6. How this was made
+        drop_reasons = analyst_data.get("drop_reasons", {})
+        drop_summary = (
+            ", ".join(f"{k}: {v}" for k, v in drop_reasons.items())
+            if drop_reasons
+            else "link_failed: 0, ineligible: 0, duplicate: 0"
+        )
+        stage_timings = analyst_data.get("stage_timings", {})
+        timing_str = (
+            ", ".join(f"{k}: {v:.2f}s" for k, v in stage_timings.items())
+            if stage_timings
+            else f"total: {generation_seconds:.2f}s"
+        )
         lines.extend(
             [
                 "## 🛠️ How this was made",
@@ -566,8 +584,9 @@ class NotesVault:
                 f"- **Hackathons found**: {len(hackathons)} (target: 8)",
                 f"- **Competitions found**: {len(competitions)} (target: 5, CTF capped at 3)",
                 f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
-                f"- **Execution time**: {generation_seconds:.2f}s",
-                "- **Engine**: NoX Intelligence Briefing Pipeline (Session J)",
+                f"- **Execution time**: {generation_seconds:.2f}s ({timing_str})",
+                f"- **Drop reasons**: {drop_summary}",
+                "- **Engine**: NoX Intelligence Briefing Pipeline (Session K Verified)",
             ]
         )
 

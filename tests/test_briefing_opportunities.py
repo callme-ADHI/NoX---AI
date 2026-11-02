@@ -46,7 +46,12 @@ def test_evidence_verification_and_rejection():
     snippet_fake = "free luxury penthouse suite in downtown Geneva with private chauffeur"
     assert verify_evidence_snippet(snippet_fake, page_text) is False
 
-    # 4. validate_internship_evidence forces unverified benefits to 'unknown'
+    # 4. Length rule: snippets with > 25 words must be rejected even if text matches
+    long_snippet = "monthly subsistence allowance to cover accommodation and living expenses in the Geneva area Travel expenses are also reimbursed on a lump sum basis Eligible applicants must be enrolled in a bachelor or master student degree in computer science or physics"
+    assert len(long_snippet.split()) > 25
+    assert verify_evidence_snippet(long_snippet, page_text) is False
+
+    # 5. validate_internship_evidence forces unverified benefits to 'unknown'
     claimed_benefits = InternshipBenefits(
         accommodation="provided",
         stipend="yes",

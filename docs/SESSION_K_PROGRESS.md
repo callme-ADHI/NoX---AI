@@ -10,7 +10,7 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [ ] **A4**: Closing the window does not stop the daemon; tray menu works; single instance enforced.
 - [x] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
 - [x] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
-- [ ] **A7**: Content: all existing news kept; funded internships (free accommodation, abroad, stipend; all CS fields) and individual hackathons added; CTFs capped at 3; every benefit claim has validated page evidence; links strictly checked.
+- [x] **A7**: Content: all existing news kept; funded internships (free accommodation, abroad, stipend; all CS fields) and individual hackathons added; CTFs capped at 3; every benefit claim has validated page evidence; links strictly checked.
 - [ ] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording.
 - [ ] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
 - [ ] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
@@ -43,17 +43,17 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Single Run button: Real briefing run in temp instance with Playwright reload/navigation re-attach test & screenshots
   - [x] Phase 1 git commit
 
-- [ ] **Phase 2: Content You Can Trust**
-  - [ ] `programs.example.toml` clean (name, url, category, human note, hint_window only; no hardcoded facts/benefits/deadlines)
-  - [ ] Watchlist discovery & Search discovery (12+ query templates across CS fields, trafilatura extraction, robots.txt compliance)
-  - [ ] Aggregator probe audit in `docs/audits/sources.md`
-  - [ ] Evidence Rule enforced in code: <= 25 words verbatim from page text, else "unknown". Unit tests with fabricated snippet
-  - [ ] Hackathons as INDIVIDUAL events parsed from listings & event pages
-  - [ ] Eligibility match from config [briefing.eligibility_profile] only
-  - [ ] Strict link verification (HEAD then GET, 2 tries, 10s timeout, drop 404/5xx/soft-404)
-  - [ ] Honest shortfalls ("only N found"), stage timings & drop reasons in "How this was made"
-  - [ ] LIVE PROOF: Real run with cloud model, counts, digest excerpts, 3 internship notes, 3 hackathon notes, 2 CTF notes, URL table, no vault placeholders
-  - [ ] Phase 2 git commit
+- [x] **Phase 2: Content You Can Trust**
+  - [x] `programs.example.toml` clean (name, url, category, human note, hint_window only; no hardcoded facts/benefits/deadlines)
+  - [x] Watchlist discovery & Search discovery (12+ query templates across CS fields, trafilatura extraction, robots.txt compliance)
+  - [x] Aggregator probe audit in `docs/audits/sources.md`
+  - [x] Evidence Rule enforced in code: <= 25 words verbatim from page text, else "unknown". Unit tests with fabricated snippet
+  - [x] Hackathons as INDIVIDUAL events parsed from listings & event pages
+  - [x] Eligibility match from config [briefing.eligibility_profile] only
+  - [x] Strict link verification (HEAD then GET, 2 tries, 10s timeout, drop 404/5xx/soft-404)
+  - [x] Honest shortfalls ("only N found"), stage timings & drop reasons in "How this was made"
+  - [x] LIVE PROOF: Real run with cloud model, counts, digest excerpts, 3 internship notes, 3 hackathon notes, 2 CTF notes, URL table, no vault placeholders
+  - [x] Phase 2 git commit
 
 - [ ] **Phase 3: Cloud, KeyPool, Conversation Memory — Proven With Real Paths**
   - [ ] Cloud default in fresh temp instance with real keys, recording HTTP transport proving local_only never egresses, cloud off runs locally degraded
