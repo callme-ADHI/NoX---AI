@@ -49,6 +49,8 @@ class NotesVault:
             "Briefings",
             "Items/News",
             "Items/Opportunities",
+            "Items/Internships",
+            "Items/Hackathons",
             "Items/Ideas",
             "Topics",
             "Dashboards",
@@ -135,8 +137,10 @@ class NotesVault:
                     suffix = existing_body[e_idx:]
                     final_body = f"{prefix}{BEGIN_MARKER}\n{nox_body}\n{END_MARKER}{suffix}"
                 else:
-                    # User content exists but markers were removed/absent -> preserve user text below
-                    final_body = f"{BEGIN_MARKER}\n{nox_body}\n{END_MARKER}\n\n{existing_body.strip()}\n"
+                    # User content exists but markers were absent -> preserve user text below
+                    final_body = (
+                        f"{BEGIN_MARKER}\n{nox_body}\n{END_MARKER}\n\n{existing_body.strip()}\n"
+                    )
             except Exception as exc:
                 log.warning("Error reading existing note at %s: %s; rewriting", target, exc)
                 final_body = f"{BEGIN_MARKER}\n{nox_body}\n{END_MARKER}\n"
@@ -160,14 +164,20 @@ class NotesVault:
         return target
 
     def export_item_note(self, item: dict[str, Any], date_str: str, slot: str) -> Path:
-        """Export an individual item note to Items/{News|Opportunities|Ideas}/."""
+        """Export an item note to Items/{News|Opportunities|Internships|Hackathons|Ideas}/."""
         nox_id = item.get("item_id") or item.get("id") or f"it_{uuid.uuid4().hex[:8]}"
         title = item.get("title", "Untitled Item")
         slug = self._slugify(title)
         category = (item.get("category") or "news").lower()
         topic_name = item.get("topic_name") or item.get("topic_id") or "General"
 
-        if category in ("opportunities", "hackathons", "competitions", "grants", "bounties"):
+        if category in ("internship", "internships"):
+            itype = "internship"
+            folder = "Internships"
+        elif category in ("hackathon", "hackathons"):
+            itype = "hackathon"
+            folder = "Hackathons"
+        elif category in ("opportunities", "competitions", "grants", "bounties", "ctfs"):
             itype = "opportunity"
             folder = "Opportunities"
         elif category in ("ideas", "startup_ideas"):
@@ -179,32 +189,85 @@ class NotesVault:
 
         rel_path = f"Items/{folder}/{slug}--{nox_id}.md"
 
+        # Determine real link status
+        if "link_status" in item and item["link_status"] != "unknown":
+            real_link_status = item["link_status"]
+        elif item.get("verified_link") is True:
+            real_link_status = "verified"
+        elif item.get("verified_link") is False:
+            real_link_status = "unverified"
+        else:
+            real_link_status = "unknown"
+
         meta: dict[str, Any] = {
+            "title": title,
             "nox_id": nox_id,
             "type": itype,
             "topic": topic_name,
             "tags": [itype, self._slugify(topic_name)],
             "published": item.get("published_at") or date_str,
             "fetched": date_str,
-            "source": item.get("source_name", "Unknown"),
-            "url": item.get("url", ""),
-            "link_status": "verified" if item.get("verified_link", True) else "unverified",
-            "status": "new",
+            "source": item.get("source_name")
+            or item.get("organisation")
+            or item.get("organiser")
+            or "Unknown",
+            "url": item.get("url") or item.get("apply_url") or "",
+            "link_status": real_link_status,
+            "status": item.get("status") or "new",
             "rating": None,
             "briefing": f"[[{date_str}-{slot}]]",
         }
 
-        if itype == "opportunity":
-            meta.update({
-                "deadline": item.get("deadline", "TBD"),
-                "event_start": item.get("event_start", "TBD"),
-                "mode": item.get("mode", "Online"),
-                "location": item.get("location", "Global"),
-                "eligibility": item.get("eligibility", "Open to all"),
-                "prize": item.get("prize", "TBD"),
-                "registration_url": item.get("registration_url") or item.get("url", ""),
-            })
+        if itype == "internship":
+            meta.update(
+                {
+                    "org": item.get("organisation") or item.get("org") or "Unknown",
+                    "country": item.get("country", "unknown"),
+                    "city": item.get("city", ""),
+                    "mode": item.get("mode", "unknown"),
+                    "fields": item.get("fields", []),
+                    "deadline": item.get("deadline", "unknown"),
+                    "score": item.get("score", 0),
+                    "benefits": item.get("benefits", {}),
+                    "eligibility_match": item.get("eligibility_match", "unknown"),
+                    "apply_url": item.get("apply_url") or item.get("url", ""),
+                    "source_url": item.get("source_url") or item.get("url", ""),
+                    "evidence": item.get("evidence", {}),
+                    "why_ranked": item.get("why_ranked", []),
+                }
+            )
+        elif itype == "hackathon":
+            meta.update(
+                {
+                    "org": item.get("organiser") or item.get("org") or "Unknown",
+                    "country": item.get("city_or_country") or item.get("country", "unknown"),
+                    "city": item.get("city", ""),
+                    "mode": item.get("mode", "unknown"),
+                    "themes": item.get("themes", []),
+                    "deadline": item.get("deadline", "unknown"),
+                    "score": item.get("score", 0),
+                    "prize": item.get("prize_text") or item.get("prize", "unknown"),
+                    "fee": item.get("fee", "free"),
+                    "travel_accommodation": item.get("travel_or_accommodation_covered", "unknown"),
+                    "apply_url": item.get("apply_url") or item.get("url", ""),
+                    "source_url": item.get("source_url") or item.get("url", ""),
+                    "why_ranked": item.get("why_ranked", []),
+                }
+            )
+        elif itype == "opportunity":
+            meta.update(
+                {
+                    "deadline": item.get("deadline", "unknown"),
+                    "event_start": item.get("event_start", "unknown"),
+                    "mode": item.get("mode", "unknown"),
+                    "location": item.get("location", "unknown"),
+                    "eligibility": item.get("eligibility", "unknown"),
+                    "prize": item.get("prize", "unknown"),
+                    "registration_url": item.get("registration_url") or item.get("url", ""),
+                }
+            )
 
+        why_it_matters_text = item.get("why_it_matters") or item.get("takeaway") or ""
         body_lines = [
             f"# {title}",
             "",
@@ -212,32 +275,76 @@ class NotesVault:
             f"{item.get('summary', title)}",
             "",
             "### Why it matters",
-            f"{item.get('why_it_matters') or item.get('takeaway') or 'Relevant to engineering and AI systems.'}",
+            why_it_matters_text if why_it_matters_text else f"{item.get('summary', title)}",
             "",
             "### Key details",
             f"- **Topic**: {topic_name}",
-            f"- **Source**: {item.get('source_name', 'Unknown')}",
-            f"- **Relevance Score**: {item.get('relevance_score', 1.0)}",
+            f"- **Source**: {meta.get('source')}",
+            f"- **Relevance / Value Score**: {item.get('score', item.get('relevance_score', 1.0))}",
             "",
             "### Sources",
-            f"- [{item.get('source_name', 'Source')}]({item.get('url', '')}) (verified link)",
+            f"- [{meta.get('source')}]({meta.get('url')}) ({real_link_status} link)",
         ]
 
-        if itype == "opportunity":
-            body_lines.extend([
-                "",
-                "### Key facts",
-                "| Metric | Details |",
-                "|---|---|",
-                f"| Deadline | {meta.get('deadline')} |",
-                f"| Prize | {meta.get('prize')} |",
-                f"| Mode | {meta.get('mode')} |",
-                f"| Location | {meta.get('location')} |",
-                f"| Eligibility | {meta.get('eligibility')} |",
-                "",
-                "### How to apply",
-                f"[{meta.get('registration_url')}]({meta.get('registration_url')})",
-            ])
+        if itype == "internship":
+            body_lines.extend(
+                [
+                    "",
+                    "### Benefits & Eligibility Evidence",
+                    "| Benefit | Status | Evidence from Source |",
+                    "|---|---|---|",
+                ]
+            )
+            b_data = item.get("benefits", {})
+            if hasattr(b_data, "model_dump"):
+                b_data = b_data.model_dump()
+            ev_data = item.get("evidence", {})
+            for b_key in ("accommodation", "stipend", "travel", "visa_support"):
+                b_val = b_data.get(b_key, "unknown") if isinstance(b_data, dict) else "unknown"
+                b_ev = ev_data.get(b_key, "") if isinstance(ev_data, dict) else ""
+                body_lines.append(f"| {b_key.capitalize()} | {b_val} | {b_ev or 'None'} |")
+            body_lines.extend(
+                [
+                    "",
+                    "### How to apply",
+                    f"[{meta.get('apply_url')}]({meta.get('apply_url')})",
+                ]
+            )
+        elif itype == "hackathon":
+            body_lines.extend(
+                [
+                    "",
+                    "### Hackathon details",
+                    "| Metric | Details |",
+                    "|---|---|",
+                    f"| Deadline | {meta.get('deadline')} |",
+                    f"| Prize | {meta.get('prize')} |",
+                    f"| Mode | {meta.get('mode')} |",
+                    f"| Location | {meta.get('country')} |",
+                    f"| Fee | {meta.get('fee')} |",
+                    f"| Travel / Stay Support | {meta.get('travel_accommodation')} |",
+                    "",
+                    "### How to apply",
+                    f"[{meta.get('apply_url')}]({meta.get('apply_url')})",
+                ]
+            )
+        elif itype == "opportunity":
+            body_lines.extend(
+                [
+                    "",
+                    "### Key facts",
+                    "| Metric | Details |",
+                    "|---|---|",
+                    f"| Deadline | {meta.get('deadline')} |",
+                    f"| Prize | {meta.get('prize')} |",
+                    f"| Mode | {meta.get('mode')} |",
+                    f"| Location | {meta.get('location')} |",
+                    f"| Eligibility | {meta.get('eligibility')} |",
+                    "",
+                    "### How to apply",
+                    f"[{meta.get('registration_url')}]({meta.get('registration_url')})",
+                ]
+            )
 
         return self.write_file_atomic(rel_path, "\n".join(body_lines), meta)
 
@@ -275,79 +382,194 @@ class NotesVault:
             "",
         ]
 
-        if slot == "evening":
-            lines.extend([
-                "> [!note] Since this morning",
-                "> Latest developments, breaking threat reports, and afternoon releases.",
-                "",
-            ])
+        # Separate items by category
+        internships = [
+            it
+            for it in items
+            if (it.get("category") or "").lower() in ("internship", "internships")
+        ]
+        hackathons = [
+            it for it in items if (it.get("category") or "").lower() in ("hackathon", "hackathons")
+        ]
+        competitions = [
+            it
+            for it in items
+            if (it.get("category") or "").lower() in ("competitions", "opportunities", "ctfs")
+        ]
+        ideas = [
+            it for it in items if (it.get("category") or "").lower() in ("ideas", "startup_ideas")
+        ]
+        news_items = [
+            it
+            for it in items
+            if (it.get("category") or "").lower()
+            not in (
+                "internship",
+                "internships",
+                "hackathon",
+                "hackathons",
+                "competitions",
+                "opportunities",
+                "ctfs",
+                "ideas",
+                "startup_ideas",
+            )
+        ]
 
-        lines.extend([
-            "> [!summary] TL;DR",
-        ])
+        if slot == "evening":
+            lines.extend(
+                [
+                    "> [!note] Since this morning",
+                    "> New intelligence and afternoon releases.",
+                    "",
+                ]
+            )
+            # Check deadlines closing within 7 days
+            urgent_opps = [
+                op
+                for op in (internships + hackathons + competitions)
+                if any("[urgent]" in str(r) for r in op.get("why_ranked", []))
+            ]
+            if urgent_opps:
+                lines.append("> [!warning] Deadlines closing within 7 days")
+                for u in urgent_opps[:5]:
+                    apply_link = u.get("url") or u.get("apply_url")
+                    lines.append(
+                        f"> - **{u.get('title')}**: Deadline {u.get('deadline', 'soon')} "
+                        f"([apply]({apply_link}))"
+                    )
+                lines.append("")
+
+        lines.extend(
+            [
+                "> [!summary] TL;DR",
+            ]
+        )
         for t_line in tldr.split("\n"):
             if t_line.strip():
                 lines.append(f"> - {t_line.strip()}")
         lines.append("")
 
-        lines.append("## ⭐ Top 3 Highlights")
+        lines.append("## ⭐ Top Picks")
         for it in top_3:
-            slug = self._slugify(it["title"])
+            slug = self._slugify(it.get("title", ""))
             nox_id = it.get("item_id", "")
+            cat_label = it.get("category", "Pick").capitalize()
             lines.append(
-                f"> [!important] [[{slug}--{nox_id}|{it['title']}]]\n"
+                f"> [!important] [{cat_label}] [[{slug}--{nox_id}|{it.get('title', '')}]]\n"
                 f"> {it.get('summary', '')}\n"
-                f"> [Original Source]({it.get('url', '')})"
+                f"> [Original Source]({it.get('url') or it.get('apply_url', '')})"
             )
             lines.append("")
 
-        # Opportunities / Deadlines table
-        opps = [
-            it for it in items
-            if (it.get("category") or "").lower() in ("opportunities", "hackathons", "competitions")
-        ]
-        if opps:
-            lines.append("## 🏆 Deadlines & Competitions")
-            lines.append("| Event | Deadline | Prize | Link |")
+        # 1. Funded Internships
+        if internships:
+            lines.append("## 🎓 Funded Internships & Programs")
+            lines.append(
+                "| Program | Organisation | Location | Deadline | "
+                "Score | Housing & Stipend | Apply |"
+            )
+            lines.append("|---|---|---|---|---|---|---|")
+            for it in internships[:10]:
+                slug = self._slugify(it.get("title", ""))
+                nox_id = it.get("item_id", "")
+                b = it.get("benefits", {})
+                if hasattr(b, "model_dump"):
+                    b = b.model_dump()
+                b_str = (
+                    f"Housing: {b.get('accommodation', 'unknown')} | "
+                    f"Stipend: {b.get('stipend', 'unknown')}"
+                )
+                lines.append(
+                    f"| [[{slug}--{nox_id}|{it.get('title', '')}]] | "
+                    f"{it.get('organisation') or it.get('org') or 'Unknown'} | "
+                    f"{it.get('country', 'unknown')} | "
+                    f"{it.get('deadline', 'unknown')} | "
+                    f"{it.get('score', 0)} | "
+                    f"{b_str} | "
+                    f"[Apply]({it.get('apply_url') or it.get('url', '')}) |"
+                )
+            lines.append("")
+
+        # 2. Hackathons
+        if hackathons:
+            lines.append("## 🚀 Hackathons")
+            lines.append("| Hackathon | Organiser | Location | Deadline | Prize | Apply |")
+            lines.append("|---|---|---|---|---|---|")
+            for h in hackathons[:8]:
+                slug = self._slugify(h.get("title", ""))
+                nox_id = h.get("item_id", "")
+                lines.append(
+                    f"| [[{slug}--{nox_id}|{h.get('title', '')}]] | "
+                    f"{h.get('organiser') or h.get('org') or 'Unknown'} | "
+                    f"{h.get('city_or_country') or h.get('country', 'unknown')} | "
+                    f"{h.get('deadline', 'unknown')} | "
+                    f"{h.get('prize_text') or h.get('prize', 'unknown')} | "
+                    f"[Apply]({h.get('apply_url') or h.get('url', '')}) |"
+                )
+            lines.append("")
+
+        # 3. Competitions (CTF capped)
+        if competitions:
+            lines.append("## 🏆 Competitions (CTF Capped)")
+            lines.append("| Competition | Topic | Deadline | Link |")
             lines.append("|---|---|---|---|")
-            for op in opps[:5]:
-                slug = self._slugify(op["title"])
+            for op in competitions[:5]:
+                slug = self._slugify(op.get("title", ""))
                 nox_id = op.get("item_id", "")
                 lines.append(
-                    f"| [[{slug}--{nox_id}|{op['title']}]] | "
-                    f"{op.get('deadline', 'TBD')} | "
-                    f"{op.get('prize', 'TBD')} | "
-                    f"[Apply]({op.get('url', '')}) |"
+                    f"| [[{slug}--{nox_id}|{op.get('title', '')}]] | "
+                    f"{op.get('topic_name', 'General')} | "
+                    f"{op.get('deadline', 'unknown')} | "
+                    f"[Details]({op.get('url') or op.get('apply_url', '')}) |"
                 )
             lines.append("")
 
-        # Topics sections
-        lines.append("## 📰 Topic Radar")
-        by_topic: dict[str, list[dict[str, Any]]] = {}
-        for it in items:
-            tname = it.get("topic_name") or "General"
-            by_topic.setdefault(tname, []).append(it)
+        # 4. News Topics sections
+        if news_items:
+            lines.append("## 📰 News by Topic")
+            by_topic: dict[str, list[dict[str, Any]]] = {}
+            for it in news_items:
+                tname = it.get("topic_name") or "General"
+                by_topic.setdefault(tname, []).append(it)
 
-        for tname, t_items in by_topic.items():
-            lines.append(f"### [[{tname}]]")
-            for it in t_items:
-                slug = self._slugify(it["title"])
-                nox_id = it.get("item_id", "")
-                takeaway = it.get("takeaway") or it.get("summary", "")
+            for tname, t_items in by_topic.items():
+                lines.append(f"### [[{tname}]]")
+                for it in t_items[:4]:
+                    slug = self._slugify(it.get("title", ""))
+                    nox_id = it.get("item_id", "")
+                    takeaway = it.get("takeaway") or it.get("summary", "")
+                    lines.append(
+                        f"- [[{slug}--{nox_id}|{it.get('title', '')}]] — {takeaway[:120]}... "
+                        f"([source]({it.get('url', '')}))"
+                    )
+                lines.append("")
+
+        # 5. Startup Ideas
+        if ideas:
+            lines.append("## 💡 Startup Ideas & Problems")
+            for id_item in ideas[:3]:
+                slug = self._slugify(id_item.get("title", ""))
+                nox_id = id_item.get("item_id", "")
                 lines.append(
-                    f"- [[{slug}--{nox_id}|{it['title']}]] — {takeaway[:120]}... "
-                    f"([source]({it.get('url', '')}))"
+                    f"- [[{slug}--{nox_id}|{id_item.get('title', '')}]]: "
+                    f"{id_item.get('summary', '')} "
+                    f"([source]({id_item.get('url', '')}))"
                 )
             lines.append("")
 
-        # Footer
-        lines.extend([
-            "## 🛠️ How this was made",
-            f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
-            f"- **Items curated**: {len(items)}",
-            f"- **Execution time**: {generation_seconds:.2f}s",
-            "- **Engine**: NoX Intelligence Daemon Briefing V2",
-        ])
+        # 6. How this was made
+        lines.extend(
+            [
+                "## 🛠️ How this was made",
+                f"- **Internships found**: {len(internships)} (target: 10)",
+                f"- **Hackathons found**: {len(hackathons)} (target: 8)",
+                f"- **Competitions found**: {len(competitions)} (target: 5, CTF capped at 3)",
+                f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
+                f"- **Execution time**: {generation_seconds:.2f}s",
+                "- **Engine**: NoX Intelligence Briefing Pipeline (Session J)",
+            ]
+        )
 
         return self.write_file_atomic(rel_path, "\n".join(lines), meta)
 
@@ -379,6 +601,8 @@ class NotesVault:
         if not items_dir.exists():
             return
 
+        internships: list[dict[str, Any]] = []
+        hackathons: list[dict[str, Any]] = []
         opps: list[dict[str, Any]] = []
         reading_queue: list[dict[str, Any]] = []
 
@@ -388,7 +612,12 @@ class NotesVault:
                 post = frontmatter.loads(md_file.read_text(encoding="utf-8"))
                 meta = post.metadata
                 meta["_file"] = md_file.stem
-                if meta.get("type") == "opportunity":
+                itype = meta.get("type")
+                if itype == "internship":
+                    internships.append(meta)
+                elif itype == "hackathon":
+                    hackathons.append(meta)
+                elif itype == "opportunity":
                     opps.append(meta)
                 if meta.get("status") in ("new", "saved"):
                     reading_queue.append(meta)
@@ -396,12 +625,82 @@ class NotesVault:
                 log.debug("Failed reading metadata from %s: %s", md_file, exc)
                 continue
 
-        # 1. Opportunities Board
+        # 1. Internships Tracker
+        int_lines = [
+            "# Internships Tracker",
+            "",
+            "```dataview",
+            (
+                'TABLE org, country, deadline, score, benefits.accommodation AS housing, '
+                'benefits.stipend AS stipend, status FROM "Items/Internships" '
+                'WHERE status != "dismissed" SORT score DESC'
+            ),
+            "```",
+            "",
+            "## Active Internships (Static View)",
+            (
+                "| Program | Organisation | Location | Deadline | "
+                "Score | Housing | Stipend | Status | Apply |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        for it in sorted(internships, key=lambda x: int(x.get("score", 0)), reverse=True):
+            b = it.get("benefits", {})
+            h_str = b.get("accommodation", "unknown") if isinstance(b, dict) else "unknown"
+            s_str = b.get("stipend", "unknown") if isinstance(b, dict) else "unknown"
+            int_lines.append(
+                f"| [[{it['_file']}|{it.get('title', it['_file'])}]] | "
+                f"{it.get('org', 'Unknown')} | "
+                f"{it.get('country', 'unknown')} | "
+                f"{it.get('deadline', 'TBD')} | "
+                f"{it.get('score', 0)} | "
+                f"{h_str} | "
+                f"{s_str} | "
+                f"{it.get('status', 'new')} | "
+                f"[Apply]({it.get('apply_url') or it.get('url', '')}) |"
+            )
+        self.write_file_atomic("Dashboards/Internships Tracker.md", "\n".join(int_lines))
+
+        # 2. Hackathons Tracker
+        hack_lines = [
+            "# Hackathons Tracker",
+            "",
+            "```dataview",
+            (
+                'TABLE org, deadline, prize, mode, score, status FROM "Items/Hackathons" '
+                'WHERE status != "dismissed" SORT deadline ASC'
+            ),
+            "```",
+            "",
+            "## Active Hackathons (Static View)",
+            (
+                "| Hackathon | Organiser | Location / Mode | "
+                "Deadline | Prize | Score | Status | Apply |"
+            ),
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for hk in sorted(hackathons, key=lambda x: str(x.get("deadline", "9999"))):
+            hack_lines.append(
+                f"| [[{hk['_file']}|{hk.get('title', hk['_file'])}]] | "
+                f"{hk.get('org', 'Unknown')} | "
+                f"{hk.get('country', hk.get('mode', 'unknown'))} | "
+                f"{hk.get('deadline', 'TBD')} | "
+                f"{hk.get('prize', 'TBD')} | "
+                f"{hk.get('score', 0)} | "
+                f"{hk.get('status', 'new')} | "
+                f"[Apply]({hk.get('apply_url') or hk.get('url', '')}) |"
+            )
+        self.write_file_atomic("Dashboards/Hackathons.md", "\n".join(hack_lines))
+
+        # 3. Opportunities Board
         opp_lines = [
             "# Opportunities Board",
             "",
             "```dataview",
-            'TABLE deadline, prize, mode FROM "Items/Opportunities" WHERE status != "dismissed" SORT deadline ASC',
+            (
+                'TABLE deadline, prize, mode FROM "Items/Opportunities" '
+                'WHERE status != "dismissed" SORT deadline ASC'
+            ),
             "```",
             "",
             "## Active Opportunities (Static View)",
@@ -418,12 +717,15 @@ class NotesVault:
             )
         self.write_file_atomic("Dashboards/Opportunities Board.md", "\n".join(opp_lines))
 
-        # 2. Deadlines Dashboard
+        # 4. Deadlines Dashboard
         deadlines_lines = [
             "# Upcoming Deadlines",
             "",
             "```dataview",
-            'TABLE deadline, prize FROM "Items/Opportunities" WHERE deadline != "TBD" SORT deadline ASC',
+            (
+                'TABLE deadline, prize FROM "Items/Opportunities" '
+                'WHERE deadline != "TBD" SORT deadline ASC'
+            ),
             "```",
             "",
             "## Chronological Deadlines (Static View)",
@@ -438,12 +740,15 @@ class NotesVault:
             )
         self.write_file_atomic("Dashboards/Deadlines.md", "\n".join(deadlines_lines))
 
-        # 3. Reading Queue
+        # 5. Reading Queue
         queue_lines = [
             "# Reading Queue",
             "",
             "```dataview",
-            'TABLE topic, source, published FROM "Items" WHERE status = "new" OR status = "saved" SORT published DESC',
+            (
+                'TABLE topic, source, published FROM "Items" '
+                'WHERE status = "new" OR status = "saved" SORT published DESC'
+            ),
             "```",
             "",
             "## Unread Items (Static View)",
@@ -589,7 +894,8 @@ class NotesVault:
                                 conn,
                                 """
                                 INSERT INTO briefing_feedback
-                                (id, briefing_id, topic_id, item_id, rating, reason_text, created_at)
+                                (id, briefing_id, topic_id, item_id,
+                                 rating, reason_text, created_at)
                                 VALUES (?, ?, ?, ?, ?, 'Synced from Notes Vault user rating', ?)
                                 """,
                                 (
@@ -602,6 +908,27 @@ class NotesVault:
                                 ),
                             )
                             synced += 1
+
+                    user_status = meta.get("status")
+                    target_url = meta.get("url") or meta.get("apply_url")
+                    if target_url and user_status in (
+                        "new",
+                        "interested",
+                        "applied",
+                        "interview",
+                        "offer",
+                        "rejected",
+                        "dismissed",
+                    ):
+                        await execute(
+                            conn,
+                            """
+                            UPDATE opportunity_registry
+                            SET status = ?, last_changed = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                            WHERE canonical_url = ?
+                            """,
+                            (user_status, target_url),
+                        )
                 except Exception as exc:
                     log.debug("Error reading note frontmatter from %s: %s", md_file, exc)
             await conn.commit()
