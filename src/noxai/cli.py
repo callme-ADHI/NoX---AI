@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 
 from noxai.commands.audit import audit_app
+from noxai.commands.backup import backup_app
 from noxai.commands.briefing_cmd import briefing_app
 from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
@@ -64,6 +65,7 @@ app.add_typer(briefings_app, name="briefings")
 app.add_typer(briefing_app, name="briefing")
 app.add_typer(audit_app, name="audit")
 app.add_typer(service_app, name="service")
+app.add_typer(backup_app, name="backup")
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
 bench_app.command(name="local")(models_bench_local)
@@ -76,6 +78,7 @@ eval_app = typer.Typer(name="eval", help="Evaluation commands.")
 def eval_conversation() -> None:
     """Run the 12-scenario Conversation Memory System (CMS) evaluation."""
     import asyncio
+
     from noxai.evals.conversation_eval import run_conversation_eval
 
     success = asyncio.run(run_conversation_eval())

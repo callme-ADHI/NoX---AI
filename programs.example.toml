@@ -1,145 +1,92 @@
-# NoX Program Watchlist (Session J: Funded Internships, Fellowships & Hackathons)
+# NoX Program Watchlist (Session K: Verified Watchlist Seed)
 # User-editable watchlist; copied to ~/.config/nox/programs.toml if not present.
+# Benefits, eligibility, and deadlines are NEVER seeded as facts — they must be
+# verified dynamically from fetched page text under the Evidence Rule.
 
 [[programs]]
 name = "CERN Summer Student Programme"
 url = "https://careers.cern/programmes/summer-studentship/"
 category = "internship"
-typical_window = "November to January"
+hint_window = "November to January"
 fields = ["physics", "engineering", "computer science", "systems"]
-country = "Switzerland"
-mode = "onsite"
-benefits_accommodation = "provided"
-benefits_stipend = "yes"
-benefits_travel = "covered"
-notes = "Fully funded 8-13 weeks at CERN Geneva. Monthly subsistence allowance covers accommodation and living expenses, plus travel reimbursement."
+notes = "Summer student program at CERN Geneva."
 
 [[programs]]
 name = "Mitacs Globalink Research Internship"
 url = "https://www.mitacs.ca/our-programs/globalink-research-internship-students/"
 category = "internship"
-typical_window = "August to September"
+hint_window = "August to September"
 fields = ["computer science", "artificial intelligence", "data science", "engineering"]
-country = "Canada"
-mode = "onsite"
-benefits_accommodation = "provided"
-benefits_stipend = "yes"
-benefits_travel = "covered"
-notes = "12-week research internship at Canadian universities. Covers round-trip airfare, housing, stipend, and student health insurance."
+notes = "Research internship at Canadian universities."
 
 [[programs]]
 name = "Outreachy Internship"
 url = "https://www.outreachy.org/"
 category = "internship"
-typical_window = "August-October (Dec-Mar cohort) & January-February (May-Aug cohort)"
+hint_window = "August-October & January-February"
 fields = ["open source", "software engineering", "documentation", "data science"]
-country = "Global"
-mode = "remote"
-benefits_accommodation = "not_applicable"
-benefits_stipend = "yes"
-benefits_travel = "not_applicable"
-notes = "$7,000 USD stipend for 3-month fully remote open source internship supporting underrepresented groups."
+notes = "Open source internship supporting underrepresented contributors."
 
 [[programs]]
 name = "MLH Fellowship"
 url = "https://fellowship.mlh.com/"
 category = "internship"
-typical_window = "Rolling admissions (Spring, Summer, Fall cohorts)"
+hint_window = "Rolling admissions (Spring, Summer, Fall cohorts)"
 fields = ["open source", "software engineering", "web development", "AI/ML"]
-country = "Global"
-mode = "remote"
-benefits_accommodation = "not_applicable"
-benefits_stipend = "yes"
-benefits_travel = "not_applicable"
-notes = "12-week remote internship alternative with need-based educational stipends collaborating on real open-source repositories."
+notes = "Remote software fellowship collaborating on open-source repositories."
 
 [[programs]]
 name = "ETH Student Summer Research Fellowship"
 url = "https://inf.ethz.ch/studies/summer-research-fellowship.html"
 category = "internship"
-typical_window = "November to mid-December"
+hint_window = "November to mid-December"
 fields = ["computer science", "algorithms", "systems", "machine learning"]
-country = "Switzerland"
-mode = "onsite"
-benefits_accommodation = "provided"
-benefits_stipend = "yes"
-benefits_travel = "covered"
-notes = "Fellowship by ETH Zurich Department of Computer Science. Monthly allowance, covered travel costs, and housing arrangements."
+notes = "Summer research fellowship by ETH Zurich Department of Computer Science."
 
 [[programs]]
 name = "Google Summer of Code (GSoC)"
 url = "https://summerofcode.withgoogle.com/"
 category = "internship"
-typical_window = "February to April"
+hint_window = "February to April"
 fields = ["open source", "software engineering", "systems", "AI/ML", "security"]
-country = "Global"
-mode = "remote"
-benefits_accommodation = "not_applicable"
-benefits_stipend = "yes"
-benefits_travel = "not_applicable"
-notes = "Global online program bringing new contributors into open source software development with stipends adjusted by purchasing power parity."
+notes = "Global program bringing new contributors into open source software development."
 
 [[programs]]
 name = "LFX Mentorship"
 url = "https://lfx.linuxfoundation.org/tools/mentorship/"
 category = "internship"
-typical_window = "Spring (Jan-Feb), Summer (Apr-May), Fall (Jul-Aug)"
+hint_window = "Spring (Jan-Feb), Summer (Apr-May), Fall (Jul-Aug)"
 fields = ["linux", "kernel", "cloud native", "kubernetes", "security"]
-country = "Global"
-mode = "remote"
-benefits_accommodation = "not_applicable"
-benefits_stipend = "yes"
-benefits_travel = "not_applicable"
-notes = "The Linux Foundation open source mentorship program with full-term stipends."
+notes = "The Linux Foundation open source mentorship program."
 
 [[programs]]
 name = "Sakura Science Exchange Program"
 url = "https://ssp.jst.go.jp/en/"
 category = "internship"
-typical_window = "Application periods throughout the year (Courses A-D)"
+hint_window = "Application periods throughout the year (Courses A-D)"
 fields = ["science and technology", "computer science", "robotics"]
-country = "Japan"
-mode = "onsite"
-benefits_accommodation = "provided"
-benefits_stipend = "partial"
-benefits_travel = "covered"
-notes = "Japan Science and Technology Agency short-term youth exchange invitation covering round-trip airfare, accommodation, and meals."
+notes = "Japan Science and Technology Agency youth science exchange program."
 
 [[programs]]
 name = "IST Austria Internship (ISTernship)"
 url = "https://phd.pages.ist.ac.at/internships/"
 category = "internship"
-typical_window = "December to February"
+hint_window = "December to February"
 fields = ["computer science", "data science", "mathematics", "biology"]
-country = "Austria"
-mode = "onsite"
-benefits_accommodation = "provided"
-benefits_stipend = "yes"
-benefits_travel = "covered"
-notes = "Research internship program in Vienna. Monthly salary, subsidized campus housing, and travel allowance."
+notes = "Summer research internship program at ISTA in Austria."
 
 [[programs]]
 name = "Devpost Global Hackathons"
 url = "https://devpost.com/hackathons"
 category = "hackathon"
-typical_window = "Continuous"
+hint_window = "Continuous"
 fields = ["AI/ML", "cloud", "security", "web3", "IoT"]
-country = "Global"
-mode = "hybrid"
-benefits_accommodation = "partial"
-benefits_stipend = "not_applicable"
-benefits_travel = "partial"
-notes = "Leading platform for in-person, university, and online software hackathons with cash prizes and sponsored travel."
+notes = "Discovery portal for software hackathons and engineering competitions."
 
 [[programs]]
 name = "Major League Hacking (MLH) Hackathon Season"
 url = "https://www.mlh.com/seasons/2025/events"
 category = "hackathon"
-typical_window = "Continuous (Academic Year Seasons)"
+hint_window = "Continuous (Academic Year Seasons)"
 fields = ["student hackathons", "computer science", "hardware", "software"]
-country = "Global"
-mode = "hybrid"
-benefits_accommodation = "partial"
-benefits_stipend = "not_applicable"
-benefits_travel = "partial"
-notes = "Official student hackathon league hosting over 200 weekend member hackathons worldwide with swag, workshops, and travel grants."
+notes = "Student hackathon league hosting member hackathons worldwide."

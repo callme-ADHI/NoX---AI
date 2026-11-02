@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sqlite3
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,14 +41,121 @@ log = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-DATA_DIR = Path("~/.local/share/nox").expanduser()
+
+def get_data_dir() -> Path:
+    """Return the active data directory, honoring NOX_DATA_DIR override."""
+    if "NOX_DATA_DIR" in os.environ:
+        return Path(os.environ["NOX_DATA_DIR"]).expanduser().resolve()
+    return DATA_DIR
+
+
+DATA_DIR = Path("~/.local/share/nox").expanduser().resolve()
 
 
 def get_db_path() -> Path:
     """Return the active database path, allowing NOX_DATABASE_PATH override."""
     if "NOX_DATABASE_PATH" in os.environ:
-        return Path(os.environ["NOX_DATABASE_PATH"])
-    return DATA_DIR / "nox.db"
+        return Path(os.environ["NOX_DATABASE_PATH"]).expanduser().resolve()
+    return DB_PATH
+
+
+DB_PATH = DATA_DIR / "nox.db"
+
+
+def get_backup_dir() -> Path:
+    """Return the active database backups directory (~/.local/share/nox/backups)."""
+    return get_data_dir() / "backups"
+
+
+def backup_db(db_path: Path | None = None, keep: int = 10) -> Path | None:
+    """Create an atomic, timestamped backup of the database and prune old ones.
+
+    Uses the SQLite online backup API to ensure 100% transactional consistency
+    even when running under WAL mode. Keeps the last `keep` backups.
+    """
+    path = db_path or get_db_path()
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+
+    b_dir = get_backup_dir()
+    b_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    rand_suffix = uuid.uuid4().hex[:6]
+    backup_file = b_dir / f"nox_{ts}_{rand_suffix}.db"
+
+    # Use SQLite online backup API
+    src = sqlite3.connect(path)
+    try:
+        dest = sqlite3.connect(backup_file)
+        try:
+            src.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        src.close()
+
+    log.info("database_backup_created path=%s", backup_file)
+
+    # Prune older backups keeping last `keep`
+    prune_old_backups(keep=keep)
+    return backup_file
+
+
+def list_backups(backup_dir: Path | None = None) -> list[Path]:
+    """Return sorted list of existing database backups (newest first)."""
+    b_dir = backup_dir or get_backup_dir()
+    if not b_dir.exists():
+        return []
+    files = list(b_dir.glob("nox_*.db"))
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files
+
+
+def prune_old_backups(keep: int = 10) -> None:
+    """Prune database backups keeping only the most recent `keep` files."""
+    backups = list_backups()
+    if len(backups) > keep:
+        for old in backups[keep:]:
+            try:
+                old.unlink()
+                log.info("database_backup_pruned path=%s", old)
+            except OSError as err:
+                log.warning("database_backup_prune_failed path=%s err=%s", old, err)
+
+
+def restore_db(backup_file: Path, target_path: Path | None = None) -> Path:
+    """Restore target database from a backup file after creating a safety backup."""
+    target = target_path or get_db_path()
+    if not backup_file.exists():
+        raise FileNotFoundError(f"Backup file not found: {backup_file}")
+
+    # Verify backup is a valid SQLite DB
+    test_conn = sqlite3.connect(backup_file)
+    try:
+        test_conn.execute("PRAGMA schema_version").fetchone()
+    finally:
+        test_conn.close()
+
+    # Create safety backup of current target before replacing
+    if target.exists() and target.stat().st_size > 0:
+        backup_db(target, keep=10)
+
+    # Copy backup to target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(backup_file, target)
+
+    # Remove stale -wal and -shm files if present
+    for suffix in ("-wal", "-shm"):
+        extra = target.with_name(target.name + suffix)
+        if extra.exists():
+            try:
+                extra.unlink()
+            except OSError:
+                pass
+
+    log.info("database_restored from=%s to=%s", backup_file, target)
+    return target
 
 
 DB_PATH = get_db_path()
@@ -227,16 +337,20 @@ async def run_migrations() -> None:
             log.warning("No migration files found in %s", MIGRATIONS_DIR)
             return
 
-        for migration_file in migration_files:
-            filename = migration_file.name
+        applied_rows = conn.execute("SELECT filename FROM schema_migrations").fetchall()
+        applied_set = {r[0] for r in applied_rows}
+        pending = [m for m in migration_files if m.name not in applied_set]
 
-            # Check if already applied
-            row = conn.execute(
-                "SELECT id FROM schema_migrations WHERE filename = ?", (filename,)
-            ).fetchone()
-            if row is not None:
-                log.debug("migration_skip filename=%s (already applied)", filename)
-                continue
+        # Automatic timestamped backup before running any pending migrations
+        if pending and path.exists() and path.stat().st_size > 0:
+            log.info(
+                "Creating automatic pre-migration backup for %d pending migrations",
+                len(pending),
+            )
+            backup_db(path, keep=10)
+
+        for migration_file in pending:
+            filename = migration_file.name
 
             log.info("migration_apply filename=%s", filename)
             sql = migration_file.read_text(encoding="utf-8")

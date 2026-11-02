@@ -292,3 +292,38 @@ def briefing_show(
 
     console.print(f"# {row['title']}\n")
     console.print(row["summary"] or "No summary available.")
+
+
+@briefing_app.command(name="repair")
+def briefing_repair(
+    requeue: bool = typer.Option(
+        True, "--requeue/--no-requeue", help="Re-queue repaired runs for resume"
+    ),
+) -> None:
+    """Repair stuck or orphaned briefing runs without manual SQL edits (Session K, Phase 0)."""
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    sched = BriefingScheduler()
+    repaired = asyncio.run(sched.repair_runs(requeue=requeue))
+    if not repaired:
+        console.print("[green]✓ No stuck or orphaned briefing runs detected.[/green]")
+        return
+
+    table = Table(title=f"Repaired Briefing Runs ({len(repaired)})", show_header=True)
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Slot", style="magenta")
+    table.add_column("Date", style="white")
+    table.add_column("Rev", style="dim")
+    table.add_column("Task Status", style="yellow")
+    table.add_column("Requeued", style="green")
+
+    for r in repaired:
+        table.add_row(
+            r["run_id"],
+            r["slot"],
+            r["date"],
+            f"r{r['rev']}",
+            str(r.get("task_status", "none")),
+            "Yes" if r.get("requeued") else "No",
+        )
+    console.print(table)

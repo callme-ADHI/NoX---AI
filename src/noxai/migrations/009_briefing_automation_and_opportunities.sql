@@ -58,7 +58,6 @@ CREATE TABLE IF NOT EXISTS settings (
     value       TEXT NOT NULL,
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-INSERT OR IGNORE INTO settings (key, value) VALUES ('cloud.enabled', 'true');
 
 CREATE TABLE IF NOT EXISTS opportunity_registry (
     canonical_url       TEXT PRIMARY KEY,

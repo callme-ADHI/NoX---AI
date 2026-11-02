@@ -393,11 +393,13 @@ class BriefingScheduler:
             )
             if active:
                 if active["task_status"] in ("done", "failed", "cancelled", "interrupted"):
-                    new_state = "succeeded" if active["task_status"] == "done" else "failed"
+                    # Task terminated; never mark succeeded here without validated pipeline output
+                    new_state = "failed" if active["task_status"] == "failed" else "interrupted"
+                    err_msg = f"Task {active.get('task_status')}; interrupted before completion"
                     await execute(
                         conn,
-                        "UPDATE briefing_runs SET state = ? WHERE id = ?",
-                        (new_state, active["id"]),
+                        "UPDATE briefing_runs SET state = ?, error = ? WHERE id = ?",
+                        (new_state, err_msg, active["id"]),
                     )
                     await conn.commit()
                     active = None
@@ -479,11 +481,12 @@ class BriefingScheduler:
                 "cancelled",
                 "interrupted",
             ):
-                new_state = "succeeded" if active_row["task_status"] == "done" else "failed"
+                new_state = "failed" if active_row["task_status"] == "failed" else "interrupted"
+                err_msg = f"Task {active_row.get('task_status')}; interrupted before completion"
                 await execute(
                     conn,
-                    "UPDATE briefing_runs SET state = ? WHERE id = ?",
-                    (new_state, active_row["id"]),
+                    "UPDATE briefing_runs SET state = ?, error = ? WHERE id = ?",
+                    (new_state, err_msg, active_row["id"]),
                 )
                 await conn.commit()
                 active_row = None
@@ -596,6 +599,111 @@ class BriefingScheduler:
             return await _cancel(db)
         async with get_db() as conn:
             return await _cancel(conn)
+
+    async def repair_runs(
+        self, db: aiosqlite.Connection | None = None, requeue: bool = True
+    ) -> list[dict[str, Any]]:
+        """Find runs stuck in running/queued whose supervisor task is gone/dead,
+        mark them interrupted, and optionally re-queue them for resume under the
+        SAME run id. Never marks success.
+        """
+
+        async def _repair(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
+            rows = await fetch_all(
+                conn,
+                """
+                SELECT br.id, br.date, br.slot, br.rev, br.trigger, br.state, br.task_id,
+                       br.sources_count, t.status AS task_status
+                FROM briefing_runs br
+                LEFT JOIN tasks t ON t.id = br.task_id
+                WHERE br.state IN ('running', 'queued')
+                """,
+            )
+            repaired: list[dict[str, Any]] = []
+            sup = self.supervisor or get_task_supervisor()
+
+            for r in rows:
+                task_status = r["task_status"]
+                is_dead = (
+                    task_status in ("failed", "cancelled", "interrupted")
+                    or task_status is None
+                    or task_status == "done"
+                )
+
+                if is_dead:
+                    run_id = r["id"]
+                    log.warning(
+                        "repair_runs: repairing orphaned briefing run %s (task_status=%s)",
+                        run_id,
+                        task_status,
+                    )
+                    err_text = (
+                        f"Interrupted: supervisor task {r['task_id']} was {task_status or 'absent'}"
+                    )
+                    await execute(
+                        conn,
+                        "UPDATE briefing_runs SET state = 'interrupted', error = ? WHERE id = ?",
+                        (err_text, run_id),
+                    )
+
+                    rep_item: dict[str, Any] = {
+                        "run_id": run_id,
+                        "slot": r["slot"],
+                        "date": r["date"],
+                        "rev": r["rev"],
+                        "old_state": r["state"],
+                        "task_status": task_status,
+                        "requeued": False,
+                    }
+
+                    if requeue and sup:
+                        slot_title = r["slot"].capitalize()
+                        title = f"NoX {slot_title} Intelligence Briefing — {r['date']}"
+                        if r["rev"] > 1:
+                            title += f" (rev {r['rev']})"
+                        prompt = f"Resume {r['slot']} intelligence briefing for {r['date']}"
+                        payload = json.dumps(
+                            {
+                                "run_id": run_id,
+                                "slot": r["slot"],
+                                "date": r["date"],
+                                "trigger": r["trigger"],
+                                "rev": r["rev"],
+                            }
+                        )
+                        cloud_active = getattr(self.config.privacy, "chat_to_cloud", True)
+                        lane = TaskLane.CLOUD if cloud_active else TaskLane.LOCAL
+
+                        await execute(
+                            conn,
+                            "UPDATE briefing_runs SET state = 'queued', error = NULL WHERE id = ?",
+                            (run_id,),
+                        )
+                        new_task = await sup.submit_task(
+                            title=title,
+                            prompt=prompt,
+                            lane=lane,
+                            priority=TaskPriority.HIGH,
+                            kind="briefing",
+                            payload_json=payload,
+                            owner="scheduler" if r["trigger"] == "scheduled" else "user",
+                        )
+                        await execute(
+                            conn,
+                            "UPDATE briefing_runs SET task_id = ? WHERE id = ?",
+                            (new_task.id, run_id),
+                        )
+                        rep_item["requeued"] = True
+                        rep_item["new_task_id"] = new_task.id
+
+                    repaired.append(rep_item)
+            await conn.commit()
+            return repaired
+
+        if db is not None:
+            return await _repair(db)
+        async with get_db() as conn:
+            return await _repair(conn)
 
     async def tick(
         self,
