@@ -384,19 +384,31 @@ class BriefingScheduler:
             active = await fetch_one(
                 conn,
                 """
-                SELECT id, slot, rev, trigger, state FROM briefing_runs
-                WHERE state IN ('running', 'queued')
-                ORDER BY created_at DESC LIMIT 1
+                SELECT br.id, br.slot, br.rev, br.trigger, br.state, t.status AS task_status
+                FROM briefing_runs br
+                LEFT JOIN tasks t ON t.id = br.task_id
+                WHERE br.state IN ('running', 'queued')
+                ORDER BY br.created_at DESC LIMIT 1
                 """,
             )
             if active:
-                return {
-                    "active": True,
-                    "run_id": active["id"],
-                    "slot": active["slot"],
-                    "rev": active["rev"],
-                    "state": active["state"],
-                }
+                if active["task_status"] in ("done", "failed", "cancelled", "interrupted"):
+                    new_state = "succeeded" if active["task_status"] == "done" else "failed"
+                    await execute(
+                        conn,
+                        "UPDATE briefing_runs SET state = ? WHERE id = ?",
+                        (new_state, active["id"]),
+                    )
+                    await conn.commit()
+                    active = None
+                else:
+                    return {
+                        "active": True,
+                        "run_id": active["id"],
+                        "slot": active["slot"],
+                        "rev": active["rev"],
+                        "state": active["state"],
+                    }
 
             # 2. Determine slot and date
             now_dt = self.get_current_time()
@@ -453,12 +465,28 @@ class BriefingScheduler:
             active_row = await fetch_one(
                 conn,
                 """
-                SELECT id, slot, rev, trigger, state, generation_seconds
-                FROM briefing_runs
-                WHERE state IN ('running', 'queued')
-                ORDER BY created_at DESC LIMIT 1
+                SELECT br.id, br.slot, br.rev, br.trigger, br.state, br.generation_seconds,
+                       t.status AS task_status
+                FROM briefing_runs br
+                LEFT JOIN tasks t ON t.id = br.task_id
+                WHERE br.state IN ('running', 'queued')
+                ORDER BY br.created_at DESC LIMIT 1
                 """,
             )
+            if active_row and active_row["task_status"] in (
+                "done",
+                "failed",
+                "cancelled",
+                "interrupted",
+            ):
+                new_state = "succeeded" if active_row["task_status"] == "done" else "failed"
+                await execute(
+                    conn,
+                    "UPDATE briefing_runs SET state = ? WHERE id = ?",
+                    (new_state, active_row["id"]),
+                )
+                await conn.commit()
+                active_row = None
             active_info: dict[str, Any] | None = None
             if active_row:
                 run_id = active_row["id"]
