@@ -445,6 +445,118 @@ def check_linger() -> DoctorCheck:
         return DoctorCheck("linger", "WARN", f"loginctl check notice: {exc}")
 
 
+def check_desktop_app() -> DoctorCheck:
+    """Check if nox-app or nox-desktop binary is available and version aligned."""
+    app_bin = shutil.which("nox-app")
+    desktop_bin = shutil.which("nox-desktop")
+    repo_desktop = Path(__file__).resolve().parent.parent.parent / "desktop" / "src-tauri" / "target" / "release" / "nox-desktop"
+    opt_desktop = Path("/opt/nox/bin/nox-desktop")
+
+    found_path = None
+    if app_bin:
+        found_path = app_bin
+    elif desktop_bin:
+        found_path = desktop_bin
+    elif opt_desktop.exists():
+        found_path = str(opt_desktop)
+    elif repo_desktop.exists():
+        found_path = str(repo_desktop)
+
+    if found_path:
+        return DoctorCheck(f"Desktop app installed ({found_path})", "PASS", "")
+    return DoctorCheck(
+        "Desktop app installed",
+        "WARN",
+        "nox-app not found on PATH or /opt/nox/bin; build with 'make build-app' or install package",
+    )
+
+
+def check_autostart_config() -> DoctorCheck:
+    """Check autostart configuration in XDG autostart or Hyprland config."""
+    autostart_file = Path("~/.config/autostart/nox.desktop").expanduser()
+    hypr_startup = Path("~/.config/hypr/startup.lua").expanduser()
+    hypr_conf = Path("~/.config/hypr/hyprland.conf").expanduser()
+
+    methods = []
+    if autostart_file.exists():
+        methods.append("XDG autostart")
+    if hypr_startup.exists():
+        try:
+            content = hypr_startup.read_text()
+            if "nox-app" in content:
+                methods.append("Hyprland startup.lua")
+        except Exception:
+            pass
+    if hypr_conf.exists():
+        try:
+            content = hypr_conf.read_text()
+            if "nox-app" in content:
+                methods.append("hyprland.conf")
+        except Exception:
+            pass
+
+    if methods:
+        return DoctorCheck(f"Autostart configured ({', '.join(methods)})", "PASS", "")
+    return DoctorCheck(
+        "Autostart configured",
+        "WARN",
+        "Autostart not configured; run 'nx setup --all' or 'nx setup --autostart'",
+    )
+
+
+def check_notification_action() -> DoctorCheck:
+    """Check desktop notification daemon and action capability."""
+    notify_send = shutil.which("notify-send")
+    if not notify_send:
+        return DoctorCheck(
+            "Notification daemon & actions",
+            "WARN",
+            "notify-send missing; install libnotify via 'sudo pacman -S libnotify'",
+        )
+
+    # Check if a notification daemon is active on D-Bus
+    try:
+        proc = subprocess.run(
+            ["busctl", "--user", "status", "org.freedesktop.Notifications"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return DoctorCheck("Notification daemon (D-Bus active)", "PASS", "Action buttons supported")
+    except Exception:
+        pass
+
+    return DoctorCheck("Notification daemon (notify-send present)", "PASS", "")
+
+
+def check_db_backups() -> DoctorCheck:
+    """Check automatic database backup directory and recency."""
+    backup_dir = Path("~/.local/share/nox/backups").expanduser()
+    if not backup_dir.exists():
+        return DoctorCheck(
+            "Database backups",
+            "WARN",
+            "Backup directory ~/.local/share/nox/backups not yet created; run 'nx backup'",
+        )
+
+    backups = list(backup_dir.glob("nox_*.db"))
+    if backups:
+        count = len(backups)
+        newest = max(backups, key=lambda p: p.stat().st_mtime)
+        return DoctorCheck(
+            f"Database backups ({count} available)",
+            "PASS",
+            f"Latest: {newest.name}",
+        )
+    return DoctorCheck(
+        "Database backups",
+        "WARN",
+        "No database backups found in ~/.local/share/nox/backups; run 'nx backup'",
+    )
+
+
 def check_briefing_scheduler_running(cfg: Any) -> DoctorCheck:
     """Check if daemon briefing scheduler is active and reachable."""
     from noxai.api.auth import load_session_token
@@ -760,6 +872,12 @@ def run_all_checks() -> list[DoctorCheck]:
     # 21. noxd enabled & linger
     checks.append(check_noxd_enabled())
     checks.append(check_linger())
+
+    # 22. Desktop app, autostart, notifications, and backups
+    checks.append(check_desktop_app())
+    checks.append(check_autostart_config())
+    checks.append(check_notification_action())
+    checks.append(check_db_backups())
 
     return checks
 

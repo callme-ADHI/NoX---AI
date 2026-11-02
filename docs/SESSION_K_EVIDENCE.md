@@ -1080,3 +1080,122 @@ Native binary `/opt/nox/bin/nox-desktop` is packaged into `nox-app-*.pkg.tar.zst
 ```
 
 Acceptance criteria **A4** (close hides to tray, tray menu, single instance) is fully validated and proven.
+
+
+## Phase 6 Evidence: Setup, Autostart, Extended Doctor Checks, and Documentation
+
+### 6.1 `nx setup --check` Status Report Output
+
+```text
+$ uv run nx setup --check
+───────────────────────── NoX Setup & Autostart Status ─────────────────────────
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Component                    ┃     Status     ┃ Details                      ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ XDG Autostart                │ NOT CONFIGURED │ Not installed                │
+│ (~/.config/autostart/nox.de… │                │                              │
+│ Hyprland exec-once           │ NOT CONFIGURED │ Not configured in            │
+│                              │                │ ~/.config/hypr/              │
+│ User linger (loginctl)       │ NOT CONFIGURED │ Disabled                     │
+│ systemd user service         │   CONFIGURED   │ Enabled                      │
+│ (noxd.service)               │                │                              │
+└──────────────────────────────┴────────────────┴──────────────────────────────┘
+
+To apply setup:
+  nx setup --all                Enable all autostart and linger settings
+  nx setup --autostart          Enable XDG autostart desktop entry
+  nx setup --hyprland [--apply] Append exec-once to Hyprland config
+  nx setup --linger             Enable persistent background execution
+```
+
+### 6.2 `nx doctor` Extended Checks Output
+
+```text
+$ uv run nx doctor
+────────────────────────────────── NoX Doctor ──────────────────────────────────
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳┳┓
+┃ Check                                                                      ┃┃┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇╇┩
+│ Python version (found 3.14)                                                │││
+│ Configuration loads cleanly                                                │││
+│ Ollama reachable at :11434                                                 │││
+│ Brain model in Ollama (qwen2.5:14b)                                        │││
+│ Embed model in Ollama (nomic-embed-text)                                   │││
+│ Vision model in Ollama (gemma4:e4b)                                        │││
+│ Ollama RAM budget (9.6 GB loaded / 4.7 GB avail)                           │││
+│ Vector backend in use (numpy)                                              │││
+│ DB migrations applied (11/11)                                              │││
+│ Secrets file permissions (0600)                                            │││
+│ NVIDIA API key configured via NVIDIA_API_KEY (secrets.env)                 │││
+│ NVIDIA models API (nvidia/nemotron-3.5-lightning-30b-a3b available)        │││
+│ Cloud health state                                                         │││
+│ Port 7777 active (daemon running)                                          │││
+│ notify-send in PATH                                                        │││
+│ node and npm in PATH                                                       │││
+│ Browser found (google-chrome-stable)                                       │││
+│ systemd user unit noxd.service (enabled)                                   │││
+│ Gate mode: token_only                                                      │││
+│ UI build present (ui/dist/index.html)                                      │││
+│ Provider topology: brain (local) / heavy (cloud)                           │││
+│ Single-instance lock: free                                                 │││
+│ Detected compositor: Hyprland (wayland)                                    │││
+│ briefing scheduler running                                                 │││
+│ next morning/evening run times                                             │││
+│ Briefing scheduler reliability: last 6 slots (6 succeeded, 0 failed, 0 mi… │││
+│ noxd enabled                                                               │││
+│ linger                                                                     │││
+│ Desktop app installed (/home/boss/Documents/Projects/NoX/desktop/src-taur… │││
+│ Autostart configured                                                       │││
+│ Notification daemon (D-Bus active)                                         │││
+│ Database backups (1 available)                                             │││
+└────────────────────────────────────────────────────────────────────────────┴┴┘
+
+All required checks passed (5 warning(s)). NoX is ready.
+```
+
+### 6.3 Setup & Doctor Automated Test Results
+
+```text
+$ uv run pytest tests/test_doctor.py tests/test_setup.py -v
+============================= test session starts ==============================
+collected 27 items
+
+tests/test_doctor.py::test_check_python_version PASSED                   [  3%]
+tests/test_doctor.py::test_check_ollama PASSED                           [  7%]
+tests/test_doctor.py::test_check_models PASSED                           [ 11%]
+tests/test_doctor.py::test_check_vector_backend PASSED                   [ 14%]
+tests/test_doctor.py::test_check_db_migrations PASSED                    [ 18%]
+tests/test_doctor.py::test_check_secrets_permissions PASSED              [ 22%]
+tests/test_doctor.py::test_check_nvidia_key_source PASSED                [ 25%]
+tests/test_doctor.py::test_check_nvidia_models_endpoint PASSED           [ 29%]
+tests/test_doctor.py::test_check_server_port PASSED                      [ 33%]
+tests/test_doctor.py::test_check_binaries_and_paths PASSED               [ 37%]
+tests/test_doctor.py::test_check_systemd_unit PASSED                     [ 40%]
+tests/test_doctor.py::test_check_gate PASSED                             [ 44%]
+tests/test_doctor.py::test_check_provider_topology PASSED                [ 48%]
+tests/test_doctor.py::test_run_doctor_cli_output PASSED                  [ 51%]
+tests/test_doctor.py::test_check_lock_state PASSED                       [ 55%]
+tests/test_doctor.py::test_check_compositor PASSED                       [ 59%]
+tests/test_doctor.py::test_check_config_loads PASSED                     [ 62%]
+tests/test_doctor.py::test_check_cloud_health_state PASSED               [ 66%]
+tests/test_doctor.py::test_run_all_checks PASSED                         [ 70%]
+tests/test_doctor.py::test_check_desktop_app PASSED                      [ 74%]
+tests/test_doctor.py::test_check_autostart_config PASSED                 [ 77%]
+tests/test_doctor.py::test_check_notification_action PASSED              [ 81%]
+tests/test_doctor.py::test_check_db_backups PASSED                       [ 85%]
+tests/test_setup.py::test_setup_check_mode PASSED                        [ 88%]
+tests/test_setup.py::test_setup_autostart_install PASSED                 [ 92%]
+tests/test_setup.py::test_setup_hyprland_lua PASSED                      [ 96%]
+tests/test_setup.py::test_setup_hyprland_conf PASSED                     [100%]
+
+============================== 27 passed in 2.65s ==============================
+```
+
+### 6.4 Documentation Suite
+- `README.md`: Arch Linux package installation instructions using `make package`, `verify-install.sh`, and `pacman -U`.
+- `docs/INSTALL.md`: Complete package build, installation, and setup guide.
+- `docs/DESKTOP.md`: Tauri 2 architecture, splash polling, Wayland native execution, single instance, and tray behavior.
+- `docs/OPERATIONS.md`: Operations runbook covering systemd user unit management, crash recovery, backups, and audits.
+- `docs/ARCHITECTURE.md`: Updated high-level architecture with native desktop client.
+- `docs/DECISIONS.md`: ADR-K1 through ADR-K6 recording all key Session K architecture choices.
+- `CHANGELOG.md`: Complete Keep-a-Changelog release notes for 0.1.0.

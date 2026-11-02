@@ -10,7 +10,7 @@ UI and CLI are clients of its HTTP/WebSocket API.
 graph TB
     subgraph "Login sequence"
         FL[FaceLock] --> ND[noxd daemon]
-        ND --> UI[Chromium --app UI]
+        ND --> UI[Native Tauri 2 Desktop App\n(nox-desktop / nox-app)]
     end
 
     subgraph "noxd — FastAPI + uvicorn :7777"

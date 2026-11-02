@@ -4,9 +4,9 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 
 ## Acceptance Matrix (Section 1)
 
-- [ ] **A1**: One package install; `nx`, `noxd`, and `nox-app` on PATH; no venv activation, no `uv run`, no `nx run` by hand.
-- [ ] **A2**: `noxd` starts at login as a systemd user service and restarts after a crash (`kill -9` test).
-- [ ] **A3**: NoX desktop app opens automatically at login (autostart configured and launch command tested).
+- [x] **A1**: One package install; `nx`, `noxd`, and `nox-app` on PATH; no venv activation, no `uv run`, no `nx run` by hand.
+- [x] **A2**: `noxd` starts at login as a systemd user service and restarts after a crash (`kill -9` test).
+- [x] **A3**: NoX desktop app opens automatically at login (autostart configured and launch command tested).
 - [x] **A4**: Closing the window does not stop the daemon; tray menu works; single instance enforced.
 - [x] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
 - [x] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
@@ -14,10 +14,10 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [x] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording.
 - [x] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
 - [x] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
-- [ ] **A11**: Desktop notifications from pipeline; clicking opens app at briefing (or documented fallback).
+- [x] **A11**: Desktop notifications from pipeline; clicking opens app at briefing (or documented fallback).
 - [x] **A12**: Arch packaging verified (PKGBUILD builds, namcap, unit verified, contents correct, user-run verify script).
 - [x] **A13**: DB safety: automatic backups, migration 010 converges both paths, tested on a copy of the real DB.
-- [ ] **A14**: Docs updated (README Arch install, INSTALL, DESKTOP, OPERATIONS, ARCHITECTURE, DECISIONS, PROGRESS, CHANGELOG).
+- [x] **A14**: Docs updated (README Arch install, INSTALL, DESKTOP, OPERATIONS, ARCHITECTURE, DECISIONS, PROGRESS, CHANGELOG).
 - [ ] **A15**: Full test suites green with pasted output (pytest, mypy, ruff, vitest, playwright, cargo test).
 - [ ] **A16**: Secrets hygiene proven (`git grep -n 'nvapi-'`).
 
@@ -81,11 +81,11 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Tests & proofs: `cargo test`, smoke test against temp daemon, screenshots, binary size & idle RSS
   - [x] Phase 5 git commit
 
-- [ ] **Phase 6: Setup, Autostart, Doctor, Docs**
-  - [ ] `nx setup` (idempotent, `--autostart`, `--hyprland`, `--hyprland --apply`, `--linger`, `--check`)
-  - [ ] `nx doctor` additions (unit active, app installed/version match, autostart, tray, notifications, scheduler, last 6 slots, backups, etc.)
-  - [ ] Documentation: README Arch install, `docs/INSTALL.md`, `docs/DESKTOP.md`, `docs/OPERATIONS.md`, `ARCHITECTURE.md`, `CHANGELOG.md`
-  - [ ] Phase 6 git commit
+- [x] **Phase 6: Setup, Autostart, Doctor, Docs**
+  - [x] `nx setup` (idempotent, `--autostart`, `--hyprland`, `--hyprland --apply`, `--linger`, `--check`)
+  - [x] `nx doctor` additions (unit active, app installed/version match, autostart, tray, notifications, scheduler, last 6 slots, backups, etc.)
+  - [x] Documentation: README Arch install, `docs/INSTALL.md`, `docs/DESKTOP.md`, `docs/OPERATIONS.md`, `ARCHITECTURE.md`, `CHANGELOG.md`
+  - [x] Phase 6 git commit
 
 - [ ] **Phase 7: Final Verification and Report**
   - [ ] Paste all raw outputs into `docs/SESSION_K_EVIDENCE.md`

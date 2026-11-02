@@ -182,11 +182,35 @@ NoX includes a command-line interface with shell completions, rich tables, and s
 * **Node.js**: v18+ & npm (for Web UI build).
 * **System Tools**: `libnotify` (`notify-send`), `sqlite3`.
 
-### 1. Automated Installation
-Clone the repository and run the automated installer:
+### 1. Arch Linux Package Installation (Recommended)
+
+NoX provides native Arch Linux packages (`nox` and `nox-app`) that install the complete daemon, CLI, systemd user unit, desktop entry, and native Tauri 2 desktop application to `/opt/nox` without requiring manual virtual environment management:
 
 ```bash
+# Clone the repository
 git clone https://github.com/callme-ADHI/NoX---AI.git ~/nox
+cd ~/nox
+
+# Build the Arch Linux packages
+make package
+
+# Verify package integrity before installing
+bash scripts/verify-install.sh
+
+# Install both packages via pacman
+sudo pacman -U packaging/arch/*.pkg.tar.zst
+
+# Run automated system integration (systemd unit, autostart, Hyprland exec-once, linger)
+nx setup --all
+```
+
+Once installed, `nx`, `noxd`, and `nox-app` are directly on your system `PATH`.
+
+### 2. Manual Development Installation (Alternative)
+
+If developing locally without building Arch packages:
+
+```bash
 cd ~/nox
 bash scripts/install.sh
 ```

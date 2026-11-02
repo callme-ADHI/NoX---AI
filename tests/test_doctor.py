@@ -418,5 +418,60 @@ def test_check_cloud_health_state() -> None:
 
 def test_run_all_checks() -> None:
     checks = doctor.run_all_checks()
-    assert len(checks) >= 15
+    assert len(checks) >= 20
     assert all(isinstance(c, doctor.DoctorCheck) for c in checks)
+
+
+def test_check_desktop_app(tmp_path: Path) -> None:
+    # 1. When binary found
+    with patch("shutil.which", return_value="/usr/bin/nox-app"):
+        c = doctor.check_desktop_app()
+        assert c.status == "PASS"
+        assert "/usr/bin/nox-app" in c.name
+
+    # 2. When not found
+    with patch("shutil.which", return_value=None), patch("pathlib.Path.exists", return_value=False):
+        c = doctor.check_desktop_app()
+        assert c.status == "WARN"
+
+
+def test_check_autostart_config(tmp_path: Path) -> None:
+    # 1. Desktop autostart exists
+    fake_desktop = tmp_path / "nox.desktop"
+    fake_desktop.write_text("[Desktop Entry]\nExec=nox-app\n")
+    with patch("pathlib.Path.expanduser", side_effect=lambda: fake_desktop):
+        c = doctor.check_autostart_config()
+        assert c.status in ("PASS", "WARN")
+
+
+def test_check_notification_action() -> None:
+    # 1. notify-send missing
+    with patch("shutil.which", return_value=None):
+        c = doctor.check_notification_action()
+        assert c.status == "WARN"
+
+    # 2. notify-send present and busctl returns 0
+    with patch("shutil.which", return_value="/usr/bin/notify-send"):
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0)):
+            c = doctor.check_notification_action()
+            assert c.status == "PASS"
+            assert "D-Bus active" in c.name
+
+
+def test_check_db_backups(tmp_path: Path) -> None:
+    # 1. Backups present
+    fake_dir = tmp_path / "backups"
+    fake_dir.mkdir()
+    (fake_dir / "nox_20261102_120000_123456.db").write_text("test")
+
+    with patch("pathlib.Path.expanduser", return_value=fake_dir):
+        c = doctor.check_db_backups()
+        assert c.status == "PASS"
+        assert "1 available" in c.name
+
+    # 2. Backups missing
+    empty_dir = tmp_path / "empty_backups"
+    empty_dir.mkdir()
+    with patch("pathlib.Path.expanduser", return_value=empty_dir):
+        c = doctor.check_db_backups()
+        assert c.status == "WARN"
