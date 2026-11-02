@@ -1,0 +1,129 @@
+# Maintainer: NoX Developers <https://github.com/callme-ADHI/NoX---AI>
+pkgbase=nox
+pkgname=('nox' 'nox-app')
+pkgver=0.1.0.r84.gaf8ba88
+pkgrel=1
+pkgdesc="NoX personal AI agent for Arch Linux & Hyprland"
+arch=('x86_64')
+url="https://github.com/callme-ADHI/NoX---AI"
+license=('Proprietary')
+makedepends=('python' 'uv' 'nodejs' 'npm' 'librsvg' 'git')
+options=('!strip' '!debug')
+
+source=(
+    "nox.desktop"
+    "noxd.service"
+    "nx"
+    "noxd"
+    "nox-app"
+)
+sha256sums=(
+    'SKIP'
+    'SKIP'
+    'SKIP'
+    'SKIP'
+    'SKIP'
+)
+
+pkgver() {
+    local src_root="${startdir}/../.."
+    local py_ver
+    py_ver=$(python3 -c "import tomllib; print(tomllib.load(open('${src_root}/pyproject.toml', 'rb'))['project']['version'])" 2>/dev/null || echo "0.1.0")
+    
+    local count
+    count=$(git -C "${src_root}" rev-list --count HEAD 2>/dev/null || echo 1)
+    local hash
+    hash=$(git -C "${src_root}" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    
+    local git_tag
+    git_tag=$(git -C "${src_root}" describe --tags --abbrev=0 2>/dev/null || echo "")
+    if [ -n "$git_tag" ] && [ "$git_tag" != "v$py_ver" ] && [ "$git_tag" != "$py_ver" ]; then
+        echo "WARNING: Git tag ($git_tag) does not match pyproject.toml version ($py_ver)" >&2
+    fi
+    
+    printf "%s.r%s.g%s" "$py_ver" "$count" "$hash"
+}
+
+build() {
+    local src_root="${startdir}/../.."
+    
+    # 1. Build UI assets
+    if [ -d "${src_root}/ui" ]; then
+        msg2 "Building UI assets..."
+        (cd "${src_root}/ui" && npm run build --silent)
+    fi
+    
+    # 2. Render PNG icons from SVG
+    msg2 "Rendering PNG icons..."
+    local icons_dir="${srcdir}/icons"
+    mkdir -p "${icons_dir}"
+    for sz in 16 32 48 64 128 256 512; do
+        rsvg-convert -w "${sz}" -h "${sz}" "${src_root}/ui/public/icon.svg" -o "${icons_dir}/nox-${sz}x${sz}.png"
+    done
+}
+
+package_nox() {
+    pkgdesc="NoX daemon, background services, CLI, and runtime (/opt/nox)"
+    depends=('python')
+    optdepends=(
+        'ollama: local LLM inference'
+        'chromium: default webview launcher'
+    )
+    
+    local src_root="${startdir}/../.."
+    
+    msg2 "Populating /opt/nox/venv..."
+    mkdir -p "${pkgdir}/opt/nox"
+    uv venv "${pkgdir}/opt/nox/venv" --python python3
+    uv pip install --python "${pkgdir}/opt/nox/venv/bin/python" "${src_root}"
+    
+    msg2 "Normalizing venv paths to /opt/nox/venv..."
+    for f in "${pkgdir}/opt/nox/venv/bin/"*; do
+        if [ -f "$f" ]; then
+            sed -i "s|${pkgdir}||g" "$f" 2>/dev/null || true
+        fi
+    done
+    if [ -f "${pkgdir}/opt/nox/venv/pyvenv.cfg" ]; then
+        sed -i "s|${pkgdir}||g" "${pkgdir}/opt/nox/venv/pyvenv.cfg"
+    fi
+    
+    msg2 "Installing UI distribution..."
+    mkdir -p "${pkgdir}/opt/nox/ui"
+    cp -r "${src_root}/ui/dist" "${pkgdir}/opt/nox/ui/dist"
+    
+    msg2 "Installing scripts and example config..."
+    mkdir -p "${pkgdir}/opt/nox/scripts"
+    install -m 755 "${src_root}/scripts/nx-open.sh" "${pkgdir}/opt/nox/scripts/nx-open.sh"
+    cp "${src_root}/config.example.toml" "${pkgdir}/opt/nox/config.example.toml"
+    
+    msg2 "Installing CLI and daemon wrappers..."
+    mkdir -p "${pkgdir}/usr/bin"
+    install -m 755 "${srcdir}/nx" "${pkgdir}/usr/bin/nx"
+    install -m 755 "${srcdir}/noxd" "${pkgdir}/usr/bin/noxd"
+    
+    msg2 "Installing systemd user service..."
+    mkdir -p "${pkgdir}/usr/lib/systemd/user"
+    install -m 644 "${srcdir}/noxd.service" "${pkgdir}/usr/lib/systemd/user/noxd.service"
+    
+    msg2 "Installing scalable and raster icons..."
+    mkdir -p "${pkgdir}/usr/share/icons/hicolor/scalable/apps"
+    install -m 644 "${src_root}/ui/public/icon.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/nox.svg"
+    
+    for sz in 16 32 48 64 128 256 512; do
+        mkdir -p "${pkgdir}/usr/share/icons/hicolor/${sz}x${sz}/apps"
+        install -m 644 "${srcdir}/icons/nox-${sz}x${sz}.png" "${pkgdir}/usr/share/icons/hicolor/${sz}x${sz}/apps/nox.png"
+    done
+}
+
+package_nox-app() {
+    pkgdesc="NoX desktop application launcher and desktop entry"
+    depends=('nox')
+    
+    msg2 "Installing desktop launcher wrapper..."
+    mkdir -p "${pkgdir}/usr/bin"
+    install -m 755 "${srcdir}/nox-app" "${pkgdir}/usr/bin/nox-app"
+    
+    msg2 "Installing desktop entry..."
+    mkdir -p "${pkgdir}/usr/share/applications"
+    install -m 644 "${srcdir}/nox.desktop" "${pkgdir}/usr/share/applications/nox.desktop"
+}

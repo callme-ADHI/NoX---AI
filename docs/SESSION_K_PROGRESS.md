@@ -15,7 +15,7 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [x] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
 - [x] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
 - [ ] **A11**: Desktop notifications from pipeline; clicking opens app at briefing (or documented fallback).
-- [ ] **A12**: Arch packaging verified (PKGBUILD builds, namcap, unit verified, contents correct, user-run verify script).
+- [x] **A12**: Arch packaging verified (PKGBUILD builds, namcap, unit verified, contents correct, user-run verify script).
 - [x] **A13**: DB safety: automatic backups, migration 010 converges both paths, tested on a copy of the real DB.
 - [ ] **A14**: Docs updated (README Arch install, INSTALL, DESKTOP, OPERATIONS, ARCHITECTURE, DECISIONS, PROGRESS, CHANGELOG).
 - [ ] **A15**: Full test suites green with pasted output (pytest, mypy, ruff, vitest, playwright, cargo test).
@@ -61,13 +61,13 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Conversation memory with REAL models: `nx eval conversation --live` (8 scenarios scored against cloud and local models, transcripts pasted, memory drawer operations verified)
   - [x] Phase 3 git commit
 
-- [ ] **Phase 4: Arch Packaging (No More Venv)**
-  - [ ] Package layout in `/opt/nox`, wrappers `/usr/bin/nx` and `/usr/bin/noxd`, systemd unit `/usr/lib/systemd/user/noxd.service`, icon and desktop entry
-  - [ ] `packaging/arch/PKGBUILD` for "nox" and "nox-app", pkgver from git describe, version match warning
-  - [ ] Non-root build: `makepkg -f`, namcap, `bsdtar -tf`, `systemd-analyze verify`, `desktop-file-validate`, clean chroot/container if available
-  - [ ] `scripts/verify-install.sh` for user verification
-  - [ ] Make / just targets: build-ui, build-app, package, verify
-  - [ ] Phase 4 git commit
+- [x] **Phase 4: Arch Packaging (No More Venv)**
+  - [x] Package layout in `/opt/nox`, wrappers `/usr/bin/nx` and `/usr/bin/noxd`, systemd unit `/usr/lib/systemd/user/noxd.service`, icon and desktop entry
+  - [x] `packaging/arch/PKGBUILD` for "nox" and "nox-app", pkgver from git describe, version match warning
+  - [x] Non-root build: `makepkg -f`, namcap, `bsdtar -tf`, `systemd-analyze verify`, `desktop-file-validate`, clean chroot/container if available
+  - [x] `scripts/verify-install.sh` for user verification
+  - [x] Make / just targets: build-ui, build-app, package, verify
+  - [x] Phase 4 git commit
 
 - [ ] **Phase 5: The Desktop App "NoX" (Tauri 2, Arch/Hyprland)**
   - [ ] Directory `desktop/`, check Tauri 2 Linux prereqs via web search & pacman

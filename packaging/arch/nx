@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# /usr/bin/nx — wrapper for NoX CLI
+set -e
+
+if [ -x /opt/nox/venv/bin/nx ]; then
+    exec /opt/nox/venv/bin/nx "$@"
+elif [ -x /opt/nox/venv/bin/python ]; then
+    exec /opt/nox/venv/bin/python -m noxai.cli "$@"
+else
+    echo "Error: NoX installation not found at /opt/nox" >&2
+    exit 1
+fi

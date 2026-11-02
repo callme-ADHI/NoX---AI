@@ -1,0 +1,20 @@
+[Unit]
+Description=NoX personal AI agent daemon
+Documentation=https://github.com/callme-ADHI/NoX---AI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/noxd
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+Environment=HOME=%h
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=noxd
+
+[Install]
+WantedBy=default.target

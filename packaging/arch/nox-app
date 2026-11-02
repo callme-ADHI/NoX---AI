@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# /usr/bin/nox-app — launcher for NoX desktop application
+set -e
+
+if [ -x /opt/nox/bin/nox-desktop ]; then
+    exec /opt/nox/bin/nox-desktop "$@"
+elif [ -x /opt/nox/scripts/nx-open.sh ]; then
+    exec /opt/nox/scripts/nx-open.sh "$@"
+else
+    TOKEN_FILE="${HOME}/.local/share/nox/session_token"
+    TOKEN=""
+    [ -f "$TOKEN_FILE" ] && TOKEN=$(cat "$TOKEN_FILE")
+    xdg-open "http://127.0.0.1:7777/?t=${TOKEN}"
+fi

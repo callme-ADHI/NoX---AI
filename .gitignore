@@ -38,6 +38,11 @@ htmlcov/
 ui/dist/
 ui/node_modules/
 ui/test-results/
-ui/playwright-report/
 test-results/
 playwright-report/
+
+# Arch Linux packaging artifacts
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/*.pkg.tar.*
+packaging/arch/icons/

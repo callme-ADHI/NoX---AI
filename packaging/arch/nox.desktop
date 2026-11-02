@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=NoX
+Comment=Personal AI Agent for Arch Linux & Hyprland
+Exec=nox-app %U
+Icon=nox
+Terminal=false
+Type=Application
+Categories=Science;ArtificialIntelligence;
+StartupWMClass=NoX
