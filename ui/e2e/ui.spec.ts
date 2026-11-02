@@ -288,7 +288,7 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     await expect(editInput).toBeVisible();
     await editInput.fill('Updated realistic fact value from test');
     await page.locator('button[title="Save fact"]').click();
-    await expect(page.locator('text=Updated realistic fact value from test')).toBeVisible();
+    await expect(page.locator('text=Updated realistic fact value from test').first()).toBeVisible();
 
     // Find Needs Review fact and click Review
     const reviewBtn = page.locator('button:has-text("Review")').first();
@@ -408,4 +408,50 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
       expect(dialogTriggered).toBe(false);
     }
   });
+
+  test('Session J Phase 3: Single Run briefing button and background execution survival across navigation & refresh', async ({ page }) => {
+    await page.goto(`/?t=${token}`);
+    await page.waitForLoadState('networkidle');
+
+    // 1. Navigate to Briefings page
+    await page.click('button:has-text("Briefings")');
+    await expect(page.locator('text=Briefings Archive')).toBeVisible();
+
+    // 2. Verify single primary Run briefing button exists (and not two morning/evening buttons)
+    const runBtn = page.locator('[data-testid="run-briefing-button"]');
+    await expect(runBtn).toBeVisible();
+    await expect(page.locator('text=Morning 04:00')).toHaveCount(0);
+    await expect(page.locator('text=Evening 18:00')).toHaveCount(0);
+    await expect(page.locator('text=Auto schedule:')).toBeVisible();
+
+    // 3. Click Run briefing
+    await runBtn.click();
+    await page.waitForTimeout(500);
+
+    // 4. Verify running state (button text transforms to Running or disabled with spinner)
+    await expect(runBtn).toBeDisabled();
+
+    // 5. Background survival test: reload page while run is in progress
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await page.click('button:has-text("Briefings")');
+    await expect(page.locator('text=Briefings Archive')).toBeVisible();
+
+    // Verify it seamlessly reattached or displays updated status
+    const reattachedBtn = page.locator('[data-testid="run-briefing-button"]');
+    await expect(reattachedBtn).toBeVisible();
+
+    // 6. Navigation survival: switch to Tasks and back to Briefings
+    await page.click('button:has-text("Tasks")');
+    await page.waitForTimeout(400);
+    await expect(page.locator('h1:has-text("Task Center")')).toBeVisible();
+
+    await page.click('button:has-text("Briefings")');
+    await page.waitForTimeout(400);
+    await expect(page.locator('text=Briefings Archive')).toBeVisible();
+
+    // Zero uncaught errors
+    expect(uncaughtErrors).toEqual([]);
+  });
 });
+

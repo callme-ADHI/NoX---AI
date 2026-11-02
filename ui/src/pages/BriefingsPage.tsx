@@ -8,6 +8,7 @@ import {
   Loader2,
   Copy,
   Check,
+  X,
   ExternalLink,
   Sparkles,
   ShieldCheck,
@@ -54,10 +55,22 @@ export const BriefingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [activeRun, setActiveRun] = useState<{
+    run_id: string;
+    slot: string;
+    rev: number;
+    state: string;
+    progress: number;
+    topics_completed: number;
+    topics_total: number;
+  } | null>(null);
+  const [nextSchedule, setNextSchedule] = useState<{
+    morning: string;
+    evening: string;
+  }>({ morning: '04:00', evening: '18:00' });
   const [copied, setCopied] = useState(false);
   const [vaultOpening, setVaultOpening] = useState(false);
   const [vaultOpened, setVaultOpened] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<'morning' | 'evening'>('morning');
   const [viewMode, setViewMode] = useState<'cards' | 'markdown'>('cards');
 
   // Granular feedback state
@@ -71,6 +84,7 @@ export const BriefingsPage: React.FC = () => {
 
   useEffect(() => {
     loadBriefings();
+    checkStatus();
   }, []);
 
   useEffect(() => {
@@ -109,15 +123,87 @@ export const BriefingsPage: React.FC = () => {
     }
   };
 
-  const handleRunSlot = async (slot: 'morning' | 'evening') => {
+  const checkStatus = async () => {
+    try {
+      const s = await api.getBriefingStatus();
+      if (s.active && s.active_run) {
+        setRunning(true);
+        setActiveRun(s.active_run);
+      } else {
+        if (running) {
+          setRunning(false);
+          setActiveRun(null);
+          loadBriefings();
+        }
+      }
+      if (s.next_morning || s.next_evening) {
+        setNextSchedule({
+          morning: s.next_morning
+            ? new Date(s.next_morning).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '04:00',
+          evening: s.next_evening
+            ? new Date(s.next_evening).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '18:00',
+        });
+      }
+    } catch (err) {
+      console.debug('Failed to check briefing status:', err);
+    }
+  };
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (running) {
+      interval = setInterval(async () => {
+        try {
+          const s = await api.getBriefingStatus();
+          if (s.active && s.active_run) {
+            setActiveRun(s.active_run);
+          } else {
+            setRunning(false);
+            setActiveRun(null);
+            loadBriefings();
+          }
+        } catch (err) {
+          console.debug('Polling briefing status error:', err);
+        }
+      }, 1500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [running]);
+
+  const handleRunBriefing = async () => {
     setRunning(true);
     try {
-      await api.runBriefingSlot(slot, true);
-      setTimeout(loadBriefings, 4000);
+      const res = await api.runBriefing();
+      if (res.run_id) {
+        setActiveRun({
+          run_id: res.run_id,
+          slot: res.slot,
+          rev: res.rev,
+          state: 'running',
+          progress: 0,
+          topics_completed: 0,
+          topics_total: 12,
+        });
+      }
     } catch (err) {
       console.error('Failed to trigger briefing:', err);
-    } finally {
       setRunning(false);
+    }
+  };
+
+  const handleCancelBriefing = async () => {
+    if (!activeRun) return;
+    try {
+      await api.cancelBriefingRun(activeRun.run_id);
+      setRunning(false);
+      setActiveRun(null);
+      await loadBriefings();
+    } catch (err) {
+      console.error('Failed to cancel briefing:', err);
     }
   };
 
@@ -226,46 +312,62 @@ export const BriefingsPage: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => {
-                setSelectedSlot('morning');
-                handleRunSlot('morning');
-              }}
-              disabled={running}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
-                selectedSlot === 'morning'
-                  ? 'bg-accent/15 text-accent border-accent/30'
-                  : 'bg-raised/50 text-muted border-border hover:text-text'
-              }`}
-            >
-              {running && selectedSlot === 'morning' ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Play className="w-3 h-3 fill-current" />
-              )}
-              Morning 04:00
-            </button>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                data-testid="run-briefing-button"
+                aria-label={running ? 'Running briefing' : 'Run briefing'}
+                onClick={handleRunBriefing}
+                disabled={running}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-all shadow-sm ${
+                  running
+                    ? 'bg-accent/20 text-accent border-accent/40 cursor-wait'
+                    : 'bg-accent text-black hover:bg-accent/90 border-transparent active:scale-[0.98]'
+                }`}
+              >
+                {running ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>
+                      {activeRun && activeRun.topics_total > 0
+                        ? `Running (${activeRun.topics_completed}/${activeRun.topics_total})...`
+                        : 'Running briefing...'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Run briefing</span>
+                  </>
+                )}
+              </button>
 
-            <button
-              onClick={() => {
-                setSelectedSlot('evening');
-                handleRunSlot('evening');
-              }}
-              disabled={running}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
-                selectedSlot === 'evening'
-                  ? 'bg-accent/15 text-accent border-accent/30'
-                  : 'bg-raised/50 text-muted border-border hover:text-text'
-              }`}
-            >
-              {running && selectedSlot === 'evening' ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Play className="w-3 h-3 fill-current" />
+              {running && activeRun && (
+                <button
+                  data-testid="cancel-briefing-button"
+                  aria-label="Cancel briefing run"
+                  onClick={handleCancelBriefing}
+                  title="Cancel briefing run"
+                  className="p-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
-              Evening 18:00
-            </button>
+            </div>
+
+            {running && activeRun && (
+              <div className="w-full bg-raised rounded-full h-1.5 overflow-hidden border border-border">
+                <div
+                  className="bg-accent h-full transition-all duration-300"
+                  style={{ width: `${Math.max(5, Math.min(100, (activeRun.progress || 0) * 100))}%` }}
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-[10px] text-muted font-mono px-0.5">
+              <span>Auto schedule:</span>
+              <span>{nextSchedule.morning} & {nextSchedule.evening} IST</span>
+            </div>
           </div>
         </div>
 
@@ -520,6 +622,7 @@ export const BriefingsPage: React.FC = () => {
                                   onClick={() => openFeedback('like', it.topic_id, it.id)}
                                   className="p-1 rounded text-muted hover:text-success"
                                   title="Like item"
+                                  aria-label="Like item"
                                 >
                                   <ThumbsUp className="w-3 h-3" />
                                 </button>
@@ -527,6 +630,7 @@ export const BriefingsPage: React.FC = () => {
                                   onClick={() => openFeedback('dislike', it.topic_id, it.id)}
                                   className="p-1 rounded text-muted hover:text-danger"
                                   title="Dislike item"
+                                  aria-label="Dislike item"
                                 >
                                   <ThumbsDown className="w-3 h-3" />
                                 </button>
@@ -683,12 +787,16 @@ export const BriefingsPage: React.FC = () => {
                                   <button
                                     onClick={() => openFeedback('like', item.topic_id, item.id)}
                                     className="hover:text-success"
+                                    title="Like topic item"
+                                    aria-label="Like topic item"
                                   >
                                     <ThumbsUp className="w-2.5 h-2.5" />
                                   </button>
                                   <button
                                     onClick={() => openFeedback('dislike', item.topic_id, item.id)}
                                     className="hover:text-danger"
+                                    title="Dislike topic item"
+                                    aria-label="Dislike topic item"
                                   >
                                     <ThumbsDown className="w-2.5 h-2.5" />
                                   </button>

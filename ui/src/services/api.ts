@@ -291,6 +291,60 @@ export const api = {
       error?: string;
     }>>('/keys/test', { method: 'POST' }),
 
+  getBriefingStatus: () =>
+    request<{
+      active: boolean;
+      active_run?: {
+        run_id: string;
+        date: string;
+        slot: string;
+        rev: number;
+        state: string;
+        trigger: string;
+        progress: number;
+        topics_completed: number;
+        topics_total: number;
+        topics?: Array<{
+          id: string;
+          name: string;
+          state: string;
+          items: number;
+        }>;
+      };
+      next_morning?: string;
+      next_evening?: string;
+      timezone?: string;
+      last_runs?: {
+        morning?: Record<string, unknown> | null;
+        evening?: Record<string, unknown> | null;
+      };
+      missed_runs?: Array<{
+        id: string;
+        date: string;
+        slot: string;
+        created_at: string;
+      }>;
+    }>('/briefings/status'),
+
+  runBriefing: (slot?: 'morning' | 'evening') =>
+    request<{
+      ok: boolean;
+      run_id: string;
+      date: string;
+      slot: string;
+      rev: number;
+      active?: boolean;
+      task_id?: string;
+    }>('/briefings/run', {
+      method: 'POST',
+      body: JSON.stringify(slot ? { slot } : {}),
+    }),
+
+  cancelBriefingRun: (runId: string) =>
+    request<{ ok: boolean; run_id: string }>(`/briefings/runs/${runId}/cancel`, {
+      method: 'POST',
+    }),
+
   runBriefingSlot: (slot: 'morning' | 'evening' = 'morning', force = false) =>
     request<{ ok: boolean; task_id?: string; slot: string; status?: string }>('/briefings/run', {
       method: 'POST',
