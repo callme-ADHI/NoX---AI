@@ -27,12 +27,30 @@ from pydantic import (
 )
 
 # ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
+def get_config_dir() -> Path:
+    """Return active config directory, honoring NOX_CONFIG_DIR."""
+    if "NOX_CONFIG_DIR" in os.environ:
+        return Path(os.environ["NOX_CONFIG_DIR"]).expanduser().resolve()
+    return Path("~/.config/nox").expanduser().resolve()
 
-CONFIG_DIR = Path("~/.config/nox").expanduser()
-CONFIG_FILE = CONFIG_DIR / "config.toml"
-SECRETS_FILE = CONFIG_DIR / "secrets.env"
+
+def get_config_file() -> Path:
+    """Return active config file path, honoring NOX_CONFIG_FILE."""
+    if "NOX_CONFIG_FILE" in os.environ:
+        return Path(os.environ["NOX_CONFIG_FILE"]).expanduser().resolve()
+    return get_config_dir() / "config.toml"
+
+
+def get_secrets_file() -> Path:
+    """Return active secrets file path, honoring NOX_SECRETS_FILE."""
+    if "NOX_SECRETS_FILE" in os.environ:
+        return Path(os.environ["NOX_SECRETS_FILE"]).expanduser().resolve()
+    return get_config_dir() / "secrets.env"
+
+
+CONFIG_DIR = get_config_dir()
+CONFIG_FILE = get_config_file()
+SECRETS_FILE = get_secrets_file()
 
 _EXAMPLE_CONFIG = Path(__file__).parent.parent.parent / "config.example.toml"
 
@@ -257,6 +275,7 @@ class BriefingConfig(_StrictModel):
     catchup_on_boot: bool = True
     max_items_news_per_topic: int = 6
     max_items_opportunities: int = 10
+    min_items_total: int = 15
     freshness_hours_news: int = 48
     freshness_days_papers: int = 7
     notify_on_start: bool = False
@@ -351,27 +370,28 @@ def _load_secrets() -> dict[str, str]:
     Raises ``PermissionError`` if the file has permissions looser than 0600.
     Never logs secret values.
     """
-    if not SECRETS_FILE.exists():
+    sec_file = get_secrets_file()
+    if not sec_file.exists():
         return {}
 
     # Check file permissions — must be exactly 0o600 (owner r/w, nothing else)
-    file_stat = SECRETS_FILE.stat()
+    file_stat = sec_file.stat()
     mode = stat.S_IMODE(file_stat.st_mode)
     if mode & 0o177:  # any bits beyond owner rw (0o600)
         raise PermissionError(
-            f"Secrets file {SECRETS_FILE} has unsafe permissions "
-            f"({oct(mode)}). Fix with: chmod 600 {SECRETS_FILE}"
+            f"Secrets file {sec_file} has unsafe permissions "
+            f"({oct(mode)}). Fix with: chmod 600 {sec_file}"
         )
 
     secrets: dict[str, str] = {}
-    for line_no, line in enumerate(SECRETS_FILE.read_text().splitlines(), 1):
+    for line_no, line in enumerate(sec_file.read_text().splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         match = _SECRET_PATTERN.match(line)
         if not match:
             raise ValueError(
-                f"Secrets file {SECRETS_FILE} line {line_no}: expected KEY=VALUE format"
+                f"Secrets file {sec_file} line {line_no}: expected KEY=VALUE format"
             )
         val = match.group(2).strip()
         is_double_quoted = val.startswith('"') and val.endswith('"')
@@ -389,13 +409,15 @@ def _load_secrets() -> dict[str, str]:
 
 def _ensure_config_exists() -> None:
     """Create config directory and copy example config if not present."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if not CONFIG_FILE.exists():
+    cfg_dir = get_config_dir()
+    cfg_file = get_config_file()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    if not cfg_file.exists():
         if _EXAMPLE_CONFIG.exists():
-            CONFIG_FILE.write_text(_EXAMPLE_CONFIG.read_text())
+            cfg_file.write_text(_EXAMPLE_CONFIG.read_text())
         else:
             # Minimal bootstrap config
-            CONFIG_FILE.write_text(
+            cfg_file.write_text(
                 '[server]\nhost = "127.0.0.1"\nport = 7777\n\n'
                 '[timezone]\nname = "Asia/Kolkata"\n\n'
                 '[models.ollama]\nbase_url = "http://127.0.0.1:11434"\n\n'
@@ -406,13 +428,13 @@ def _ensure_config_exists() -> None:
                 'heavy  = { provider = "nvidia",'
                 ' model = "nvidia/llama-3.3-nemotron-super-49b-v1.5" }\n'
             )
-        print(f"Created default config at {CONFIG_FILE}")
+        print(f"Created default config at {cfg_file}")
 
 
 def _load_toml() -> dict[str, Any]:
     """Read and parse the TOML config file."""
     _ensure_config_exists()
-    with open(CONFIG_FILE, "rb") as f:
+    with open(get_config_file(), "rb") as f:
         return tomllib.load(f)
 
 

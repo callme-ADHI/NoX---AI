@@ -148,8 +148,10 @@ def run(
     try:
         cfg = get_config()
         setup_logging(cfg.logging.level)
-        _host = cfg.server.host
-        _port = cfg.server.port
+        _host = host if host != "127.0.0.1" else cfg.server.host
+        _port = port if port != 7777 else (int(os.environ.get("NOX_PORT", 0)) or cfg.server.port)
+        cfg.server.host = _host
+        cfg.server.port = _port
     except PermissionError as exc:
         console.print(f"[bold red]Error:[/] {exc}")
         raise typer.Exit(1) from None
@@ -173,6 +175,7 @@ def run(
         from noxai.api.app import create_app
 
         application = create_app(
+            config=cfg,
             manage_lock=False,
             test_mode=is_test_mode,
             test_db=test_db if is_test_mode else None,

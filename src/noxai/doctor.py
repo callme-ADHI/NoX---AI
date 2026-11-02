@@ -494,6 +494,63 @@ def check_next_briefing_times(cfg: Any) -> DoctorCheck:
         return DoctorCheck("next morning/evening run times", "WARN", str(exc))
 
 
+def check_briefing_scheduler_reliability(cfg: Any) -> DoctorCheck:
+    """Check reliability of the last 6 scheduled briefing slots (Session K)."""
+    from noxai.db import get_db_path
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        return DoctorCheck(
+            "Briefing scheduler reliability: last 6 slots (0 succeeded, 0 failed, 0 missed)",
+            "WARN",
+            "Database not found",
+        )
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT date, slot, state, failure_reason, error
+            FROM briefing_runs
+            ORDER BY date DESC, CASE slot WHEN 'evening' THEN 2 ELSE 1 END DESC, rev DESC
+            LIMIT 6
+            """
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return DoctorCheck(
+                "Briefing scheduler reliability: last 6 slots (0 succeeded, 0 failed, 0 missed)",
+                "WARN",
+                "No recorded briefing slots",
+            )
+
+        succeeded = sum(1 for r in rows if r["state"] == "succeeded")
+        failed = sum(1 for r in rows if r["state"] in ("failed", "partial", "interrupted"))
+        missed = sum(1 for r in rows if r["state"] == "missed")
+
+        name = (
+            f"Briefing scheduler reliability: last {len(rows)} slots "
+            f"({succeeded} succeeded, {failed} failed, {missed} missed)"
+        )
+        if missed == 0 and failed == 0:
+            return DoctorCheck(name, "PASS", f"All {succeeded} slots completed successfully")
+        if succeeded > 0:
+            hint = (
+                f"{succeeded}/{len(rows)} succeeded "
+                f"({failed} failed, {missed} missed; see 'nx briefing audit')"
+            )
+            return DoctorCheck(name, "WARN", hint)
+        hint = (
+            f"0/{len(rows)} succeeded "
+            f"({failed} failed, {missed} missed; see 'nx briefing audit')"
+        )
+        return DoctorCheck(name, "FAIL", hint)
+    except Exception as exc:
+        return DoctorCheck("Briefing scheduler reliability", "WARN", str(exc))
+
+
 def check_gate(cfg: Any) -> DoctorCheck:
     if not cfg:
         return DoctorCheck("Gate mode: token_only", "PASS", "")
@@ -698,6 +755,7 @@ def run_all_checks() -> list[DoctorCheck]:
     # 20. Briefing scheduler & next runs
     checks.append(check_briefing_scheduler_running(cfg))
     checks.append(check_next_briefing_times(cfg))
+    checks.append(check_briefing_scheduler_reliability(cfg))
 
     # 21. noxd enabled & linger
     checks.append(check_noxd_enabled())

@@ -616,24 +616,79 @@ class BriefingPipeline:
             # STAGE E: Cleanup staging artifacts
             await self._run_cleanup(run_id)
 
-            # Update briefing_runs as succeeded
+            # Quality Gate Evaluation (Session K, Section 3.1)
+            items = analyst_data.get("items", [])
+            total_items = analyst_data.get("total_items", len(items))
+            opp_cats = (
+                "internship",
+                "internships",
+                "hackathon",
+                "hackathons",
+                "competitions",
+                "opportunities",
+                "ctfs",
+            )
+            opp_items = [it for it in items if (it.get("category") or "").lower() in opp_cats]
+            non_news_cats = (*opp_cats, "ideas", "startup_ideas")
+            news_items = [
+                it
+                for it in items
+                if (it.get("category") or "news").lower() not in non_news_cats
+            ]
+            opp_count = len(opp_items)
+            news_count = len(news_items)
+            min_items_total = getattr(self.config.briefing, "min_items_total", 15)
+
+            if total_items == 0:
+                run_state = "failed"
+                failure_reason = (
+                    f"empty_run: pipeline produced 0 items "
+                    f"(min required: {min_items_total})"
+                )
+            elif total_items < min_items_total:
+                run_state = "partial"
+                failure_reason = (
+                    f"empty_run: pipeline produced {total_items} items "
+                    f"(min required: {min_items_total})"
+                )
+            elif news_count < 1:
+                run_state = "partial"
+                failure_reason = (
+                    f"insufficient_news: pipeline produced {news_count} news items "
+                    f"(min required: 1)"
+                )
+            elif opp_count < 1:
+                run_state = "partial"
+                failure_reason = (
+                    f"insufficient_opportunities: pipeline produced {opp_count} "
+                    f"opportunity items (min required: 1)"
+                )
+            else:
+                run_state = "succeeded"
+                failure_reason = None
+
+            # Update briefing_runs with evaluated state
             async with get_db() as db:
                 fin_iso = datetime.now(UTC).isoformat()
                 await execute(
                     db,
                     """
                     UPDATE briefing_runs
-                    SET state = 'succeeded', finished_at = ?, summary = ?, top_3_json = ?,
-                        sources_count = ?, generation_seconds = ?, markdown_path = ?
+                    SET state = ?, finished_at = ?, summary = ?, top_3_json = ?,
+                        sources_count = ?, generation_seconds = ?, markdown_path = ?,
+                        error = ?, failure_reason = ?
                     WHERE id = ?
                     """,
                     (
+                        run_state,
                         fin_iso,
                         analyst_data.get("tldr", ""),
                         json.dumps(analyst_data.get("top_3", [])),
                         analyst_data.get("sources_count", 0),
                         total_time,
                         str(md_path),
+                        failure_reason,
+                        failure_reason,
                         run_id,
                     ),
                 )
@@ -682,15 +737,37 @@ class BriefingPipeline:
             )
             return run_id
 
+        except asyncio.CancelledError:
+            log.warning("Briefing pipeline cancelled/interrupted: %s", run_id)
+            async with get_db() as db:
+                fin_iso = datetime.now(UTC).isoformat()
+                await execute(
+                    db,
+                    """
+                    UPDATE briefing_runs
+                    SET state = 'interrupted', finished_at = ?, error = 'Task cancelled',
+                        failure_reason = 'task_interrupted'
+                    WHERE id = ?
+                    """,
+                    (fin_iso, run_id),
+                )
+                await db.commit()
+            raise
         except Exception as exc:
+            import traceback
+
+            tb_summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
             log.error("Briefing pipeline error: %s", exc)
             async with get_db() as db:
                 fin_iso = datetime.now(UTC).isoformat()
                 await execute(
                     db,
-                    "UPDATE briefing_runs SET state = 'failed', finished_at = ?, error = ? "
-                    "WHERE id = ?",
-                    (fin_iso, str(exc), run_id),
+                    """
+                    UPDATE briefing_runs
+                    SET state = 'failed', finished_at = ?, error = ?, failure_reason = ?
+                    WHERE id = ?
+                    """,
+                    (fin_iso, str(exc), tb_summary, run_id),
                 )
                 await db.commit()
             raise

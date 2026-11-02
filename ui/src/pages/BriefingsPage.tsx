@@ -128,6 +128,7 @@ export const BriefingsPage: React.FC = () => {
     progress: number;
     topics_completed: number;
     topics_total: number;
+    topics?: Array<{ id: string; name: string; state: string; items_staged?: number }>;
   } | null>(null);
   const [nextSchedule, setNextSchedule] = useState<{
     morning: string;
@@ -137,6 +138,7 @@ export const BriefingsPage: React.FC = () => {
   const [vaultOpening, setVaultOpening] = useState(false);
   const [vaultOpened, setVaultOpened] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'markdown'>('cards');
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // Filtering & Search
   const [filterCategory, setFilterCategory] = useState<
@@ -199,9 +201,10 @@ export const BriefingsPage: React.FC = () => {
   const checkStatus = async () => {
     try {
       const s = await api.getBriefingStatus();
-      if (s.active && s.active_run) {
+      const activeObj = s.active_run || (s.active && typeof s.active === 'object' ? (s.active as any) : null);
+      if (activeObj) {
         setRunning(true);
-        setActiveRun(s.active_run);
+        setActiveRun(activeObj);
       } else {
         if (running) {
           setRunning(false);
@@ -230,8 +233,9 @@ export const BriefingsPage: React.FC = () => {
       interval = setInterval(async () => {
         try {
           const s = await api.getBriefingStatus();
-          if (s.active && s.active_run) {
-            setActiveRun(s.active_run);
+          const activeObj = s.active_run || (s.active && typeof s.active === 'object' ? (s.active as any) : null);
+          if (activeObj) {
+            setActiveRun(activeObj);
           } else {
             setRunning(false);
             setActiveRun(null);
@@ -246,6 +250,31 @@ export const BriefingsPage: React.FC = () => {
       if (interval) clearInterval(interval);
     };
   }, [running]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (running) {
+      timer = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [running]);
+
+  const currentStageName = React.useMemo(() => {
+    if (!activeRun) return 'Initializing...';
+    if (activeRun.topics && activeRun.topics.length > 0) {
+      const activeTopic = activeRun.topics.find((t) => t.state === 'collecting' || t.state === 'running');
+      if (activeTopic) return activeTopic.name;
+    }
+    if (activeRun.progress >= 1) return 'Synthesizing digest...';
+    if (activeRun.topics_completed > 0) return `Processing (${activeRun.topics_completed}/${activeRun.topics_total})`;
+    return 'Collecting topics...';
+  }, [activeRun]);
 
   const handleRunBriefing = async () => {
     setRunning(true);
@@ -700,11 +729,9 @@ export const BriefingsPage: React.FC = () => {
               >
                 {running ? (
                   <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>
-                      {activeRun && activeRun.topics_total > 0
-                        ? `Running (${activeRun.topics_completed}/${activeRun.topics_total})...`
-                        : 'Running briefing...'}
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    <span className="truncate max-w-[220px]">
+                      {currentStageName} ({elapsedSeconds}s)
                     </span>
                   </>
                 ) : (

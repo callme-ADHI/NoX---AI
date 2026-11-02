@@ -172,7 +172,7 @@ def setup_logging(
         log_file: Override log file path (for testing).
         force_tty: Force or disable human stderr handler.
     """
-    target_dir = log_dir or LOG_DIR
+    target_dir = log_dir or Path(os.environ.get("NOX_LOG_DIR", str(LOG_DIR)))
     target_file = log_file or (target_dir / "noxd.log")
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -195,13 +195,13 @@ def setup_logging(
     file_handler.setFormatter(_JsonFormatter())
     root.addHandler(file_handler)
 
-    # ── Human-readable stderr handler (only when attached to a tty) ──────
+    # ── Human-readable stream handler (stderr on tty, stdout when redirected) ──────
     is_tty = force_tty if force_tty is not None else sys.stderr.isatty()
-    if is_tty:
-        stderr_handler = logging.StreamHandler(sys.stderr)
-        stderr_handler.setLevel(numeric_level)
-        stderr_handler.setFormatter(_HumanFormatter())
-        root.addHandler(stderr_handler)
+    stream_dest = sys.stderr if is_tty else sys.stdout
+    stream_handler = logging.StreamHandler(stream_dest)
+    stream_handler.setLevel(numeric_level)
+    stream_handler.setFormatter(_HumanFormatter())
+    root.addHandler(stream_handler)
 
     # Quiet down noisy third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)

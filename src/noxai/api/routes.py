@@ -376,6 +376,7 @@ class ApprovalResponse(BaseModel):
 
 
 @api_router.get("/status", response_model=SystemStatusResponse)
+@api_router.get("/health", response_model=SystemStatusResponse)
 async def get_system_status() -> SystemStatusResponse:
     """Retrieve daemon status, health checks, gate status, and loaded models."""
     cfg = get_config()
@@ -1161,6 +1162,25 @@ async def get_briefing_status(request: Request) -> dict[str, Any]:
         sched = BriefingScheduler(supervisor=sup)
 
     return await sched.get_status()
+
+
+@api_router.get("/briefing/active", dependencies=READ_DEPS)
+@api_router.get("/briefings/active", dependencies=READ_DEPS)
+async def get_briefing_active(request: Request) -> dict[str, Any]:
+    """Retrieve active briefing run for UI attachment and progress tracking."""
+    from noxai.briefing.scheduler import BriefingScheduler
+
+    sched: BriefingScheduler | None = getattr(request.app.state, "briefing_scheduler", None)
+    if not sched:
+        from noxai.tasks.supervisor import get_task_supervisor
+
+        sup = get_task_supervisor()
+        sched = BriefingScheduler(supervisor=sup)
+
+    st = await sched.get_status()
+    if st.get("active") and st.get("active_run"):
+        return {"active": True, "run": st["active_run"]}
+    return {"active": False, "run": None}
 
 
 @api_router.post("/briefings/runs/{run_id}/cancel", dependencies=WRITE_DEPS)

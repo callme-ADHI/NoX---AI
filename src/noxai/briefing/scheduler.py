@@ -82,6 +82,11 @@ async def default_briefing_handler(task: Task, cancel_evt: asyncio.Event) -> dic
     return {"run_id": actual_run_id, "slot": slot, "date": date_str, "rev": rev}
 
 
+_reg = get_task_registry()
+if not _reg.has("briefing"):
+    _reg.register("briefing", default_briefing_handler)
+
+
 class BriefingScheduler:
     """Authoritative briefing scheduler for morning and evening slot windows."""
 
@@ -213,7 +218,11 @@ class BriefingScheduler:
                 # Check if any run exists for (d_check, s_check)
                 row = await fetch_one(
                     db,
-                    "SELECT id FROM briefing_runs WHERE date = ? AND slot = ?",
+                    """
+                    SELECT id, state FROM briefing_runs
+                    WHERE date = ? AND slot = ?
+                    ORDER BY rev DESC LIMIT 1
+                    """,
                     (d_check, s_check),
                 )
                 if not row:
@@ -224,9 +233,11 @@ class BriefingScheduler:
                         db,
                         """
                         INSERT INTO briefing_runs (
-                            id, date, slot, state, trigger, rev, title, summary, created_at
+                            id, date, slot, state, trigger, rev, title, summary,
+                            created_at, error, failure_reason
                         )
-                        VALUES (?, ?, ?, 'missed', 'scheduled', 1, ?, ?, ?)
+                        VALUES (?, ?, ?, 'missed', 'scheduled', 1, ?, ?, ?,
+                                'daemon_offline_during_window', 'daemon_offline_during_window')
                         ON CONFLICT(date, slot, rev) DO NOTHING
                         """,
                         (
@@ -240,6 +251,25 @@ class BriefingScheduler:
                     )
                     missed_recorded.append(f"{d_check}:{s_check}")
                     log.info("Recorded missed briefing window: %s (%s)", d_check, s_check)
+                elif row["state"] in ("queued", "running"):
+                    # Window expired while task was stuck
+                    await execute(
+                        db,
+                        """
+                        UPDATE briefing_runs
+                        SET state = 'missed', error = 'daemon_offline_during_window',
+                            failure_reason = 'daemon_offline_during_window'
+                        WHERE id = ?
+                        """,
+                        (row["id"],),
+                    )
+                    missed_recorded.append(f"{d_check}:{s_check}")
+                    log.info(
+                        "Updated stuck briefing run %s to missed: %s (%s)",
+                        row["id"],
+                        d_check,
+                        s_check,
+                    )
 
         return missed_recorded
 
@@ -560,7 +590,8 @@ class BriefingScheduler:
                 "now": now_iso,
                 "timezone": str(self._tz),
                 "next_runs": next_runs,
-                "active": active_info,
+                "active": bool(active_info),
+                "active_run": active_info,
                 "last": last_runs,
                 "missed": [dict(m) for m in missed_rows],
             }
@@ -616,11 +647,13 @@ class BriefingScheduler:
                        br.sources_count, t.status AS task_status
                 FROM briefing_runs br
                 LEFT JOIN tasks t ON t.id = br.task_id
-                WHERE br.state IN ('running', 'queued')
+                WHERE br.state IN ('running', 'queued', 'interrupted')
                 """,
             )
             repaired: list[dict[str, Any]] = []
             sup = self.supervisor or get_task_supervisor()
+            if not sup:
+                sup = TaskSupervisor(config=self.config)
 
             for r in rows:
                 task_status = r["task_status"]
@@ -642,8 +675,12 @@ class BriefingScheduler:
                     )
                     await execute(
                         conn,
-                        "UPDATE briefing_runs SET state = 'interrupted', error = ? WHERE id = ?",
-                        (err_text, run_id),
+                        """
+                        UPDATE briefing_runs
+                        SET state = 'interrupted', error = ?, failure_reason = ?
+                        WHERE id = ?
+                        """,
+                        (err_text, err_text, run_id),
                     )
 
                     rep_item: dict[str, Any] = {
@@ -687,6 +724,7 @@ class BriefingScheduler:
                             kind="briefing",
                             payload_json=payload,
                             owner="scheduler" if r["trigger"] == "scheduled" else "user",
+                            db=conn,
                         )
                         await execute(
                             conn,
@@ -756,14 +794,18 @@ class BriefingScheduler:
             return
         self._running = True
 
-        # Catchup on startup
+        # Repair orphaned runs and catchup on startup
         try:
             async with get_db() as db:
-                caught = await self.catchup_on_boot(db)
-                if caught:
-                    log.info("BriefingScheduler startup triggered slot(s): %s", caught)
+                await self.repair_runs(db, requeue=True)
+                if getattr(self.config.briefing, "catchup_on_boot", True):
+                    caught = await self.catchup_on_boot(db)
+                    if caught:
+                        log.info("BriefingScheduler startup triggered slot(s): %s", caught)
+                else:
+                    log.info("BriefingScheduler startup catchup disabled by config.")
         except Exception as exc:
-            log.warning("BriefingScheduler boot catchup error: %s", exc)
+            log.warning("BriefingScheduler boot catchup/repair error: %s", exc)
 
         self._loop_task = asyncio.create_task(self._scheduler_loop(), name="nox_briefing_scheduler")
         log.info("BriefingScheduler started (timezone=%s)", self._tz)

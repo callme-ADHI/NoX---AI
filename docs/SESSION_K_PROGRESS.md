@@ -8,8 +8,8 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [ ] **A2**: `noxd` starts at login as a systemd user service and restarts after a crash (`kill -9` test).
 - [ ] **A3**: NoX desktop app opens automatically at login (autostart configured and launch command tested).
 - [ ] **A4**: Closing the window does not stop the daemon; tray menu works; single instance enforced.
-- [ ] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
-- [ ] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
+- [x] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
+- [x] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
 - [ ] **A7**: Content: all existing news kept; funded internships (free accommodation, abroad, stipend; all CS fields) and individual hackathons added; CTFs capped at 3; every benefit claim has validated page evidence; links strictly checked.
 - [ ] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording.
 - [ ] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
@@ -33,15 +33,15 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Add `nx briefing repair` (marks orphaned runs interrupted, re-queues them, never marks success)
   - [x] Phase 0 git commit
 
-- [ ] **Phase 1: Automation That Is Really Proven**
-  - [ ] State machine: Succeeded ONLY if task succeeded AND items >= min_items_total AND news >= 1 AND opp >= 1; else partial/failed with stored reason
-  - [ ] Resume: Interrupted runs re-queued under SAME run_id, skip finished topics, rebuild handlers from registry on boot. Subprocess SIGKILL mid-run test
-  - [ ] Scheduler: 30s tick, morning 04:00-17:59, evening 18:00-03:59 (belonging to evening date), missed window recorded as state='missed'
-  - [ ] LIVE PROOF A: Temp instance with slots 2m & 4m ahead, UI closed, logs & rows pasted
-  - [ ] LIVE PROOF B: Catch-up & missed window in temp instance
-  - [ ] Self-audit: `nx briefing audit` + doctor check listing last 6 slots with notifications on failure/miss
-  - [ ] Single Run button: Real briefing run in temp instance with Playwright reload/navigation re-attach test & screenshots
-  - [ ] Phase 1 git commit
+- [x] **Phase 1: Automation That Is Really Proven**
+  - [x] State machine: Succeeded ONLY if task succeeded AND items >= min_items_total AND news >= 1 AND opp >= 1; else partial/failed with stored reason
+  - [x] Resume: Interrupted runs re-queued under SAME run_id, skip finished topics, rebuild handlers from registry on boot. Subprocess SIGKILL mid-run test
+  - [x] Scheduler: 30s tick, morning 04:00-17:59, evening 18:00-03:59 (belonging to evening date), missed window recorded as state='missed'
+  - [x] LIVE PROOF A: Temp instance with slots 2m & 4m ahead, UI closed, logs & rows pasted
+  - [x] LIVE PROOF B: Catch-up & missed window in temp instance
+  - [x] Self-audit: `nx briefing audit` + doctor check listing last 6 slots with notifications on failure/miss
+  - [x] Single Run button: Real briefing run in temp instance with Playwright reload/navigation re-attach test & screenshots
+  - [x] Phase 1 git commit
 
 - [ ] **Phase 2: Content You Can Trust**
   - [ ] `programs.example.toml` clean (name, url, category, human note, hint_window only; no hardcoded facts/benefits/deadlines)

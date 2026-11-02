@@ -327,3 +327,124 @@ def briefing_repair(
             "Yes" if r.get("requeued") else "No",
         )
     console.print(table)
+
+
+@briefing_app.command(name="audit")
+def briefing_audit(
+    days: int = typer.Option(7, "--days", "-d", help="Number of past days to audit"),
+    notify: bool = typer.Option(
+        True, "--notify/--no-notify", help="Emit desktop notifications on failed/missed slots"
+    ),
+) -> None:
+    """Inspect recent scheduled briefing slots (default 7 days / 14 slots)."""
+    import subprocess
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from noxai.config import get_config
+    from noxai.db import fetch_one, get_db
+
+    cfg = get_config()
+    tz = ZoneInfo(getattr(cfg.briefing, "timezone", "Asia/Kolkata"))
+    now_dt = datetime.now(tz)
+
+    async def _audit() -> list[dict[str, Any]]:
+        results = []
+        async with get_db() as conn:
+            slots_list: list[tuple[str, str]] = []
+            cur_date = now_dt.date()
+            for i in range(days):
+                d = cur_date - timedelta(days=i)
+                d_str = d.strftime("%Y-%m-%d")
+                slots_list.append((d_str, "evening"))
+                slots_list.append((d_str, "morning"))
+
+            for d_str, slot in slots_list:
+                row = await fetch_one(
+                    conn,
+                    """
+                    SELECT date, slot, trigger, state, sources_count,
+                           generation_seconds, error, failure_reason
+                    FROM briefing_runs
+                    WHERE date = ? AND slot = ?
+                    ORDER BY rev DESC LIMIT 1
+                    """,
+                    (d_str, slot),
+                )
+                if row:
+                    results.append(
+                        {
+                            "date": row["date"],
+                            "slot": row["slot"],
+                            "trigger": row["trigger"],
+                            "state": row["state"],
+                            "items": row["sources_count"],
+                            "duration": f"{row['generation_seconds']:.1f}s",
+                            "failure_reason": row["failure_reason"] or row["error"] or "-",
+                        }
+                    )
+                else:
+                    results.append(
+                        {
+                            "date": d_str,
+                            "slot": slot,
+                            "trigger": "scheduled",
+                            "state": "missed",
+                            "items": 0,
+                            "duration": "0.0s",
+                            "failure_reason": "window_unserved",
+                        }
+                    )
+        return results
+
+    audit_results = asyncio.run(_audit())
+
+    table = Table(
+        title=f"NoX Briefing Self-Audit — Last {days} Days ({len(audit_results)} Slots)",
+        show_header=True,
+    )
+    table.add_column("Date", style="white")
+    table.add_column("Slot", style="magenta")
+    table.add_column("Trigger", style="cyan")
+    table.add_column("State", style="bold")
+    table.add_column("Items", style="green")
+    table.add_column("Duration", style="yellow")
+    table.add_column("Failure Reason", style="red")
+
+    failures_to_notify = []
+    for r in audit_results:
+        state = r["state"]
+        if state == "succeeded":
+            state_disp = "[green]succeeded[/green]"
+        elif state == "partial":
+            state_disp = "[yellow]partial[/yellow]"
+        elif state == "missed":
+            state_disp = "[magenta]missed[/magenta]"
+            failures_to_notify.append(r)
+        else:
+            state_disp = f"[red]{state}[/red]"
+            failures_to_notify.append(r)
+
+        table.add_row(
+            r["date"],
+            r["slot"],
+            r["trigger"],
+            state_disp,
+            str(r["items"]),
+            r["duration"],
+            r["failure_reason"],
+        )
+
+    console.print(table)
+
+    if notify and failures_to_notify:
+        for f in failures_to_notify[:3]:  # Limit to 3 most recent notifications
+            reason = f["failure_reason"]
+            msg = f"NoX briefing missed: {f['slot']} {f['date']} ({reason})"
+            try:
+                subprocess.run(
+                    ["notify-send", "-a", "NoX", "NoX Briefing Alert", msg],
+                    check=False,
+                )
+            except Exception as exc:
+                console.print(f"[dim]Failed to send notification: {exc}[/dim]")
