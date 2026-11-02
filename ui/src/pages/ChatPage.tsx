@@ -43,7 +43,7 @@ export const ChatPage: React.FC = () => {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [allowCloud, setAllowCloud] = useState(false);
+  const [allowCloud, setAllowCloud] = useState(true);
   const [isPrivateMode, setIsPrivateMode] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -78,7 +78,14 @@ export const ChatPage: React.FC = () => {
         api.getStatus().catch(() => null),
         api.getTasks().catch(() => [] as Task[]),
       ]);
-      if (sData) setSystemStatus(sData);
+      if (sData) {
+        setSystemStatus(sData);
+        if (typeof sData.cloud_enabled === 'boolean') {
+          setAllowCloud(sData.cloud_enabled);
+        } else if (sData.cloud_available) {
+          setAllowCloud(true);
+        }
+      }
       setActiveTasks(tData.filter((t) => ['queued', 'running'].includes(t.status)));
     } catch (err) {
       console.error('Failed to load status and tasks:', err);
@@ -672,6 +679,7 @@ export const ChatPage: React.FC = () => {
               onToggleCloud={(en) => {
                 if (en && isPrivateMode) setIsPrivateMode(false);
                 setAllowCloud(en);
+                api.updateSettings({ 'cloud.enabled': en }).catch(console.error);
               }}
             />
           </div>

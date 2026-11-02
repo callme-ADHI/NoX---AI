@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 
 import typer
@@ -11,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from noxai.config import get_config
+from noxai.db import execute, fetch_one, get_db, run_migrations
 from noxai.models.base import Message
 from noxai.models.budget import RequestBudget
 from noxai.models.cloud_health import get_cloud_health
@@ -18,6 +20,70 @@ from noxai.models.router import ModelRouter
 
 cloud_app = typer.Typer(help="Cloud model health inspection, status, and testing.")
 console = Console()
+log = logging.getLogger(__name__)
+
+
+async def _get_cloud_enabled() -> bool:
+    """Read cloud.enabled setting from database (defaults to True)."""
+    try:
+        async with get_db() as db:
+            row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+            if row:
+                try:
+                    return json.loads(row["value"]) is True
+                except Exception:
+                    return str(row["value"]).lower() in ("true", "1")
+    except Exception as exc:
+        log.debug("Error checking cloud.enabled: %s", exc)
+    return True
+
+
+@cloud_app.command(name="on")
+def cloud_on() -> None:
+    """Enable NVIDIA cloud model execution."""
+    async def _set() -> None:
+        await run_migrations()
+        async with get_db() as db:
+            await execute(
+                db,
+                """
+                INSERT INTO settings (key, value, updated_at)
+                VALUES ('cloud.enabled', 'true', datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = datetime('now')
+                """,
+            )
+            await db.commit()
+
+    try:
+        asyncio.run(_set())
+        console.print("[bold green]✓ NVIDIA Cloud enabled[/] (cloud.enabled = true).")
+    except Exception as exc:
+        console.print(f"[bold red]Failed to enable cloud:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+
+@cloud_app.command(name="off")
+def cloud_off() -> None:
+    """Disable NVIDIA cloud model execution."""
+    async def _set() -> None:
+        await run_migrations()
+        async with get_db() as db:
+            await execute(
+                db,
+                """
+                INSERT INTO settings (key, value, updated_at)
+                VALUES ('cloud.enabled', 'false', datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET value = 'false', updated_at = datetime('now')
+                """,
+            )
+            await db.commit()
+
+    try:
+        asyncio.run(_set())
+        console.print("[bold yellow]✓ NVIDIA Cloud disabled[/] (cloud.enabled = false).")
+    except Exception as exc:
+        console.print(f"[bold red]Failed to disable cloud:[/] {exc}")
+        raise typer.Exit(1) from exc
 
 
 @cloud_app.command(name="status")
@@ -31,6 +97,7 @@ def cloud_status(
         console.print(f"[red]Error loading configuration:[/] {exc}")
         raise typer.Exit(1) from exc
 
+    cloud_enabled = asyncio.run(_get_cloud_enabled())
     has_key = bool(cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
     health = get_cloud_health(has_key=has_key)
     health_dict = health.to_dict()
@@ -40,6 +107,7 @@ def cloud_status(
 
     if json_output:
         combined = {
+            "enabled": cloud_enabled,
             "health": health_dict,
             "budget": budget_dict,
             "configured_model": (
@@ -55,6 +123,9 @@ def cloud_status(
     table_health = Table(title="Cloud Provider Health & Circuit Breaker", show_header=True)
     table_health.add_column("Property", style="bold cyan")
     table_health.add_column("Value", style="green")
+    table_health.add_row(
+        "Cloud Enabled", "[bold green]true[/]" if cloud_enabled else "[bold yellow]false[/]"
+    )
 
     state_color = {
         "active": "[bold green]active[/]",

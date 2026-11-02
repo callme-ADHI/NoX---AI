@@ -176,6 +176,7 @@ class SystemStatusResponse(BaseModel):
     loaded_models: list[str]
     cloud_available: bool
     cloud_key_configured: bool
+    cloud_enabled: bool = True
     active_runs_count: int
     db_size_bytes: int
     vector_backend: str
@@ -399,7 +400,19 @@ async def get_system_status() -> SystemStatusResponse:
         ch.check_secrets_file()
     if has_nvidia_key and ch.state in (CloudHealthState.NO_KEY, CloudHealthState.OFFLINE):
         ch._transition(CloudHealthState.ACTIVE, "Ready")
-    cloud_is_available = has_nvidia_key and ch.is_active()
+    cloud_enabled = True
+    try:
+        async with get_db() as db:
+            row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+            if row:
+                try:
+                    cloud_enabled = json.loads(row["value"]) is True
+                except Exception:
+                    cloud_enabled = str(row["value"]).lower() in ("true", "1")
+    except Exception as exc:
+        log.debug("Failed to query cloud.enabled: %s", exc)
+
+    cloud_is_available = has_nvidia_key and ch.is_active() and cloud_enabled
 
     return SystemStatusResponse(
         status="ok",
@@ -409,6 +422,7 @@ async def get_system_status() -> SystemStatusResponse:
         loaded_models=loaded_models,
         cloud_available=cloud_is_available,
         cloud_key_configured=has_nvidia_key,
+        cloud_enabled=cloud_enabled,
         active_runs_count=len(active_runs),
         db_size_bytes=db_size_bytes,
         vector_backend=VECTOR_BACKEND,
@@ -453,6 +467,19 @@ async def chat_endpoint(req: ChatRequest) -> ChatResponse:
     conv_id = req.conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
     run_id = req.run_id or f"run_{uuid.uuid4().hex[:12]}"
 
+    cloud_enabled = True
+    try:
+        async with get_db() as db:
+            row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+            if row:
+                try:
+                    cloud_enabled = json.loads(row["value"]) is True
+                except Exception:
+                    cloud_enabled = str(row["value"]).lower() in ("true", "1")
+    except Exception as exc:
+        log.debug("Failed to query cloud.enabled in chat_endpoint: %s", exc)
+    effective_allow_cloud = bool(req.allow_cloud and cloud_enabled)
+
     async with get_db() as db:
         await execute(
             db,
@@ -471,7 +498,7 @@ async def chat_endpoint(req: ChatRequest) -> ChatResponse:
             VALUES (?, 'chat', ?, 'running', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             ON CONFLICT(id) DO UPDATE SET status = 'running'
             """,
-            (run_id, conv_id, 1 if req.allow_cloud else 0),
+            (run_id, conv_id, 1 if effective_allow_cloud else 0),
         )
         await db.commit()
 
@@ -481,7 +508,7 @@ async def chat_endpoint(req: ChatRequest) -> ChatResponse:
             run_id=run_id,
             conv_id=conv_id,
             message=req.message,
-            allow_cloud=req.allow_cloud,
+            allow_cloud=effective_allow_cloud,
             config=cfg,
         )
     )

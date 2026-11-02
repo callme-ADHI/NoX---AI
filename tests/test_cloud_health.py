@@ -311,3 +311,24 @@ class TestCloudCLICommands:
             res = runner.invoke(app, ["models", "bench-cloud"])
             assert res.exit_code == 1
             assert "Cannot benchmark cloud" in res.output
+
+    def test_nx_cloud_on_and_off_commands(self) -> None:
+        runner = CliRunner()
+        res_off = runner.invoke(app, ["cloud", "off"])
+        assert res_off.exit_code == 0
+        assert "disabled" in res_off.output
+
+        res_status = runner.invoke(app, ["cloud", "status", "--json"])
+        assert res_status.exit_code == 0
+        data = json.loads(res_status.output)
+        assert data.get("enabled") is False
+
+        res_on = runner.invoke(app, ["cloud", "on"])
+        assert res_on.exit_code == 0
+        assert "enabled" in res_on.output
+
+        res_status2 = runner.invoke(app, ["cloud", "status", "--json"])
+        assert res_status2.exit_code == 0
+        data2 = json.loads(res_status2.output)
+        assert data2.get("enabled") is True
+

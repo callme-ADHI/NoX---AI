@@ -21,6 +21,7 @@ export interface SystemStatus {
   loaded_models: string[];
   cloud_available: boolean;
   cloud_key_configured: boolean;
+  cloud_enabled?: boolean;
   active_runs_count: number;
   db_size_bytes: number;
   vector_backend: string;
