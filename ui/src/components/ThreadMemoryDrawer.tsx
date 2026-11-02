@@ -10,6 +10,8 @@ import {
   Target,
   ShieldCheck,
   Loader2,
+  Pin,
+  Trash2,
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -23,6 +25,7 @@ interface ThreadMemoryData {
   open_questions: string[];
   working_hypotheses: string[];
   active_facts: Array<{ key: string; value: string; category: string; confidence: number }>;
+  messages?: Array<{ id: string; role: string; content: string; pinned: boolean; created_at: string }>;
 }
 
 export interface ThreadMemoryDrawerProps {
@@ -75,6 +78,45 @@ export const ThreadMemoryDrawer: React.FC<ThreadMemoryDrawerProps> = ({
       console.error('Failed to update summary:', err);
     } finally {
       setSavingSummary(false);
+    }
+  };
+
+  const handleTogglePinMessage = async (msgId: string) => {
+    if (!convId) return;
+    try {
+      const res = await api.pinThreadMessage(convId, msgId);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages?.map((m) =>
+                m.id === msgId ? { ...m, pinned: res.pinned } : m
+              ),
+            }
+          : null
+      );
+      flashMessage(res.pinned ? 'Message pinned to memory' : 'Message unpinned');
+    } catch (err) {
+      console.error('Failed to toggle pin message:', err);
+    }
+  };
+
+  const handleForgetMessage = async (msgId: string) => {
+    if (!convId) return;
+    if (!confirm('Forget this message? It will be removed from context and memory retrieval.')) return;
+    try {
+      await api.forgetThreadMessage(convId, msgId);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages?.filter((m) => m.id !== msgId),
+            }
+          : null
+      );
+      flashMessage('Message forgotten');
+    } catch (err) {
+      console.error('Failed to forget message:', err);
     }
   };
 
@@ -244,6 +286,57 @@ export const ThreadMemoryDrawer: React.FC<ThreadMemoryDrawerProps> = ({
                   </div>
                 ) : (
                   <div className="text-muted text-[11px]">No pinned facts applied to this turn.</div>
+                )}
+              </div>
+
+              {/* Thread Messages (Pin / Forget) */}
+              <div className="p-3.5 rounded-xl bg-background border border-border space-y-2">
+                <span className="text-[11px] font-semibold text-text uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <Pin className="w-3.5 h-3.5 text-accent" />
+                  Thread Messages (Pin / Forget)
+                </span>
+                {data?.messages && data.messages.length > 0 ? (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {data.messages.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`p-2 rounded border flex items-center justify-between gap-2 text-xs ${
+                          m.pinned ? 'bg-accent/10 border-accent/40' : 'bg-surface border-border/70'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-[10px] text-muted uppercase mr-1.5 font-bold">
+                            {m.role}:
+                          </span>
+                          <span className="text-text truncate block">{m.content}</span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() => handleTogglePinMessage(m.id)}
+                            className={`p-1 rounded transition-colors ${
+                              m.pinned
+                                ? 'text-accent bg-accent/20'
+                                : 'text-muted hover:text-accent hover:bg-raised'
+                            }`}
+                            title={m.pinned ? 'Unpin message' : 'Pin message in context'}
+                            aria-label={m.pinned ? 'Unpin message' : 'Pin message in context'}
+                          >
+                            <Pin className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => handleForgetMessage(m.id)}
+                            className="p-1 rounded text-muted hover:text-danger hover:bg-raised transition-colors"
+                            title="Forget message"
+                            aria-label="Forget message"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-muted text-[11px]">No recent dialogue messages in thread.</div>
                 )}
               </div>
 

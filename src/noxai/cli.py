@@ -75,13 +75,20 @@ eval_app = typer.Typer(name="eval", help="Evaluation commands.")
 
 
 @eval_app.command(name="conversation")
-def eval_conversation() -> None:
-    """Run the 12-scenario Conversation Memory System (CMS) evaluation."""
+def eval_conversation(
+    live: bool = typer.Option(False, "--live", help="Run 8 live scenarios against real models (cloud and local)"),
+    route: str = typer.Option("both", "--route", help="Model route: cloud, local, or both"),
+) -> None:
+    """Run the Conversation Memory System (CMS) evaluation (12 unit scenarios, or 8 live scenarios with --live)."""
     import asyncio
 
-    from noxai.evals.conversation_eval import run_conversation_eval
+    if live:
+        from noxai.evals.conversation_eval import run_live_conversation_eval
+        success = asyncio.run(run_live_conversation_eval(route=route))
+    else:
+        from noxai.evals.conversation_eval import run_conversation_eval
+        success = asyncio.run(run_conversation_eval())
 
-    success = asyncio.run(run_conversation_eval())
     if not success:
         raise typer.Exit(1)
 

@@ -220,6 +220,7 @@ async def orchestrate_chat_turn(
     event_bus: EventBus | None = None,
     registry: ToolRegistry | None = None,
     tools: list[ToolSpec] | None = None,
+    max_tokens: int | None = None,
     on_token: Callable[[str], None] | None = None,
     on_notice: Callable[[str], None] | None = None,
     on_model_used: Callable[[dict[str, Any]], None] | None = None,
@@ -562,6 +563,7 @@ async def orchestrate_chat_turn(
                 messages=messages_to_send,
                 tools=tools_for_step,
                 stream=True,
+                max_tokens=max_tokens,
                 on_notice=on_notice,
                 on_model_used=_on_model_used_internal,
             ):
@@ -757,7 +759,7 @@ async def orchestrate_chat_turn(
                 )
 
     except Exception as exc:
-        log.error("Execution error during chat turn: %s", exc)
+        log.exception("Execution error during chat turn: %s", exc)
         # Handle unexpected failure with safe local fallback if not already fallback
         if target_role == "front":
             fallback_reason = "DEGRADED"

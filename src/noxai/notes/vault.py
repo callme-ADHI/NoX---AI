@@ -440,6 +440,9 @@ class NotesVault:
                     )
                 lines.append("")
 
+        if analyst_data.get("is_degraded"):
+            lines.append("> [!warning] Mode: Degraded (Local execution only — Cloud disabled)\n")
+
         lines.extend(
             [
                 "> [!summary] TL;DR",
@@ -577,6 +580,11 @@ class NotesVault:
             if stage_timings
             else f"total: {generation_seconds:.2f}s"
         )
+        engine_label = (
+            "Local (Degraded — Cloud Disabled)"
+            if analyst_data.get("is_degraded")
+            else "NoX Intelligence Briefing Pipeline (Session K Verified)"
+        )
         lines.extend(
             [
                 "## 🛠️ How this was made",
@@ -586,7 +594,7 @@ class NotesVault:
                 f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
                 f"- **Execution time**: {generation_seconds:.2f}s ({timing_str})",
                 f"- **Drop reasons**: {drop_summary}",
-                "- **Engine**: NoX Intelligence Briefing Pipeline (Session K Verified)",
+                f"- **Engine**: {engine_label}",
             ]
         )
 

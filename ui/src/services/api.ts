@@ -164,6 +164,7 @@ export const api = {
       open_questions: string[];
       working_hypotheses: string[];
       active_facts: Array<{ key: string; value: string; category: string; confidence: number }>;
+      messages?: Array<{ id: string; role: string; content: string; pinned: boolean; created_at: string }>;
     }>(`/memory/thread/${convId}`),
 
   updateThreadSummary: (convId: string, summary: string) =>
@@ -171,6 +172,18 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ summary }),
     }),
+
+  pinThreadMessage: (convId: string, msgId: string) =>
+    request<{ ok: boolean; pinned: boolean; message_id: string }>(
+      `/memory/thread/${convId}/messages/${msgId}/pin`,
+      { method: 'POST' }
+    ),
+
+  forgetThreadMessage: (convId: string, msgId: string) =>
+    request<{ ok: boolean; forgotten: string }>(
+      `/memory/thread/${convId}/messages/${msgId}/forget`,
+      { method: 'POST' }
+    ),
 
   resetThreadMemory: (convId: string) =>
     request<{ ok: boolean; reset: string }>(`/memory/thread/${convId}/reset`, {

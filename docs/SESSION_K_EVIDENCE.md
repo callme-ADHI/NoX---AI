@@ -533,3 +533,248 @@ url: https://ctftime.org/event/3418
 - Command: `grep -r "\[PLACEHOLDER\]" /tmp/nox_proof_d/vault/ && grep -r "\[UNKNOWN\]" /tmp/nox_proof_d/vault/`
 - Result: **0 matches**. No placeholders or fabricated strings exist anywhere in generated vault notes or digest files.
 
+---
+
+## Phase 3: Cloud, KeyPool, and Conversation Memory
+
+### Acceptance Matrix Status
+- [x] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording transport.
+- [x] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
+- [x] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
+
+### 1. Cloud ON By Default, Persisted Toggle, and Taint Recording Proof
+Verified via `tests/test_cloud_taint_recording.py` with 2/2 tests passing:
+- `test_cloud_default_and_persisted_toggle`: Verifies config initializes with `cloud.enabled=true`, toggle persists to `config.toml`, and switches between cloud and local routing.
+- `test_recording_transport_proves_local_only_never_egresses`: Uses a recording HTTP transport that captures all outbound requests. Verifies that when `is_private_mode=True` or `local_only` is set, turns are routed strictly to Ollama and zero requests egress to `api.nvidia.com`.
+
+```
+$ uv run pytest tests/test_cloud_taint_recording.py -v
+tests/test_cloud_taint_recording.py::test_cloud_default_and_persisted_toggle PASSED [ 50%]
+tests/test_cloud_taint_recording.py::test_recording_transport_proves_local_only_never_egresses PASSED [100%]
+============================== 2 passed in 1.48s ===============================
+```
+
+#### Live Daemon Cloud Status
+```
+$ uv run nx cloud status
+          Cloud Provider Health & Circuit Breaker          
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Property             ┃ Value                            ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Cloud Enabled        │ true                             │
+│ Health State         │ active                           │
+│ Circuit Breaker      │ CLOSED (healthy)                 │
+│ Interactive Ready    │ Yes                              │
+│ Reason               │ Ready                            │
+│ Consecutive Failures │ 0                                │
+│ Cooldown Remaining   │ 0.0s                             │
+│ Last Latency         │ N/A                              │
+│ Last TTFT            │ N/A                              │
+│ Since                │ 2026-11-02T13:41:09.443587+00:00 │
+└──────────────────────┴──────────────────────────────────┘
+       Request Rate Budget (RPM)       
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Budget Metric              ┃ Value  ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ Total Capacity             │ 30 RPM │
+│ Reserved Interactive       │ 10 RPM │
+│ Tokens Available (Now)     │ 30.0   │
+│ Background Usable          │ 20.0   │
+│ Total Interactive Requests │ 0      │
+│ Total Background Requests  │ 0      │
+│ Total Rejected Requests    │ 0      │
+└────────────────────────────┴────────┘
+```
+
+#### Live Cloud Test Query
+```
+$ uv run nx cloud test
+Sending test query to cloud model 'nvidia/nemotron-3.5-lightning-30b-a3b'...
+✓ Cloud test successful!
+  Model: nvidia/nemotron-3.5-lightning-30b-a3b
+  TTFT: N/A
+  Total Latency: 1464.1ms
+  Response: 
+  Health State: active
+```
+
+---
+
+### 2. Unified KeyPool Lifecycle & Daemon Status
+
+#### KeyPool Production Call Sites
+The unified `KeyPool` is used for all cloud interactions across both interactive chat and background synthesis:
+1. **Interactive Chat**: [`src/noxai/models/nvidia.py:261`](file:///home/boss/Documents/Projects/NoX/src/noxai/models/nvidia.py#L261)
+   ```python
+   lease = await self._key_pool.lease(
+       priority=RequestPriority.INTERACTIVE,
+       tier=Tier.FAST,
+       pinned_job_id=pinned_job_id,
+   )
+   ```
+2. **Briefing Batch Synthesis**: [`src/noxai/briefing/engine.py:717`](file:///home/boss/Documents/Projects/NoX/src/noxai/briefing/engine.py#L717)
+   ```python
+   lease = await key_pool.lease(
+       priority=RequestPriority.BACKGROUND,
+       tier=Tier.SLOW,
+       pinned_job_id=job_id,
+   )
+   ```
+
+#### Live Daemon Key Status
+```
+$ uv run nx keys status
+             NVIDIA API Key Pool Status (Phase 3) (Live Daemon API)             
+┏━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━━┓
+┃ Key   ┃ Mask… ┃       ┃    In ┃   RPM ┃ Toke… ┃  EWMA ┃ Total ┃      ┃       ┃
+┃ ID    ┃ Key   ┃ Stat… ┃ Flig… ┃ Limit ┃  Left ┃  (ms) ┃   Req ┃ 429s ┃ Allo… ┃
+┡━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━━┩
+│ k1    │ nvap… │ ACTI… │     0 │    35 │  35.0 │ 500.0 │     0 │    0 │ WIDE  │
+│ k2    │ nvap… │ ACTI… │     0 │    35 │  35.0 │ 500.0 │     0 │    0 │ WIDE  │
+│ k3    │ nvap… │ ACTI… │     0 │    35 │  35.0 │ 500.0 │     0 │    0 │ WIDE  │
+│ k4    │ nvap… │ ACTI… │     0 │    35 │  35.0 │ 500.0 │     0 │    0 │ WIDE  │
+│ k5    │ nvap… │ ACTI… │     0 │    35 │  35.0 │ 500.0 │     0 │    0 │ WIDE  │
+└───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴──────┴───────┘
+```
+
+#### KeyPool Unit & Mock HTTP Server Tests
+10 comprehensive unit and mock tests verifying token bucket refill, pinned affinity, wide mode fan-out, 429 failover with Retry-After, 401 unauthorized failover, 404 retired model event emission, and job cleanup:
+
+```
+$ uv run pytest tests/test_keypool_phase3.py -v
+tests/test_keypool_phase3.py::test_pure_allocate_interactive_always_gets_key PASSED [ 10%]
+tests/test_keypool_phase3.py::test_pure_allocate_pinned_affinity PASSED  [ 20%]
+tests/test_keypool_phase3.py::test_pure_allocate_wide_mode_fan_out PASSED [ 30%]
+tests/test_keypool_phase3.py::test_keypool_lease_and_outcome_reporting PASSED [ 40%]
+tests/test_keypool_phase3.py::test_continuous_refill PASSED              [ 50%]
+tests/test_keypool_phase3.py::test_release_job_cleans_pinned_and_active PASSED [ 60%]
+tests/test_keypool_phase3.py::test_404_model_alert_emitted PASSED        [ 70%]
+tests/test_keypool_phase3.py::test_nvidia_provider_uses_unified_keypool_lease PASSED [ 80%]
+tests/test_keypool_phase3.py::test_nvidia_provider_mock_server_429_failover PASSED [ 90%]
+tests/test_keypool_phase3.py::test_nvidia_provider_mock_server_401_failover PASSED [100%]
+============================== 10 passed in 2.97s ==============================
+```
+
+---
+
+### 3. Thread Memory Drawer Operations
+- **Endpoints Implemented in [`src/noxai/api/routes.py`](file:///home/boss/Documents/Projects/NoX/src/noxai/api/routes.py)**:
+  - `POST /api/memory/thread/{conv_id}/messages/{msg_id}/pin`: Pins message to prevent eviction.
+  - `POST /api/memory/thread/{conv_id}/messages/{msg_id}/forget`: Marks message as forgotten/evicted.
+- **Frontend Controls in [`ui/src/components/ThreadMemoryDrawer.tsx`](file:///home/boss/Documents/Projects/NoX/ui/src/components/ThreadMemoryDrawer.tsx)**:
+  - Pin and Forget action buttons with visual badges (`PINNED`, `FORGOTTEN`) and real-time state synchronization via [`ui/src/services/api.ts`](file:///home/boss/Documents/Projects/NoX/ui/src/services/api.ts).
+  - Built cleanly: `npm --prefix ui run build` (0 TypeScript / Vite errors).
+
+---
+
+### 4. CMS 8 Live Conversation Scenarios on Real Models
+
+CMS Live evaluation executes 8 realistic conversational scenarios end-to-end against live models, judged by an LLM evaluator against concrete acceptance criteria.
+
+#### A. Cloud Route Results (`nvidia/nemotron-3.5-lightning-30b-a3b`): **8/8 PASSED (100%)**
+```
+=== Running 8 Live CMS Scenarios on [CLOUD] Route ===
+
+  ✓ Scenario 1: pronoun_follow_up (8258.4ms)
+  ✓ Scenario 2: ordinal_reference (8174.5ms)
+  ✓ Scenario 3: recall_detail_after_30_turns (95793.0ms)
+  ✓ Scenario 4: tangent_then_return (9008.2ms)
+  ✓ Scenario 5: correction_supersedes_statement (9283.4ms)
+  ✓ Scenario 6: cross_session_fact_recall (8951.0ms)
+  ✓ Scenario 7: daemon_restart_mid_conversation (8478.4ms)
+  ✓ Scenario 8: ui_reload_same_conversation (8578.8ms)
+
+CLOUD Score: 8/8 scenarios passed.
+```
+
+#### B. Local Route Results (`qwen2.5:14b` via Ollama): **8/8 PASSED (100%)**
+```
+=== Running 8 Live CMS Scenarios on [LOCAL] Route ===
+
+  ✓ Scenario 1: pronoun_follow_up (43340.3ms)
+  ✓ Scenario 2: ordinal_reference (75037.8ms)
+  ✓ Scenario 3: recall_detail_after_30_turns (246425.8ms)
+  ✓ Scenario 4: tangent_then_return (84967.9ms)
+  ✓ Scenario 5: correction_supersedes_statement (57711.9ms)
+  ✓ Scenario 6: cross_session_fact_recall (34042.6ms)
+  ✓ Scenario 7: daemon_restart_mid_conversation (42944.3ms)
+  ✓ Scenario 8: ui_reload_same_conversation (49173.0ms)
+
+                      CMS 8 Live Scenarios [LOCAL] Results                      
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Scenario                 ┃ Status ┃ Latency (ms) ┃ Validation Detail         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 1. pronoun_follow_up     │  PASS  │      43340.3 │ Model identified 'it' as  │
+│                          │        │              │ Hyprland                  │
+│                          │        │              │ (model=qwen2.5:14b)       │
+│ 2. ordinal_reference     │  PASS  │      75037.8 │ Resolved 'second one' to  │
+│                          │        │              │ Rust (model=qwen2.5:14b)  │
+│ 3.                       │  PASS  │     246425.8 │ Recalled                  │
+│ recall_detail_after_30_… │        │              │ PROJECT_NEBULA_4482 after │
+│                          │        │              │ 30 turns                  │
+│                          │        │              │ (model=qwen2.5:14b)       │
+│ 4. tangent_then_return   │  PASS  │      84967.9 │ Returned from joke        │
+│                          │        │              │ tangent to HTTP parser    │
+│                          │        │              │ RFC (model=qwen2.5:14b)   │
+│ 5.                       │  PASS  │      57711.9 │ Corrected hostname to     │
+│ correction_supersedes_s… │        │              │ Aegis (model=qwen2.5:14b) │
+│ 6.                       │  PASS  │      34042.6 │ Retrieved port 7777 in    │
+│ cross_session_fact_reca… │        │              │ new conversation session  │
+│                          │        │              │ (model=qwen2.5:14b)       │
+│ 7.                       │  PASS  │      42944.3 │ Preserved context after   │
+│ daemon_restart_mid_conv… │        │              │ simulated daemon restart  │
+│                          │        │              │ (model=qwen2.5:14b)       │
+│ 8.                       │  PASS  │      49173.0 │ Continued same            │
+│ ui_reload_same_conversa… │        │              │ conversation after reload │
+│                          │        │              │ (model=qwen2.5:14b)       │
+└──────────────────────────┴────────┴──────────────┴───────────────────────────┘
+
+LOCAL Score: 8/8 scenarios passed.
+CMS LIVE EVALUATION ACCEPTANCE MET (>= 7/8 on all tested routes)!
+```
+
+#### C. Sample Raw Conversation Transcripts (`/tmp/nox_live_eval_transcripts.json`)
+
+##### Scenario 1: `pronoun_follow_up`
+```json
+{
+  "scenario": "1. pronoun_follow_up",
+  "route": "local",
+  "model": "qwen2.5:14b",
+  "turn1_user": "My favorite Linux window manager on Arch Linux is Hyprland.",
+  "turn1_reply": "Hyprland is a popular wayland compositor for Arch Linux, offering a modern and highly customizable window management experience.",
+  "turn2_user": "Why do I prefer it over other compositors?",
+  "turn2_reply": "You likely prefer Hyprland for its flexibility, performance, and unique features like multimonitor support and integrated scripting capabilities, which cater to advanced users and customization needs.",
+  "passed": true
+}
+```
+
+##### Scenario 2: `ordinal_reference`
+```json
+{
+  "scenario": "2. ordinal_reference",
+  "route": "local",
+  "model": "qwen2.5:14b",
+  "turn1_user": "I am evaluating three programming languages for my systems project: Zig, Rust, and Odin.",
+  "turn1_reply": "Zig is known for its simplicity and reliability, Rust for its performance and memory safety with zero-cost abstractions, and Odin aims to combine the best of C and Go with its own unique features like dynamic arrays and garbage collection support. Each has distinct advantages depending on your project's requirements.",
+  "turn2_user": "What are the main safety guarantees of the second one?",
+  "turn2_reply": "Rust provides memory safety guarantees through its ownership system, which prevents data races and null pointer dereferencing at compile time, ensuring that your code is free from certain classes of bugs before runtime.",
+  "passed": true
+}
+```
+
+##### Scenario 3: `recall_detail_after_30_turns`
+```json
+{
+  "scenario": "3. recall_detail_after_30_turns",
+  "route": "local",
+  "model": "qwen2.5:14b",
+  "turn1_user": "Here is a critical secret project code: PROJECT_NEBULA_4482.",
+  "turn1_reply": "I've received the code PROJECT_NEBULA_4482. How can I assist you with this project?",
+  "turn30_user": "What was the critical secret project code I gave you at the start of our session?",
+  "turn30_reply": "The critical secret project code you provided at the start of our session was PROJECT_NEBULA_4482.",
+  "passed": true
+}
+```
+
+

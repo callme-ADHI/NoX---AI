@@ -11,9 +11,9 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [x] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
 - [x] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
 - [x] **A7**: Content: all existing news kept; funded internships (free accommodation, abroad, stipend; all CS fields) and individual hackathons added; CTFs capped at 3; every benefit claim has validated page evidence; links strictly checked.
-- [ ] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording.
-- [ ] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
-- [ ] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
+- [x] **A8**: Cloud/NVIDIA ON by default, persisted toggle, taint protection proven with real HTTP recording.
+- [x] **A9**: KeyPool really used by chat and briefing (leases, refill, release, daemon-side status).
+- [x] **A10**: Conversation memory proven with REAL models (cloud and local), not a fake provider.
 - [ ] **A11**: Desktop notifications from pipeline; clicking opens app at briefing (or documented fallback).
 - [ ] **A12**: Arch packaging verified (PKGBUILD builds, namcap, unit verified, contents correct, user-run verify script).
 - [x] **A13**: DB safety: automatic backups, migration 010 converges both paths, tested on a copy of the real DB.
@@ -55,11 +55,11 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] LIVE PROOF: Real run with cloud model, counts, digest excerpts, 3 internship notes, 3 hackathon notes, 2 CTF notes, URL table, no vault placeholders
   - [x] Phase 2 git commit
 
-- [ ] **Phase 3: Cloud, KeyPool, Conversation Memory — Proven With Real Paths**
-  - [ ] Cloud default in fresh temp instance with real keys, recording HTTP transport proving local_only never egresses, cloud off runs locally degraded
-  - [ ] KeyPool: paste non-test call sites of lease() & report_outcome(); daemon status; mock HTTP server testing 429/401/404 handling & session H policy property tests
-  - [ ] Conversation memory with REAL models: `nx eval conversation --live` (8 scenarios scored against cloud and local models, transcripts pasted, memory drawer operations verified)
-  - [ ] Phase 3 git commit
+- [x] **Phase 3: Cloud, KeyPool, Conversation Memory — Proven With Real Paths**
+  - [x] Cloud default in fresh temp instance with real keys, recording HTTP transport proving local_only never egresses, cloud off runs locally degraded
+  - [x] KeyPool: paste non-test call sites of lease() & report_outcome(); daemon status; mock HTTP server testing 429/401/404 handling & session H policy property tests
+  - [x] Conversation memory with REAL models: `nx eval conversation --live` (8 scenarios scored against cloud and local models, transcripts pasted, memory drawer operations verified)
+  - [x] Phase 3 git commit
 
 - [ ] **Phase 4: Arch Packaging (No More Venv)**
   - [ ] Package layout in `/opt/nox`, wrappers `/usr/bin/nx` and `/usr/bin/noxd`, systemd unit `/usr/lib/systemd/user/noxd.service`, icon and desktop entry

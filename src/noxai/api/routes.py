@@ -1511,6 +1511,28 @@ async def get_thread_memory(conv_id: str) -> dict[str, Any]:
             LIMIT 5
             """,
         )
+        msg_rows = await fetch_all(
+            db,
+            """
+            SELECT id, role, content, created_at FROM messages
+            WHERE conversation_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 15
+            """,
+            (conv_id,),
+        )
+        meta = json.loads(cstate["meta_json"]) if (cstate and cstate["meta_json"]) else {}
+        pinned_msg_ids = set(meta.get("pinned_message_ids", []))
+        messages_list = [
+            {
+                "id": str(r["id"]),
+                "role": str(r["role"]),
+                "content": str(r["content"] or "")[:140],
+                "pinned": str(r["id"]) in pinned_msg_ids,
+                "created_at": str(r["created_at"]),
+            }
+            for r in reversed(msg_rows)
+        ]
 
         return {
             "conversation_id": conv_id,
@@ -1522,7 +1544,56 @@ async def get_thread_memory(conv_id: str) -> dict[str, Any]:
             "open_questions": json.loads(cstate["open_questions"]) if cstate else [],
             "working_hypotheses": json.loads(cstate["working_hypotheses"]) if cstate else [],
             "active_facts": [dict(f) for f in facts],
+            "messages": messages_list,
         }
+
+
+@api_router.post("/memory/thread/{conv_id}/messages/{msg_id}/pin", dependencies=WRITE_DEPS)
+async def toggle_pin_thread_message(conv_id: str, msg_id: str) -> dict[str, Any]:
+    """Pin or unpin a specific dialogue message in thread working memory."""
+    async with get_db() as db:
+        cstate = await fetch_one(db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,))
+        meta = json.loads(cstate["meta_json"]) if (cstate and cstate["meta_json"]) else {}
+        pinned_ids = meta.setdefault("pinned_message_ids", [])
+        if msg_id in pinned_ids:
+            pinned_ids.remove(msg_id)
+            is_pinned = False
+        else:
+            pinned_ids.append(msg_id)
+            is_pinned = True
+        await execute(
+            db,
+            """
+            INSERT INTO conv_state (conversation_id, meta_json, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(conversation_id) DO UPDATE SET meta_json = excluded.meta_json, updated_at = datetime('now')
+            """,
+            (conv_id, json.dumps(meta)),
+        )
+        await db.commit()
+    return {"ok": True, "pinned": is_pinned, "message_id": msg_id}
+
+
+@api_router.post("/memory/thread/{conv_id}/messages/{msg_id}/forget", dependencies=WRITE_DEPS)
+@api_router.delete("/memory/thread/{conv_id}/messages/{msg_id}", dependencies=WRITE_DEPS)
+async def forget_thread_message(conv_id: str, msg_id: str) -> dict[str, Any]:
+    """Forget and delete a message and its search chunks from thread history."""
+    async with get_db() as db:
+        await execute(db, "DELETE FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, conv_id))
+        await execute(db, "DELETE FROM msg_chunks WHERE message_id = ?", (msg_id,))
+        cstate = await fetch_one(db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,))
+        if cstate and cstate["meta_json"]:
+            meta = json.loads(cstate["meta_json"])
+            pinned_ids = meta.get("pinned_message_ids", [])
+            if msg_id in pinned_ids:
+                pinned_ids.remove(msg_id)
+                await execute(
+                    db,
+                    "UPDATE conv_state SET meta_json = ?, updated_at = datetime('now') WHERE conversation_id = ?",
+                    (json.dumps(meta), conv_id),
+                )
+        await db.commit()
+    return {"ok": True, "forgotten": msg_id}
 
 
 @api_router.patch("/memory/thread/{conv_id}/summary", dependencies=WRITE_DEPS)

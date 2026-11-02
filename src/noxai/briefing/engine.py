@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from noxai.config import Settings
 from noxai.db import execute, fetch_all, fetch_one, get_db
 from noxai.events import EventBus, global_event_bus, make_event
-from noxai.models.keypool import KeyPool
+from noxai.models.keypool import AllocationMode, KeyPool
 from noxai.research.crawler import WebResearcher
 from noxai.research.sources import VERIFIED_SOURCES
 from noxai.tools.builtin.web import default_search_backend
@@ -689,7 +689,26 @@ class BriefingPipeline:
 
         run_id = effective_run_id
         t0 = datetime.now(UTC)
+
+        # Check cloud status & degraded local mode
+        cloud_active = True
+        try:
+            async with get_db() as db:
+                c_row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+                if c_row:
+                    v = str(c_row["value"]).lower()
+                    cloud_active = v not in ("false", "0", '"false"')
+        except Exception:
+            pass
+
+        is_degraded = not cloud_active or (hasattr(self, "key_pool") and self.key_pool.is_empty())
+        if is_degraded:
+            title = f"{title} (Degraded: Local Mode)"
+
         log.info("Starting Briefing Pipeline: %s (%s, rev=%d)", title, run_id, rev)
+
+        briefing_lease = None
+        lease_ctx = None
 
         try:
             stage_timings: dict[str, float] = {}
@@ -714,6 +733,18 @@ class BriefingPipeline:
             stage_timings["stage_a"] = (datetime.now(UTC) - t_a).total_seconds()
 
             # STAGE B: Parallel topic research workers (Phase 3 WIDE mode)
+            if hasattr(self.key_pool, "lease") and not self.key_pool.is_empty() and cloud_active:
+                try:
+                    lease_ctx = self.key_pool.lease(
+                        job_id=run_id,
+                        priority=2,
+                        mode=AllocationMode.WIDE if self.key_pool.healthy_keys_count > 1 else AllocationMode.PINNED,
+                    )
+                    briefing_lease = await lease_ctx.__aenter__()
+                    log.info("Briefing run %s leased key %s in WIDE mode", run_id, briefing_lease.key_id)
+                except Exception as exc:
+                    log.debug("Briefing KeyPool lease deferred: %s", exc)
+
             t_b = datetime.now(UTC)
             stage_b_tasks = [self._run_topic_worker(run_id, t) for t in topics]
             results = await asyncio.gather(*stage_b_tasks, return_exceptions=True)
@@ -727,6 +758,7 @@ class BriefingPipeline:
             analyst_data = await self._run_analyst(run_id, slot, today)
             stage_timings["stage_c"] = (datetime.now(UTC) - t_c).total_seconds()
             analyst_data["stage_timings"] = stage_timings
+            analyst_data["is_degraded"] = is_degraded
 
             # STAGE D: Compose structured briefing JSON & Markdown
             t_d = datetime.now(UTC)
@@ -858,10 +890,29 @@ class BriefingPipeline:
             await self._send_notification(
                 title, analyst_data.get("total_items", 0), run_id, analyst_data=analyst_data
             )
+
+            if briefing_lease is not None:
+                try:
+                    status_code = 200 if run_state == "succeeded" else 500
+                    await self.key_pool.report_outcome(briefing_lease.key_id, status_code=status_code)
+                    await self.key_pool.release_job(run_id)
+                    if lease_ctx:
+                        await lease_ctx.__aexit__(None, None, None)
+                except Exception as exc:
+                    log.debug("Briefing key lease release error: %s", exc)
+
             return run_id
 
         except asyncio.CancelledError:
             log.warning("Briefing pipeline cancelled/interrupted: %s", run_id)
+            if briefing_lease is not None:
+                try:
+                    await self.key_pool.report_outcome(briefing_lease.key_id, status_code=500)
+                    await self.key_pool.release_job(run_id)
+                    if lease_ctx:
+                        await lease_ctx.__aexit__(None, None, None)
+                except Exception as e:
+                    log.debug("Briefing key lease release on cancel: %s", e)
             async with get_db() as db:
                 fin_iso = datetime.now(UTC).isoformat()
                 await execute(
@@ -881,6 +932,14 @@ class BriefingPipeline:
 
             tb_summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
             log.error("Briefing pipeline error: %s", exc)
+            if briefing_lease is not None:
+                try:
+                    await self.key_pool.report_outcome(briefing_lease.key_id, status_code=500)
+                    await self.key_pool.release_job(run_id)
+                    if lease_ctx:
+                        await lease_ctx.__aexit__(None, None, None)
+                except Exception as e:
+                    log.debug("Briefing key lease release on error: %s", e)
             async with get_db() as db:
                 fin_iso = datetime.now(UTC).isoformat()
                 await execute(
@@ -2009,6 +2068,14 @@ class BriefingPipeline:
             if stage_timings
             else f"total: {generation_seconds:.2f}s"
         )
+        if analyst_data.get("is_degraded"):
+            md_lines.insert(4, "> [!warning] Mode: Degraded (Local execution only — Cloud disabled)\n")
+
+        engine_label = (
+            "Local (Degraded — Cloud Disabled)"
+            if analyst_data.get("is_degraded")
+            else "NoX Intelligence Briefing Pipeline (Session K Verified)"
+        )
         md_lines.extend(
             [
                 "\n## 🛠️ How this was made",
@@ -2018,7 +2085,7 @@ class BriefingPipeline:
                 f"- **Sources scanned**: {analyst_data.get('sources_count', len(items))}",
                 f"- **Execution time**: {generation_seconds:.2f}s ({timing_str})",
                 f"- **Drop reasons**: {drop_summary}",
-                "- **Engine**: NoX Intelligence Briefing Pipeline (Session K Verified)",
+                f"- **Engine**: {engine_label}",
             ]
         )
 

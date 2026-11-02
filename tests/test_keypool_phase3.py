@@ -234,3 +234,111 @@ async def test_nvidia_provider_uses_unified_keypool_lease(tmp_path, monkeypatch)
     assert "NvidiaProvider leased successfully." in full_resp
     assert pool._keys["k1"].total_requests == 1
 
+
+@pytest.mark.asyncio
+async def test_nvidia_provider_mock_server_429_failover(tmp_path, monkeypatch):
+    """Verify NvidiaProvider handles 429 Retry-After with immediate failover to second key."""
+    monkeypatch.setattr("noxai.db.DB_PATH", tmp_path / "test_429_failover.db")
+    monkeypatch.setattr("noxai.db.DATA_DIR", tmp_path)
+    from noxai.db import init_db
+    await init_db()
+
+    cfg = get_config()
+
+    def mock_handler(req: httpx.Request) -> httpx.Response:
+        auth = req.headers.get("Authorization", "")
+        if "nvapi-key-1" in auth:
+            return httpx.Response(429, headers={"Retry-After": "2"}, json={"error": "Rate limit exceeded"})
+        elif "nvapi-key-2" in auth:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-failover",
+                    "object": "chat.completion",
+                    "created": 1234567,
+                    "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "Failover success on key 2."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
+                },
+            )
+        return httpx.Response(500)
+
+    transport = httpx.MockTransport(mock_handler)
+    pool = KeyPool(config=cfg, keys=["nvapi-key-1", "nvapi-key-2"], transport=transport)
+
+    from noxai.models.base import Message
+    from noxai.models.nvidia import NvidiaProvider
+
+    prov = NvidiaProvider(key_pool=pool, transport=transport)
+
+    messages = [Message(role="user", content="Hello test")]
+    chunks = []
+    async for chunk in prov.chat(model="nvidia/nemotron-3.5-lightning-30b-a3b", messages=messages, stream=False):
+        chunks.append(chunk.delta_text)
+
+    full_resp = "".join(chunks)
+    assert "Failover success on key 2." in full_resp
+    assert pool._keys["k1"].status == KeyStatus.COOLDOWN
+    assert pool._keys["k1"].total_429s == 1
+    assert pool._keys["k2"].total_requests == 1
+
+
+@pytest.mark.asyncio
+async def test_nvidia_provider_mock_server_401_failover(tmp_path, monkeypatch):
+    """Verify NvidiaProvider handles 401 unauthorized with immediate failover to valid key."""
+    monkeypatch.setattr("noxai.db.DB_PATH", tmp_path / "test_401_failover.db")
+    monkeypatch.setattr("noxai.db.DATA_DIR", tmp_path)
+    from noxai.db import init_db
+    await init_db()
+
+    cfg = get_config()
+
+    def mock_handler(req: httpx.Request) -> httpx.Response:
+        auth = req.headers.get("Authorization", "")
+        if "nvapi-bad-key" in auth:
+            return httpx.Response(401, json={"error": "Invalid API Key"})
+        elif "nvapi-good-key" in auth:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-good",
+                    "object": "chat.completion",
+                    "created": 1234567,
+                    "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "Good key worked."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
+                },
+            )
+        return httpx.Response(500)
+
+    transport = httpx.MockTransport(mock_handler)
+    pool = KeyPool(config=cfg, keys=["nvapi-bad-key", "nvapi-good-key"], transport=transport)
+
+    from noxai.models.base import Message
+    from noxai.models.nvidia import NvidiaProvider
+
+    prov = NvidiaProvider(key_pool=pool, transport=transport)
+
+    messages = [Message(role="user", content="Hello test")]
+    chunks = []
+    async for chunk in prov.chat(model="nvidia/nemotron-3.5-lightning-30b-a3b", messages=messages, stream=False):
+        chunks.append(chunk.delta_text)
+
+    full_resp = "".join(chunks)
+    assert "Good key worked." in full_resp
+    assert pool._keys["k1"].status == KeyStatus.INVALID
+    assert pool._keys["k2"].total_requests == 1
+
+

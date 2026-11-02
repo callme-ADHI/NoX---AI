@@ -23,11 +23,30 @@ log = logging.getLogger(__name__)
 @keys_app.command(name="status")
 def keys_status(
     json_output: bool = typer.Option(False, "--json", help="Output state as JSON"),
+    daemon_url: str = typer.Option("http://127.0.0.1:7777", "--daemon-url", help="Daemon API URL"),
 ) -> None:
     """Display live status, allocation, and metrics of all API keys."""
-    cfg = get_config()
-    pool = KeyPool(config=cfg)
-    rows = pool.get_status_table()
+    rows = None
+    source = "local"
+    # Try reading from live daemon API first
+    try:
+        from pathlib import Path
+        token_path = Path("~/.local/share/nox/session_token").expanduser()
+        headers = {}
+        if token_path.exists():
+            headers["Authorization"] = f"Bearer {token_path.read_text().strip()}"
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{daemon_url}/api/keys", headers=headers)
+            if resp.status_code == 200:
+                rows = resp.json()
+                source = "daemon"
+    except Exception:
+        pass
+
+    if rows is None:
+        cfg = get_config()
+        pool = KeyPool(config=cfg)
+        rows = pool.get_status_table()
 
     if json_output:
         console.print(json.dumps(rows, indent=2))
@@ -37,7 +56,8 @@ def keys_status(
         console.print("[yellow]No NVIDIA API keys configured in ~/.config/nox/secrets.env[/yellow]")
         return
 
-    table = Table(title="NVIDIA API Key Pool Status (Phase 3)")
+    title_suffix = " (Live Daemon API)" if source == "daemon" else " (Local Instance)"
+    table = Table(title=f"NVIDIA API Key Pool Status (Phase 3){title_suffix}")
     table.add_column("Key ID", style="cyan")
     table.add_column("Masked Key", style="white")
     table.add_column("Status", style="bold")

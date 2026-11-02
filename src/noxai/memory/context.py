@@ -41,7 +41,8 @@ FOLLOW_UP_PRONOUNS: set[str] = {
     "it", "that", "this", "they", "them", "these", "those",
     "he", "she", "him", "her", "why", "how", "what",
     "more", "continue", "elaborate", "again", "which",
-    "explain", "tell",
+    "explain", "tell", "one", "second", "first", "third",
+    "former", "latter",
 }
 
 

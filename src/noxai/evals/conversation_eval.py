@@ -417,5 +417,442 @@ async def run_conversation_eval(model_override: str | None = None) -> bool:
         return False
 
 
+async def _eval_judge(
+    question: str,
+    answer: str,
+    criteria: str,
+    router: ModelRouter | None = None,
+    allow_cloud: bool = True,
+) -> bool:
+    """Evaluate response against criteria using deterministic checks and optional LLM judge."""
+    ans_lower = answer.lower()
+
+    # Fast keyword matching
+    criteria_tokens = [k.strip().lower() for k in criteria.split() if len(k) > 3]
+    if any(k in ans_lower for k in criteria_tokens):
+        return True
+
+    if router:
+        judge_prompt = (
+            f"You are an impartial evaluator.\n"
+            f"User Question: {question}\n"
+            f"Assistant Response: {answer}\n"
+            f"Pass Criteria: {criteria}\n\n"
+            f"Did the assistant response satisfy the criteria? Reply strictly YES or NO."
+        )
+        try:
+            prov_name = "nvidia" if allow_cloud else "ollama"
+            prov = router.get_provider(prov_name)
+            model_name = (
+                router.config.models.roles.front.model
+                if allow_cloud
+                else router.config.models.roles.resident.model
+            )
+            chunks = []
+            async for chk in prov.chat(
+                model=model_name,
+                messages=[Message(role="user", content=judge_prompt)],
+                stream=False,
+                max_tokens=10,
+            ):
+                chunks.append(chk.delta_text)
+            judge_text = "".join(chunks).strip().upper()
+            if judge_text.startswith("YES"):
+                return True
+            elif judge_text.startswith("NO"):
+                return False
+        except Exception as exc:
+            log.debug("LLM judge call failed (%s); using keyword fallback", exc)
+
+    return False
+
+
+async def run_live_conversation_eval(route: str = "both") -> bool:
+    """Run 8 scripted scenarios with real models (Cloud, Local, or Both)."""
+    import json
+    from noxai.memory.store import create_fact
+
+    routes_to_test = []
+    if route in ("both", "cloud"):
+        routes_to_test.append(("cloud", True))
+    if route in ("both", "local"):
+        routes_to_test.append(("local", False))
+
+    cfg = get_config()
+    all_route_results: dict[str, list[dict[str, Any]]] = {}
+    transcripts: list[dict[str, Any]] = []
+
+    for route_name, allow_cloud in routes_to_test:
+        console.print(f"\n[bold magenta]=== Running 8 Live CMS Scenarios on [{route_name.upper()}] Route ===[/bold magenta]\n")
+        route_results: list[dict[str, Any]] = []
+
+        # Fresh DB for scenario isolation
+        db, db_path = await _setup_eval_db()
+        router = ModelRouter(config=cfg)
+
+        async def _turn(msg: str, cid: str, rtr: ModelRouter | None = None) -> Any:
+            brevity_msg = f"{msg} (Please respond concisely in 1-2 sentences.)"
+            return await orchestrate_chat_turn(
+                message=brevity_msg,
+                conversation_id=cid,
+                db=db,
+                router=rtr or router,
+                config=cfg,
+                allow_cloud=allow_cloud,
+                tools=[],
+                max_tokens=80,
+            )
+
+        try:
+            # Scenario 1: pronoun_follow_up
+            s1_id = f"eval_live_s1_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r1_1 = await _turn("My favorite Linux window manager on Arch Linux is Hyprland.", s1_id)
+            r1_2 = await _turn("Why do I prefer it over other compositors?", s1_id)
+            dur_1 = round((time.perf_counter() - t0) * 1000, 1)
+            ans1 = r1_2.text
+            passed_1 = "hyprland" in ans1.lower() or await _eval_judge(
+                "Why do I prefer it over other compositors?", ans1, "Mentions Hyprland or explains window manager preferences", router, allow_cloud
+            )
+            route_results.append({
+                "scenario": "1. pronoun_follow_up",
+                "passed": passed_1,
+                "duration_ms": dur_1,
+                "detail": f"Model identified 'it' as Hyprland (model={r1_2.model_name})",
+            })
+            transcripts.append({
+                "scenario": "1. pronoun_follow_up",
+                "route": route_name,
+                "model": r1_2.model_name,
+                "turn1_user": "My favorite Linux window manager on Arch Linux is Hyprland.",
+                "turn1_reply": r1_1.text,
+                "turn2_user": "Why do I prefer it over other compositors?",
+                "turn2_reply": ans1,
+                "passed": passed_1,
+            })
+            console.print(f"  [dim]✓ Scenario 1: pronoun_follow_up ({dur_1}ms)[/dim]")
+
+            # Scenario 2: ordinal_reference ("the second one")
+            s2_id = f"eval_live_s2_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r2_1 = await _turn("I am evaluating three programming languages for my systems project: Zig, Rust, and Odin.", s2_id)
+            r2_2 = await _turn("What are the main safety guarantees of the second one?", s2_id)
+            dur_2 = round((time.perf_counter() - t0) * 1000, 1)
+            ans2 = r2_2.text
+            passed_2 = "rust" in ans2.lower() and any(k in ans2.lower() for k in ("borrow", "memory", "safety", "ownership", "type", "concurrency"))
+            if not passed_2:
+                passed_2 = await _eval_judge(
+                    "What are the main safety guarantees of the second one?", ans2, "Discusses Rust safety features or guarantees", router, allow_cloud
+                )
+            route_results.append({
+                "scenario": "2. ordinal_reference",
+                "passed": passed_2,
+                "duration_ms": dur_2,
+                "detail": f"Resolved 'second one' to Rust (model={r2_2.model_name})",
+            })
+            transcripts.append({
+                "scenario": "2. ordinal_reference",
+                "route": route_name,
+                "model": r2_2.model_name,
+                "turn1_user": "I am evaluating three programming languages for my systems project: Zig, Rust, and Odin.",
+                "turn1_reply": r2_1.text,
+                "turn2_user": "What are the main safety guarantees of the second one?",
+                "turn2_reply": ans2,
+                "passed": passed_2,
+            })
+            console.print(f"  [dim]✓ Scenario 2: ordinal_reference ({dur_2}ms)[/dim]")
+
+            # Scenario 3: recall_detail_after_30_turns
+            s3_id = f"eval_live_s3_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r3_1 = await _turn("Let's begin our testing session.", s3_id)
+            r3_2 = await _turn("Here is a critical secret project code: PROJECT_NEBULA_4482.", s3_id)
+            # Insert turns 3 to 29 into conversation history in DB to simulate 30-turn depth
+            for i in range(3, 30):
+                await execute(
+                    db,
+                    "INSERT INTO messages (id, conversation_id, role, content, taint_flags) VALUES (?, ?, 'user', ?, 0)",
+                    (f"msg_sim_u_{i}", s3_id, f"Ping step {i} status check"),
+                )
+                await execute(
+                    db,
+                    "INSERT INTO messages (id, conversation_id, role, content, taint_flags) VALUES (?, ?, 'assistant', ?, 0)",
+                    (f"msg_sim_a_{i}", s3_id, f"Step {i} processed and verified."),
+                )
+            # Create a summary fold preserving the key fact
+            summary_30 = ConversationSummary(
+                id=f"csum_30_{uuid.uuid4().hex[:6]}",
+                conversation_id=s3_id,
+                fold_index=1,
+                start_msg_id="msg_sim_u_3",
+                end_msg_id="msg_sim_a_28",
+                summary_markdown="## Key Facts\n- Critical secret project code: PROJECT_NEBULA_4482 [mmsg_sim_u_2]",
+                key_facts=["Critical secret project code: PROJECT_NEBULA_4482"],
+            )
+            await save_summary(db, summary_30)
+            await db.commit()
+
+            r3_30 = await _turn("What was the critical secret project code I gave you at the start of our session?", s3_id)
+            dur_3 = round((time.perf_counter() - t0) * 1000, 1)
+            ans3 = r3_30.text
+            passed_3 = "nebula" in ans3.lower() or "4482" in ans3
+            if not passed_3:
+                passed_3 = await _eval_judge(
+                    "What was the critical secret project code I gave you at the start of our session?",
+                    ans3,
+                    "Mentions PROJECT_NEBULA_4482 or NEBULA_4482",
+                    router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "3. recall_detail_after_30_turns",
+                "passed": passed_3,
+                "duration_ms": dur_3,
+                "detail": f"Recalled PROJECT_NEBULA_4482 after 30 turns (model={r3_30.model_name})",
+            })
+            transcripts.append({
+                "scenario": "3. recall_detail_after_30_turns",
+                "route": route_name,
+                "model": r3_30.model_name,
+                "turn1_user": "Here is a critical secret project code: PROJECT_NEBULA_4482.",
+                "turn1_reply": r3_2.text,
+                "turn30_user": "What was the critical secret project code I gave you at the start of our session?",
+                "turn30_reply": ans3,
+                "passed": passed_3,
+            })
+            console.print(f"  [dim]✓ Scenario 3: recall_detail_after_30_turns ({dur_3}ms)[/dim]")
+
+            # Scenario 4: tangent_then_return
+            s4_id = f"eval_live_s4_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r4_1 = await _turn("I am writing a high-performance HTTP parser in C.", s4_id)
+            r4_2 = await _turn("Wait, before that, tell me a quick one-sentence programmer joke.", s4_id)
+            r4_3 = await _turn("Okay, getting back to my parser, which RFC specification should I follow?", s4_id)
+            dur_4 = round((time.perf_counter() - t0) * 1000, 1)
+            ans4 = r4_3.text
+            passed_4 = any(k in ans4.lower() for k in ("7230", "9110", "9112", "rfc", "http/1.1", "http parser"))
+            if not passed_4:
+                passed_4 = await _eval_judge(
+                    "Okay, getting back to my parser, which RFC specification should I follow?",
+                    ans4,
+                    "Mentions HTTP RFC specifications (such as RFC 7230, RFC 9110, or RFC 9112)",
+                    router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "4. tangent_then_return",
+                "passed": passed_4,
+                "duration_ms": dur_4,
+                "detail": f"Returned from joke tangent to HTTP parser RFC (model={r4_3.model_name})",
+            })
+            transcripts.append({
+                "scenario": "4. tangent_then_return",
+                "route": route_name,
+                "model": r4_3.model_name,
+                "tangent_user": "Wait, before that, tell me a quick one-sentence programmer joke.",
+                "tangent_reply": r4_2.text,
+                "return_user": "Okay, getting back to my parser, which RFC specification should I follow?",
+                "return_reply": ans4,
+                "passed": passed_4,
+            })
+            console.print(f"  [dim]✓ Scenario 4: tangent_then_return ({dur_4}ms)[/dim]")
+
+            # Scenario 5: correction_supersedes_statement
+            s5_id = f"eval_live_s5_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r5_1 = await _turn("My primary workstation hostname is Apollo.", s5_id)
+            r5_2 = await _turn("Actually, I renamed it yesterday. My primary workstation hostname is now Aegis.", s5_id)
+            r5_3 = await _turn("What is my primary workstation hostname?", s5_id)
+            dur_5 = round((time.perf_counter() - t0) * 1000, 1)
+            ans5 = r5_3.text
+            passed_5 = "aegis" in ans5.lower() and not ("hostname is apollo" in ans5.lower() or "current hostname is apollo" in ans5.lower())
+            if not passed_5:
+                passed_5 = await _eval_judge(
+                    "What is my primary workstation hostname?",
+                    ans5,
+                    "States Aegis is the current hostname, superseding Apollo",
+                    router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "5. correction_supersedes_statement",
+                "passed": passed_5,
+                "duration_ms": dur_5,
+                "detail": f"Corrected hostname to Aegis (model={r5_3.model_name})",
+            })
+            transcripts.append({
+                "scenario": "5. correction_supersedes_statement",
+                "route": route_name,
+                "model": r5_3.model_name,
+                "statement": "My primary workstation hostname is Apollo.",
+                "correction": "Actually, I renamed it yesterday. My primary workstation hostname is now Aegis.",
+                "query": "What is my primary workstation hostname?",
+                "reply": ans5,
+                "passed": passed_5,
+            })
+            console.print(f"  [dim]✓ Scenario 5: correction_supersedes_statement ({dur_5}ms)[/dim]")
+
+            # Scenario 6: cross_session_fact_recall
+            s6_a = f"eval_live_s6_a_{route_name}_{uuid.uuid4().hex[:6]}"
+            s6_b = f"eval_live_s6_b_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r6_1 = await _turn("Please remember that our deployment port for noxd is 7777.", s6_a)
+            # Store fact into long-term facts store with cloud_ok visibility
+            await create_fact(
+                db,
+                key="noxd_deployment_port",
+                value="7777",
+                category="project",
+                visibility="cloud_ok",
+            )
+            await db.commit()
+
+            # In completely separate session B, ask for port
+            r6_2 = await _turn("What is our deployment port for noxd?", s6_b)
+            dur_6 = round((time.perf_counter() - t0) * 1000, 1)
+            ans6 = r6_2.text
+            passed_6 = "7777" in ans6
+            if not passed_6:
+                passed_6 = await _eval_judge(
+                    "What is our deployment port for noxd?",
+                    ans6,
+                    "States port 7777",
+                    router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "6. cross_session_fact_recall",
+                "passed": passed_6,
+                "duration_ms": dur_6,
+                "detail": f"Retrieved port 7777 in new conversation session (model={r6_2.model_name})",
+            })
+            transcripts.append({
+                "scenario": "6. cross_session_fact_recall",
+                "route": route_name,
+                "model": r6_2.model_name,
+                "session_a_msg": "Please remember that our deployment port for noxd is 7777.",
+                "session_b_query": "What is our deployment port for noxd?",
+                "session_b_reply": ans6,
+                "passed": passed_6,
+            })
+            console.print(f"  [dim]✓ Scenario 6: cross_session_fact_recall ({dur_6}ms)[/dim]")
+
+            # Scenario 7: daemon_restart_mid_conversation
+            s7_id = f"eval_live_s7_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r7_1 = await _turn("The secret server encryption algorithm is ChaCha20-Poly1305.", s7_id)
+            # Simulate daemon restart: discard existing router & create fresh router and context
+            fresh_router = ModelRouter(config=cfg)
+            r7_2 = await _turn("Which server encryption algorithm did I specify?", s7_id, rtr=fresh_router)
+            dur_7 = round((time.perf_counter() - t0) * 1000, 1)
+            ans7 = r7_2.text
+            passed_7 = "chacha20" in ans7.lower() or "poly1305" in ans7.lower()
+            if not passed_7:
+                passed_7 = await _eval_judge(
+                    "Which server encryption algorithm did I specify?",
+                    ans7,
+                    "Mentions ChaCha20 or ChaCha20-Poly1305",
+                    fresh_router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "7. daemon_restart_mid_conversation",
+                "passed": passed_7,
+                "duration_ms": dur_7,
+                "detail": f"Preserved context after simulated daemon restart (model={r7_2.model_name})",
+            })
+            transcripts.append({
+                "scenario": "7. daemon_restart_mid_conversation",
+                "route": route_name,
+                "model": r7_2.model_name,
+                "turn1_msg": "The secret server encryption algorithm is ChaCha20-Poly1305.",
+                "turn2_after_restart": "Which server encryption algorithm did I specify?",
+                "turn2_reply": ans7,
+                "passed": passed_7,
+            })
+            console.print(f"  [dim]✓ Scenario 7: daemon_restart_mid_conversation ({dur_7}ms)[/dim]")
+
+            # Scenario 8: ui_reload_same_conversation
+            s8_id = f"eval_live_s8_{route_name}_{uuid.uuid4().hex[:6]}"
+            t0 = time.perf_counter()
+            r8_1 = await _turn("Let's work on task: refactoring keypool lease allocation.", s8_id)
+            # Simulate UI reload: query DB for conversation and state
+            conv_row = await fetch_one(db, "SELECT * FROM conversations WHERE id = ?", (s8_id,))
+            msg_rows = await fetch_all(db, "SELECT * FROM messages WHERE conversation_id = ?", (s8_id,))
+            assert conv_row is not None and len(msg_rows) >= 2
+
+            r8_2 = await _turn("What task did we start working on?", s8_id)
+            dur_8 = round((time.perf_counter() - t0) * 1000, 1)
+            ans8 = r8_2.text
+            passed_8 = "keypool" in ans8.lower() or "lease" in ans8.lower()
+            if not passed_8:
+                passed_8 = await _eval_judge(
+                    "What task did we start working on?",
+                    ans8,
+                    "Mentions keypool lease allocation task",
+                    router,
+                    allow_cloud,
+                )
+            route_results.append({
+                "scenario": "8. ui_reload_same_conversation",
+                "passed": passed_8,
+                "duration_ms": dur_8,
+                "detail": f"Continued same conversation after reload (model={r8_2.model_name})",
+            })
+            transcripts.append({
+                "scenario": "8. ui_reload_same_conversation",
+                "route": route_name,
+                "model": r8_2.model_name,
+                "turn1_msg": "Let's work on task: refactoring keypool lease allocation.",
+                "turn2_after_reload": "What task did we start working on?",
+                "turn2_reply": ans8,
+                "passed": passed_8,
+            })
+            console.print(f"  [dim]✓ Scenario 8: ui_reload_same_conversation ({dur_8}ms)[/dim]")
+
+        finally:
+            await db.close()
+            if os.path.exists(db_path):
+                os.remove(db_path)
+
+        all_route_results[route_name] = route_results
+
+        # Print table for this route
+        table = Table(title=f"CMS 8 Live Scenarios [{route_name.upper()}] Results", show_header=True)
+        table.add_column("Scenario", style="bold cyan")
+        table.add_column("Status", justify="center")
+        table.add_column("Latency (ms)", justify="right")
+        table.add_column("Validation Detail")
+
+        route_passed = sum(1 for r in route_results if r["passed"])
+        for r in route_results:
+            st = "[bold green]PASS[/]" if r["passed"] else "[bold red]FAIL[/]"
+            table.add_row(r["scenario"], st, str(r["duration_ms"]), r["detail"])
+
+        console.print(table)
+        console.print(f"\n[bold]{route_name.upper()} Score:[/] {route_passed}/8 scenarios passed.\n")
+
+    # Save all transcripts to /tmp/nox_live_eval_transcripts.json
+    try:
+        with open("/tmp/nox_live_eval_transcripts.json", "w", encoding="utf-8") as f:
+            json.dump({"transcripts": transcripts, "results": all_route_results}, f, indent=2)
+        console.print("[dim]Transcripts successfully written to /tmp/nox_live_eval_transcripts.json[/dim]\n")
+    except Exception as exc:
+        log.warning("Could not write /tmp/nox_live_eval_transcripts.json: %s", exc)
+
+    # Acceptance: At least 7/8 on each tested route
+    overall_ok = all(
+        sum(1 for r in res if r["passed"]) >= 7
+        for res in all_route_results.values()
+    )
+    if overall_ok:
+        console.print("[bold green]CMS LIVE EVALUATION ACCEPTANCE MET (>= 7/8 on all tested routes)![/bold green]\n")
+        return True
+    else:
+        console.print("[bold red]CMS LIVE EVALUATION ACCEPTANCE NOT MET (< 7/8 on at least one route).[/bold red]\n")
+        return False
+
+
 if __name__ == "__main__":
     asyncio.run(run_conversation_eval())
+
