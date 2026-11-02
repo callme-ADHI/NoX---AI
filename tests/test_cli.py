@@ -61,7 +61,11 @@ def test_test_mode_switch_requires_both_env_and_flag(
     ):
         result = runner.invoke(app, ["run"])
         assert "Warning" in result.output or "--test-db flag was not provided" in result.output
-        mock_create_app.assert_called_once_with(manage_lock=False, test_mode=False, test_db=None)
+        assert mock_create_app.call_count == 1
+        _, kwargs = mock_create_app.call_args
+        assert kwargs.get("manage_lock") is False
+        assert kwargs.get("test_mode") is False
+        assert kwargs.get("test_db") is None
 
     # Case 2: --test-db passed but NOX_TEST_MODE not set -> ignored
     monkeypatch.delenv("NOX_TEST_MODE", raising=False)
@@ -76,7 +80,11 @@ def test_test_mode_switch_requires_both_env_and_flag(
             "Warning" in result.output
             or "ignored because NOX_TEST_MODE is not set" in result.output
         )
-        mock_create_app.assert_called_once_with(manage_lock=False, test_mode=False, test_db=None)
+        assert mock_create_app.call_count == 1
+        _, kwargs = mock_create_app.call_args
+        assert kwargs.get("manage_lock") is False
+        assert kwargs.get("test_mode") is False
+        assert kwargs.get("test_db") is None
 
     # Case 3: BOTH NOX_TEST_MODE=1 and --test-db passed -> test mode activated!
     monkeypatch.setenv("NOX_TEST_MODE", "1")
@@ -87,9 +95,11 @@ def test_test_mode_switch_requires_both_env_and_flag(
         patch("noxai.lock.DaemonLock.release"),
     ):
         runner.invoke(app, ["run", "--test-db", str(fake_db)])
-        mock_create_app.assert_called_once_with(
-            manage_lock=False, test_mode=True, test_db=str(fake_db)
-        )
+        assert mock_create_app.call_count == 1
+        _, kwargs = mock_create_app.call_args
+        assert kwargs.get("manage_lock") is False
+        assert kwargs.get("test_mode") is True
+        assert kwargs.get("test_db") == str(fake_db)
 
 
 def test_status_command() -> None:

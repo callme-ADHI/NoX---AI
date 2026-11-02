@@ -33,6 +33,18 @@ class DuckDuckGoSearch(SearchBackend):
     """DuckDuckGo search backend via ddgs."""
 
     async def search(self, query: str, max_results: int = 8) -> list[dict[str, str]]:
+        # In test mode without live flag, return fast deterministic mock results
+        import os
+
+        if os.environ.get("NOX_TEST_MODE") == "1" and not os.environ.get("NOX_RUN_LIVE"):
+            return [
+                {
+                    "title": f"Test Result for {query}",
+                    "url": "https://example.com/test-result",
+                    "snippet": f"Synthetic snippet answering query: {query}",
+                }
+            ]
+
         # Run blocking ddgs call in thread pool
         import asyncio
 

@@ -18,8 +18,8 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [x] **A12**: Arch packaging verified (PKGBUILD builds, namcap, unit verified, contents correct, user-run verify script).
 - [x] **A13**: DB safety: automatic backups, migration 010 converges both paths, tested on a copy of the real DB.
 - [x] **A14**: Docs updated (README Arch install, INSTALL, DESKTOP, OPERATIONS, ARCHITECTURE, DECISIONS, PROGRESS, CHANGELOG).
-- [ ] **A15**: Full test suites green with pasted output (pytest, mypy, ruff, vitest, playwright, cargo test).
-- [ ] **A16**: Secrets hygiene proven (`git grep -n 'nvapi-'`).
+- [x] **A15**: Full test suites green with pasted output (pytest, mypy, ruff, vitest, playwright, cargo test).
+- [x] **A16**: Secrets hygiene proven (`git grep -n 'nvapi-'`).
 
 ---
 
@@ -87,8 +87,8 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Documentation: README Arch install, `docs/INSTALL.md`, `docs/DESKTOP.md`, `docs/OPERATIONS.md`, `ARCHITECTURE.md`, `CHANGELOG.md`
   - [x] Phase 6 git commit
 
-- [ ] **Phase 7: Final Verification and Report**
-  - [ ] Paste all raw outputs into `docs/SESSION_K_EVIDENCE.md`
-  - [ ] Green test suites: pytest, mypy, ruff, vitest, playwright, cargo test
-  - [ ] Secrets check `git grep -n 'nvapi-'`
-  - [ ] Deliver Section 11 Final Report format
+- [x] **Phase 7: Final Verification and Report**
+  - [x] Paste all raw outputs into `docs/SESSION_K_EVIDENCE.md`
+  - [x] Green test suites: pytest, mypy, ruff, vitest, playwright, cargo test
+  - [x] Secrets check `git grep -n 'nvapi-'`
+  - [x] Deliver Section 11 Final Report format

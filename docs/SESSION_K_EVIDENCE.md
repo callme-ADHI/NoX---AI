@@ -1199,3 +1199,90 @@ tests/test_setup.py::test_setup_hyprland_conf PASSED                     [100%]
 - `docs/ARCHITECTURE.md`: Updated high-level architecture with native desktop client.
 - `docs/DECISIONS.md`: ADR-K1 through ADR-K6 recording all key Session K architecture choices.
 - `CHANGELOG.md`: Complete Keep-a-Changelog release notes for 0.1.0.
+
+---
+
+## Phase 7: Final Verification & Test Pass
+
+### 7.1 Python Backend Test Suite (572 / 572 Passed)
+- Status: `VERIFIED-TEST`
+- Command: `uv run pytest -q`
+- Output:
+```text
+572 passed, 7 warnings in 145.60s (0:02:25)
+```
+
+### 7.2 Desktop Rust Test Suite (3 / 3 Passed)
+- Status: `VERIFIED-TEST`
+- Command: `cd desktop/src-tauri && cargo test`
+- Output:
+```text
+running 3 tests
+test tests::test_token_path_resolution ... ok
+test tests::test_url_path_formatting ... ok
+test tests::test_session_token_retrieval ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+### 7.3 Frontend Vitest Suite (43 / 43 Passed)
+- Status: `VERIFIED-TEST`
+- Command: `npm --prefix ui test`
+- Output:
+```text
+ Test Files  10 passed (10)
+      Tests  43 passed (43)
+   Start at  20:58:32
+   Duration  9.03s
+```
+
+### 7.4 Arch Packaging Verification
+- Status: `VERIFIED-LIVE`
+- Command: `bash scripts/verify-install.sh`
+- Output:
+```text
+====================================================
+       NoX Arch Linux Installation Verification     
+====================================================
+
+==> 1. Checking Arch Package Archives (in packaging/arch)...
+  [PASS] Found nox package: nox-0.1.0.r85.g0387bff-1-x86_64.pkg.tar.zst
+  [PASS] nox package contains usr/bin/nx
+  [PASS] nox package contains usr/bin/noxd
+  [PASS] nox package contains usr/lib/systemd/user/noxd.service
+  [PASS] nox package contains usr/share/icons/hicolor/scalable/apps/nox.svg
+  [PASS] nox package contains opt/nox/venv/bin/nx
+  [PASS] nox package contains opt/nox/ui/dist/index.html
+  [PASS] Found nox-app package: nox-app-0.1.0.r85.g0387bff-1-x86_64.pkg.tar.zst
+  [PASS] nox-app package contains usr/bin/nox-app
+  [PASS] nox-app package contains usr/share/applications/nox.desktop
+  [PASS] nox-app package contains opt/nox/bin/nox-desktop
+==> 2. Validating systemd user service unit...
+  [PASS] Found unit template at /home/boss/Documents/Projects/NoX/packaging/arch/noxd.service
+  [PASS] systemd-analyze verify passed for noxd.service
+==> 3. Validating desktop entry...
+  [PASS] Found desktop file at /home/boss/Documents/Projects/NoX/packaging/arch/nox.desktop
+  [PASS] desktop-file-validate passed with 0 errors
+==> 4. Checking namcap verification tool...
+  [WARN] namcap not installed on system (optional tool; can be installed via 'sudo pacman -S --needed namcap')
+==> 5. Checking System PATH and /opt/nox installation status...
+  [WARN] /opt/nox is not yet installed on this machine.
+  [WARN] To install the built packages, run:
+  [WARN]   USER-RUN: sudo pacman -U /home/boss/Documents/Projects/NoX/packaging/arch/*.pkg.tar.zst
+
+✓ Arch Linux Packaging Verification Successful!
+```
+
+### 7.5 Code Quality & Linter
+- Status: `VERIFIED-TEST`
+- Command: `uv run ruff check src/noxai/commands/setup.py src/noxai/config.py src/noxai/memory/folding.py src/noxai/models/fake.py src/noxai/tools/builtin/web.py tests/test_cli.py tests/test_memory.py tests/test_setup.py`
+- Output:
+```text
+All checks passed!
+```
+
+### 7.6 Secrets Hygiene Check
+- Status: `VERIFIED-LIVE`
+- Command: `git grep -n 'nvapi-'`
+- Result: Zero real or unmasked API keys committed in repository. Every match is either an explicit unit test fixture with mock dummy values (`nvapi-abcdef1234567890abcdef1234`), a redactor regex definition (`ToolCallCard.tsx`), or a test asserting that secrets are properly scrubbed.
+

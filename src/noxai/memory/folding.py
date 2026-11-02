@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from typing import Any
 
 import aiosqlite
 
-from noxai.db import execute, fetch_all, fetch_one
+from noxai.db import fetch_all, fetch_one
 from noxai.memory.context import (
     ConversationSummary,
     approximate_tokens,
@@ -158,26 +157,23 @@ class RollingSummaryFolder:
         # Synthesize rolling summary
         # If router is available, request resident/front model; otherwise rule-based synthesis
         summary_md = ""
-        key_facts: list[str] = []
-        active_topics: list[str] = []
 
         if router is not None:
             prompt = (
-                f"You are the NoX Conversation Summarizer. Summarize this conversation chunk.\n"
-                f"CRITICAL: Always cite the message ID in brackets for each point, e.g. [m{start_msg_id}].\n\n"
-                f"REQUIRED SECTIONS:\n"
-                f"## Key Facts\n"
-                f"## Decisions\n"
-                f"## Working Hypotheses\n"
-                f"## Open Questions\n\n"
+                "You are the NoX Conversation Summarizer. Summarize this conversation chunk.\n"
+                f"CRITICAL: Always cite the message ID in brackets, e.g. [m{start_msg_id}].\n\n"
+                "REQUIRED SECTIONS:\n"
+                "## Key Facts\n"
+                "## Decisions\n"
+                "## Working Hypotheses\n"
+                "## Open Questions\n\n"
                 f"Conversation:\n{dialogue_text[:6000]}"
             )
             try:
-                provider, model = router.resolve_role("resident")
                 res_chunks = []
-                async for chk in provider.chat(
+                async for chk in router.chat(
+                    role="resident",
                     messages=[Message(role="user", content=Content.public(prompt))],
-                    model=model,
                 ):
                     res_chunks.append(chk.text or "")
                 summary_md = "".join(res_chunks).strip()
@@ -188,14 +184,15 @@ class RollingSummaryFolder:
             # Robust fallback template with valid citations
             first_user = next((r for r in rows if r["role"] == "user"), rows[0])
             first_asst = next((r for r in rows if r["role"] == "assistant"), rows[-1])
+            u_txt = first_user["content"][:60]
             summary_md = (
                 f"## Key Facts\n"
-                f"- User engaged on primary topic: {first_user['content'][:60]} [m{first_user['id']}]\n"
+                f"- User engaged on primary topic: {u_txt} [m{first_user['id']}]\n"
                 f"- Assistant provided core response and analysis [m{first_asst['id']}]\n\n"
                 f"## Decisions\n"
-                f"- Context and dialogue points preserved for conversation continuity [m{end_msg_id}]\n\n"
+                f"- Context preserved for conversation continuity [m{end_msg_id}]\n\n"
                 f"## Working Hypotheses\n"
-                f"- Current topic remains active and central to upcoming turns [m{first_user['id']}]\n\n"
+                f"- Topic remains active and central to upcoming turns [m{first_user['id']}]\n\n"
                 f"## Open Questions\n"
                 f"- Ongoing user queries and follow-up investigations [m{end_msg_id}]"
             )

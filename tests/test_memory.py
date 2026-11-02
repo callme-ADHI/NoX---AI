@@ -722,6 +722,13 @@ class TestCrossConversationAcceptance:
             config=router.config,
         )
 
+        for cid in ("conv_a", "conv_b", "conv_c"):
+            await memory_db.execute(
+                "INSERT INTO conversations (id, title) VALUES (?, ?)",
+                (cid, f"Test {cid}"),
+            )
+        await memory_db.commit()
+
         # --- Conversation A: Tell NoX a preference fact ---
         # Model invokes save_fact tool
         fake.queue_tool_call(

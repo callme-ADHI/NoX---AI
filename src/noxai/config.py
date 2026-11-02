@@ -27,22 +27,33 @@ from pydantic import (
 )
 
 # ---------------------------------------------------------------------------
+CONFIG_DIR: Path | None = None
+CONFIG_FILE: Path | None = None
+SECRETS_FILE: Path | None = None
+
+
 def get_config_dir() -> Path:
-    """Return active config directory, honoring NOX_CONFIG_DIR."""
+    """Return active config directory, honoring NOX_CONFIG_DIR and module attribute."""
+    if CONFIG_DIR is not None:
+        return Path(CONFIG_DIR).expanduser().resolve()
     if "NOX_CONFIG_DIR" in os.environ:
         return Path(os.environ["NOX_CONFIG_DIR"]).expanduser().resolve()
     return Path("~/.config/nox").expanduser().resolve()
 
 
 def get_config_file() -> Path:
-    """Return active config file path, honoring NOX_CONFIG_FILE."""
+    """Return active config file path, honoring NOX_CONFIG_FILE and module attribute."""
+    if CONFIG_FILE is not None:
+        return Path(CONFIG_FILE).expanduser().resolve()
     if "NOX_CONFIG_FILE" in os.environ:
         return Path(os.environ["NOX_CONFIG_FILE"]).expanduser().resolve()
     return get_config_dir() / "config.toml"
 
 
 def get_secrets_file() -> Path:
-    """Return active secrets file path, honoring NOX_SECRETS_FILE."""
+    """Return active secrets file path, honoring NOX_SECRETS_FILE and module attribute."""
+    if SECRETS_FILE is not None:
+        return Path(SECRETS_FILE).expanduser().resolve()
     if "NOX_SECRETS_FILE" in os.environ:
         return Path(os.environ["NOX_SECRETS_FILE"]).expanduser().resolve()
     return get_config_dir() / "secrets.env"

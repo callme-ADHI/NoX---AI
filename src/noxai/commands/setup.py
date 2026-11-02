@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -42,33 +43,28 @@ def get_current_user() -> str:
 
 def check_autostart_desktop() -> SetupStatus:
     if not AUTOSTART_FILE.exists():
-        return SetupStatus("XDG Autostart (~/.config/autostart/nox.desktop)", False, "Not installed")
+        return SetupStatus("XDG Autostart", False, "Not installed (nox.desktop)")
     try:
         content = AUTOSTART_FILE.read_text()
         if "nox-app" in content or "nx" in content:
-            return SetupStatus("XDG Autostart (~/.config/autostart/nox.desktop)", True, "Active and valid")
-        return SetupStatus("XDG Autostart (~/.config/autostart/nox.desktop)", False, "Invalid desktop entry")
+            return SetupStatus("XDG Autostart", True, "Active and valid")
+        return SetupStatus("XDG Autostart", False, "Invalid desktop entry")
     except Exception as exc:
-        return SetupStatus("XDG Autostart (~/.config/autostart/nox.desktop)", False, f"Read error: {exc}")
+        return SetupStatus("XDG Autostart", False, f"Read error: {exc}")
 
 
 def check_hyprland_autostart() -> SetupStatus:
-    # Check hyprland.conf or startup.lua
     if HYPRLAND_LUA_STARTUP.exists():
-        try:
+        with contextlib.suppress(Exception):
             content = HYPRLAND_LUA_STARTUP.read_text()
             if "nox-app --hidden" in content or "nox-app" in content:
-                return SetupStatus("Hyprland exec-once (startup.lua)", True, "Configured in startup.lua")
-        except Exception:
-            pass
+                return SetupStatus("Hyprland exec-once", True, "Configured in startup.lua")
 
     if HYPRLAND_CONF.exists():
-        try:
+        with contextlib.suppress(Exception):
             content = HYPRLAND_CONF.read_text()
             if "nox-app --hidden" in content or "exec-once = nox-app" in content:
-                return SetupStatus("Hyprland exec-once (hyprland.conf)", True, "Configured in hyprland.conf")
-        except Exception:
-            pass
+                return SetupStatus("Hyprland exec-once", True, "Configured in hyprland.conf")
 
     return SetupStatus("Hyprland exec-once", False, "Not configured in ~/.config/hypr/")
 
@@ -83,7 +79,7 @@ def check_user_linger() -> SetupStatus:
             check=False,
         )
         if "Linger=yes" in proc.stdout:
-            return SetupStatus("User linger (loginctl)", True, "Enabled (daemons persist across logouts)")
+            return SetupStatus("User linger (loginctl)", True, "Enabled (daemons persist)")
         return SetupStatus("User linger (loginctl)", False, "Disabled")
     except Exception as exc:
         return SetupStatus("User linger (loginctl)", False, f"loginctl error: {exc}")
@@ -99,16 +95,21 @@ def check_systemd_service() -> SetupStatus:
         )
         state = proc.stdout.strip()
         if state == "enabled":
-            return SetupStatus("systemd user service (noxd.service)", True, "Enabled")
-        return SetupStatus("systemd user service (noxd.service)", False, f"State: {state or 'not installed'}")
+            return SetupStatus("systemd user service", True, "Enabled (noxd.service)")
+        return SetupStatus("systemd user service", False, f"State: {state or 'not installed'}")
     except Exception as exc:
-        return SetupStatus("systemd user service (noxd.service)", False, f"systemctl error: {exc}")
+        return SetupStatus("systemd user service", False, f"systemctl error: {exc}")
 
 
 def install_autostart_desktop() -> bool:
     AUTOSTART_DIR.mkdir(parents=True, exist_ok=True)
-    desktop_template = Path(__file__).resolve().parent.parent.parent.parent / "packaging" / "arch" / "nox.desktop"
-    
+    template = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "packaging"
+        / "arch"
+        / "nox.desktop"
+    )
+
     desktop_content = """[Desktop Entry]
 Name=NoX
 Comment=Personal AI Agent for Arch Linux & Hyprland
@@ -120,19 +121,15 @@ Categories=Science;ArtificialIntelligence;
 StartupWMClass=NoX
 X-GNOME-Autostart-enabled=true
 """
-    if desktop_template.exists():
-        try:
-            raw = desktop_template.read_text()
+    if template.exists():
+        with contextlib.suppress(Exception):
+            raw = template.read_text()
             if "Exec=" in raw:
-                lines = []
-                for line in raw.splitlines():
-                    if line.startswith("Exec="):
-                        lines.append("Exec=nox-app --hidden")
-                    else:
-                        lines.append(line)
+                lines = [
+                    "Exec=nox-app --hidden" if line.startswith("Exec=") else line
+                    for line in raw.splitlines()
+                ]
                 desktop_content = "\n".join(lines) + "\n"
-        except Exception:
-            pass
 
     AUTOSTART_FILE.write_text(desktop_content)
     return True
@@ -159,20 +156,25 @@ def install_hyprland_autostart(apply: bool = False) -> bool:
         content = conf_path.read_text() if conf_path.exists() else ""
         if "nox-app --hidden" not in content and "nox-app" not in content:
             with conf_path.open("a") as f:
-                f.write("\n# NoX desktop app autostart in system tray\nexec-once = nox-app --hidden\n")
+                f.write(
+                    "\n# NoX desktop app autostart in system tray\n"
+                    "exec-once = nox-app --hidden\n"
+                )
 
     if apply and shutil.which("hyprctl"):
-        try:
+        with contextlib.suppress(Exception):
             subprocess.run(["hyprctl", "reload"], capture_output=True, check=False)
-        except Exception:
-            pass
     return True
 
 
 def enable_user_linger() -> bool:
     user = get_current_user()
     try:
-        proc = subprocess.run(["loginctl", "enable-linger", user], capture_output=True, check=False)
+        proc = subprocess.run(
+            ["loginctl", "enable-linger", user],
+            capture_output=True,
+            check=False,
+        )
         return proc.returncode == 0
     except Exception:
         return False
@@ -181,12 +183,24 @@ def enable_user_linger() -> bool:
 @setup_app.callback(invoke_without_command=True)
 def setup_main(
     ctx: typer.Context,
-    autostart: bool = typer.Option(False, "--autostart", help="Configure XDG autostart (~/.config/autostart/nox.desktop)."),
-    hyprland: bool = typer.Option(False, "--hyprland", help="Configure Hyprland autostart (exec-once = nox-app --hidden)."),
-    apply: bool = typer.Option(False, "--apply", help="Apply Hyprland configuration immediately with hyprctl reload."),
-    linger: bool = typer.Option(False, "--linger", help="Enable user linger with loginctl enable-linger."),
-    check: bool = typer.Option(False, "--check", help="Check setup status without making modifications."),
-    all_flags: bool = typer.Option(False, "--all", "-a", help="Enable all setup options (--autostart, --hyprland, --linger)."),
+    autostart: bool = typer.Option(
+        False, "--autostart", help="Configure XDG autostart entry."
+    ),
+    hyprland: bool = typer.Option(
+        False, "--hyprland", help="Configure Hyprland exec-once."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply Hyprland configuration immediately."
+    ),
+    linger: bool = typer.Option(
+        False, "--linger", help="Enable persistent user linger."
+    ),
+    check: bool = typer.Option(
+        False, "--check", help="Check setup status without modifications."
+    ),
+    all_flags: bool = typer.Option(
+        False, "--all", "-a", help="Enable all setup options."
+    ),
 ) -> None:
     """Idempotently configure NoX system integration, autostart, and session persistence."""
     if ctx.invoked_subcommand is not None:
@@ -207,26 +221,28 @@ def setup_main(
         table.add_column("Details", style="dim")
 
         for s in statuses:
-            badge = "[green]CONFIGURED[/green]" if s.configured else "[yellow]NOT CONFIGURED[/yellow]"
+            badge = (
+                "[green]CONFIGURED[/green]" if s.configured else "[yellow]NOT CONFIGURED[/yellow]"
+            )
             table.add_row(s.component, badge, s.details)
 
         console.print(table)
         console.print("\nTo apply setup:")
-        console.print("  [bold]nx setup --all[/bold]                Enable all autostart and linger settings")
-        console.print("  [bold]nx setup --autostart[/bold]          Enable XDG autostart desktop entry")
-        console.print("  [bold]nx setup --hyprland [--apply][/bold] Append exec-once to Hyprland config")
-        console.print("  [bold]nx setup --linger[/bold]             Enable persistent background execution")
+        console.print("  [bold]nx setup --all[/bold]          Enable all autostart and linger")
+        console.print("  [bold]nx setup --autostart[/bold]    Enable XDG autostart desktop entry")
+        console.print("  [bold]nx setup --hyprland[/bold]     Append exec-once to Hyprland")
+        console.print("  [bold]nx setup --linger[/bold]       Enable persistent background runs")
         return
 
     if autostart or all_flags:
         if install_autostart_desktop():
-            console.print(f"[green]✓[/green] Configured XDG Autostart: [bold]{AUTOSTART_FILE}[/bold]")
+            console.print(f"[green]✓[/green] Configured XDG: [bold]{AUTOSTART_FILE}[/bold]")
         else:
             console.print("[red]✗[/red] Failed to configure XDG Autostart")
 
     if hyprland or all_flags:
         if install_hyprland_autostart(apply=apply):
-            console.print("[green]✓[/green] Configured Hyprland exec-once ([bold]nox-app --hidden[/bold])")
+            console.print("[green]✓[/green] Configured Hyprland exec-once (nox-app --hidden)")
             if apply:
                 console.print("[green]✓[/green] Executed [bold]hyprctl reload[/bold]")
         else:
@@ -235,7 +251,8 @@ def setup_main(
     if linger or all_flags:
         if enable_user_linger():
             console.print("[green]✓[/green] Enabled loginctl user linger")
-        else:
-            console.print("[yellow]![/yellow] Could not enable user linger (run 'loginctl enable-linger' manually if needed)")
+            console.print(
+                "[yellow]![/yellow] Could not enable linger (run 'loginctl enable-linger')"
+            )
 
     console.print("\n[bold green]NoX setup completed successfully![/bold green]")

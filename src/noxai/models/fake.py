@@ -106,7 +106,7 @@ class FakeProvider(Provider):
             }
         )
 
-        # 3. Retrieve scripted response
+        # 3. Filter specialized background roles (extractor / classifier)
         is_extractor = False
         if messages:
             first_txt = str(messages[0].content).lower()
@@ -118,7 +118,7 @@ class FakeProvider(Provider):
                 is_extractor = True
 
         if is_extractor:
-            # Check if the next queued response is explicitly formatted for extractor
+            # Check if next response is explicitly intended for extractor
             next_is_extractor = False
             if self.responses and isinstance(self.responses[0], list) and self.responses[0]:
                 chunk_txt = getattr(self.responses[0][0], "delta_text", None) or ""
@@ -127,157 +127,180 @@ class FakeProvider(Provider):
 
             if next_is_extractor:
                 resp = self.responses.pop(0)
-            else:
-                yield ChatChunk(
-                    delta_text=(
-                        '{"facts": [], "episode_summary": "Turn summary", "importance": 0.5}'
-                    ),
-                    finish_reason="stop",
-                )
+                if isinstance(resp, Exception):
+                    raise resp
+                for chunk in resp:
+                    yield chunk
+                    await asyncio.sleep(0)
                 return
-        else:
-            is_planner = False
-            is_worker = False
-            is_classifier = False
-            last_user_txt = ""
-            last_user_idx = -1
-            for idx, m in enumerate(messages):
-                c_lower = str(m.content).lower()
-                if "strategic planner" in c_lower or "decompose the goal" in c_lower:
-                    is_planner = True
-                elif (
-                    "specialized autonomous worker" in c_lower
-                    or "execute this subtask" in c_lower
-                ):
-                    is_worker = True
-                elif (
-                    "query classifier" in c_lower
-                    or "routing classifier" in c_lower
-                    or "decide if the user request is simple" in c_lower
-                ):
-                    is_classifier = True
-                if m.role == "user":
-                    last_user_idx = idx
-                    last_user_txt = str(m.content).lower()
-
-            if is_classifier:
-                import json
-
-                yield ChatChunk(
-                    delta_text=json.dumps(
-                        {
-                            "complex": False,
-                            "reason": "Evaluated as simple task in test mode",
-                        }
-                    ),
-                    finish_reason="stop",
-                )
-                return
-
-            if is_planner:
-                import json
-
-                yield ChatChunk(
-                    delta_text=json.dumps(
-                        {
-                            "goal": "Autonomous breakdown",
-                            "subtasks": [
-                                {
-                                    "id": "t1",
-                                    "title": "Gather research sources",
-                                    "objective": "Query web feeds and fetch news",
-                                    "kind": "fetch",
-                                    "depends_on": [],
-                                    "suggested_tools": [],
-                                    "expected_output": "Fetched sources",
-                                },
-                                {
-                                    "id": "t2",
-                                    "title": "Analyze findings",
-                                    "objective": "Extract facts and summarize",
-                                    "kind": "research",
-                                    "depends_on": ["t1"],
-                                    "suggested_tools": [],
-                                    "expected_output": "Filtered report",
-                                },
-                            ],
-                            "synthesis_instructions": "Synthesize summary report",
-                        }
-                    ),
-                    finish_reason="stop",
-                )
-                return
-
-            if is_worker:
-                import json
-
-                yield ChatChunk(
-                    delta_text=json.dumps(
-                        {
-                            "findings": (
-                                "Subtask completed successfully with verified citations."
-                            ),
-                            "verified_sources": ["https://example.com/verified-news"],
-                            "data": {},
-                        }
-                    ),
-                    finish_reason="stop",
-                )
-                return
-
-            has_tool_result = (
-                any(m.role == "tool" for m in messages[last_user_idx + 1 :])
-                if last_user_idx >= 0
-                else False
+            yield ChatChunk(
+                delta_text=(
+                    '{"facts": [], "episode_summary": "Turn summary", "importance": 0.5}'
+                ),
+                finish_reason="stop",
             )
-            if not has_tool_result and (
-                "write tool" in last_user_txt
-                or "create file" in last_user_txt
-                or "approval" in last_user_txt
+            return
+
+        is_classifier = False
+        for m in messages:
+            c_lower = str(m.content).lower()
+            if (
+                "query classifier" in c_lower
+                or "routing classifier" in c_lower
+                or "decide if the user request is simple" in c_lower
             ):
-                yield ChatChunk(
-                    delta_tool_calls=[
-                        ToolCall(
-                            id="call_write_test1",
-                            name="write_file",
-                            arguments={
-                                "path": "/tmp/nox-test.txt",  # noqa: S108
-                                "content": "Autonomous NoX test content",
-                            },
-                        )
-                    ],
-                    finish_reason="tool_calls",
-                )
-                return
+                is_classifier = True
+                break
 
-            if has_tool_result:
-                yield ChatChunk(
-                    delta_text="Action processed: /tmp/nox-test.txt operation completed.",
-                    finish_reason="stop",
-                )
-                return
+        if is_classifier:
+            next_is_classifier = False
+            if self.responses and isinstance(self.responses[0], list) and self.responses[0]:
+                chunk_txt = getattr(self.responses[0][0], "delta_text", None) or ""
+                if "complex" in chunk_txt:
+                    next_is_classifier = True
 
-            if self.responses:
+            if next_is_classifier:
                 resp = self.responses.pop(0)
-            else:
-                # Streaming text fallback
-                yield ChatChunk(
-                    delta_text="Hello from NoX local model! ",
-                    finish_reason=None,
-                )
-                await asyncio.sleep(0.01)
-                yield ChatChunk(
-                    delta_text="Everything is working smoothly in test mode.",
-                    finish_reason="stop",
-                )
+                if isinstance(resp, Exception):
+                    raise resp
+                for chunk in resp:
+                    yield chunk
+                    await asyncio.sleep(0)
                 return
-        if isinstance(resp, Exception):
-            raise resp
+            import json
 
-        for chunk in resp:
-            yield chunk
-            # Yield control briefly to simulate async streaming
-            await asyncio.sleep(0)
+            yield ChatChunk(
+                delta_text=json.dumps(
+                    {
+                        "complex": False,
+                        "reason": "Evaluated as simple task in test mode",
+                    }
+                ),
+                finish_reason="stop",
+            )
+            return
+
+        # 4. Retrieve scripted response
+        if self.responses:
+            resp = self.responses.pop(0)
+            if isinstance(resp, Exception):
+                raise resp
+            for chunk in resp:
+                yield chunk
+                await asyncio.sleep(0)
+            return
+
+        is_planner = False
+        is_worker = False
+        last_user_txt = ""
+        last_user_idx = -1
+        for idx, m in enumerate(messages):
+            c_lower = str(m.content).lower()
+            if "strategic planner" in c_lower or "decompose the goal" in c_lower:
+                is_planner = True
+            elif (
+                "specialized autonomous worker" in c_lower
+                or "execute this subtask" in c_lower
+            ):
+                is_worker = True
+            if m.role == "user":
+                last_user_idx = idx
+                last_user_txt = str(m.content).lower()
+
+        if is_planner:
+            import json
+
+            yield ChatChunk(
+                delta_text=json.dumps(
+                    {
+                        "goal": "Autonomous breakdown",
+                        "subtasks": [
+                            {
+                                "id": "t1",
+                                "title": "Gather research sources",
+                                "objective": "Query web feeds and fetch news",
+                                "kind": "fetch",
+                                "depends_on": [],
+                                "suggested_tools": [],
+                                "expected_output": "Fetched sources",
+                            },
+                            {
+                                "id": "t2",
+                                "title": "Analyze findings",
+                                "objective": "Extract facts and summarize",
+                                "kind": "research",
+                                "depends_on": ["t1"],
+                                "suggested_tools": [],
+                                "expected_output": "Filtered report",
+                            },
+                        ],
+                        "synthesis_instructions": "Synthesize summary report",
+                    }
+                ),
+                finish_reason="stop",
+            )
+            return
+
+        if is_worker:
+            import json
+
+            yield ChatChunk(
+                delta_text=json.dumps(
+                    {
+                        "findings": (
+                            "Subtask completed successfully with verified citations."
+                        ),
+                        "verified_sources": ["https://example.com/verified-news"],
+                        "data": {},
+                    }
+                ),
+                finish_reason="stop",
+            )
+            return
+
+        has_tool_result = (
+            any(m.role == "tool" for m in messages[last_user_idx + 1 :])
+            if last_user_idx >= 0
+            else False
+        )
+        if not has_tool_result and (
+            "write tool" in last_user_txt
+            or "create file" in last_user_txt
+            or "approval" in last_user_txt
+        ):
+            yield ChatChunk(
+                delta_tool_calls=[
+                    ToolCall(
+                        id="call_write_test1",
+                        name="write_file",
+                        arguments={
+                            "path": "/tmp/nox-test.txt",  # noqa: S108
+                            "content": "Autonomous NoX test content",
+                        },
+                    )
+                ],
+                finish_reason="tool_calls",
+            )
+            return
+
+        if has_tool_result:
+            yield ChatChunk(
+                delta_text="Action processed: /tmp/nox-test.txt operation completed.",
+                finish_reason="stop",
+            )
+            return
+
+        # Streaming text fallback
+        yield ChatChunk(
+            delta_text="Hello from NoX local model! ",
+            finish_reason=None,
+        )
+        await asyncio.sleep(0.01)
+        yield ChatChunk(
+            delta_text="Everything is working smoothly in test mode.",
+            finish_reason="stop",
+        )
+        return
 
     async def embed(
         self,
