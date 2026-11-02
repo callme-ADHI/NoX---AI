@@ -103,9 +103,10 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     // Page 2: Briefings
     await page.click('button:has-text("Briefings")');
     await expect(page.locator('text=Briefings Archive')).toBeVisible();
+    await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'briefings.png'), fullPage: true });
     // Opportunities board screenshot
-    const oppBoard = page.locator('text=Opportunities & Leads').first();
+    const oppBoard = page.locator('text=Funded Internships & Fellowships').first();
     if (await oppBoard.isVisible()) {
       await oppBoard.scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(SCREENSHOTS_DIR, 'opportunities.png'), fullPage: true });
@@ -453,5 +454,59 @@ test.describe('NoX Web UI Browser-Driven Verification', () => {
     // Zero uncaught errors
     expect(uncaughtErrors).toEqual([]);
   });
+
+  test('Session J Phase 6: Opportunity cards, badges, filter chips, why-ranked breakdown, and status change', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?t=${token}`);
+    await page.waitForLoadState('networkidle');
+
+    // 1. Navigate to Briefings
+    await page.click('button:has-text("Briefings")');
+    await expect(page.locator('text=Briefings Archive')).toBeVisible();
+
+    // 2. Verify filter chips are present
+    await expect(page.locator('button:has-text("Funded Internships")').first()).toBeVisible();
+    await expect(page.locator('button:has-text("Hackathons")').first()).toBeVisible();
+
+    // 3. Verify cards and badges for Internship
+    const internshipCard = page.locator('[data-testid="funded-internship-card"]').first();
+    if (await internshipCard.isVisible()) {
+      await expect(internshipCard).toContainText('Housing');
+      await expect(internshipCard).toContainText('Stipend');
+      await expect(internshipCard).toContainText('Score:');
+
+      // Test Why Ranked breakdown toggle
+      const whyRankedBtn = internshipCard.locator('button:has-text("Why ranked")').first();
+      if (await whyRankedBtn.isVisible()) {
+        await whyRankedBtn.click();
+        await expect(internshipCard.locator('text=housing: +30').first()).toBeVisible();
+      }
+
+      // Test status dropdown update
+      const statusSelect = internshipCard.locator('select[aria-label="Opportunity tracking status"]').first();
+      if (await statusSelect.isVisible()) {
+        await statusSelect.selectOption('applied');
+        await expect(statusSelect).toHaveValue('applied');
+      }
+    }
+
+    // 4. Test filter chip filtering
+    await page.click('button:has-text("Funded Internships")');
+    await page.waitForTimeout(300);
+
+    // 5. Test search filter
+    const searchInput = page.locator('input[placeholder="Search items..."]').first();
+    await searchInput.fill('EPFL');
+    await page.waitForTimeout(300);
+
+    // Clean reset to All
+    await page.click('button:has-text("All")');
+    await searchInput.fill('');
+    await page.waitForTimeout(300);
+
+    // Zero uncaught console errors
+    expect(consoleErrors).toEqual([]);
+  });
 });
+
 

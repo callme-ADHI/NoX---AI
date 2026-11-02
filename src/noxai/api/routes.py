@@ -109,8 +109,19 @@ class DetailedBriefingFeedback(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class OpportunityStatusRequest(BaseModel):
+    canonical_url: str = Field(..., description="Canonical URL of the opportunity")
+    status: str = Field(
+        ...,
+        description="'new', 'interested', 'applied', 'interview', 'offer', 'rejected', 'dismissed'",
+    )
+
+
 class RunBriefingRequest(BaseModel):
-    slot: str | None = Field(default=None, description="'morning' or 'evening' (optional; defaults to current window)")
+    slot: str | None = Field(
+        default=None,
+        description="'morning' or 'evening' (optional; defaults to current window)",
+    )
     force: bool = False
 
 
@@ -1211,7 +1222,7 @@ async def rate_briefing(briefing_id: int, fb: BriefingFeedback) -> dict[str, boo
 
 @api_router.get("/briefings/{briefing_id}/items", dependencies=READ_DEPS)
 async def get_briefing_items(briefing_id: str) -> list[dict[str, Any]]:
-    """Retrieve structured briefing items for card rendering."""
+    """Retrieve structured briefing items with joined opportunity metadata."""
     async with get_db() as db:
         # Check if briefing_id matches outputs.id or briefing_runs.id
         row = await fetch_one(db, "SELECT job_run_id FROM outputs WHERE id = ?", (briefing_id,))
@@ -1220,14 +1231,94 @@ async def get_briefing_items(briefing_id: str) -> list[dict[str, Any]]:
         rows = await fetch_all(
             db,
             """
-            SELECT id, briefing_id, topic_id, category, title, summary, source_name, url, created_at
-            FROM briefing_items
-            WHERE briefing_id = ?
-            ORDER BY created_at ASC
+            SELECT
+                bi.id, bi.briefing_id, bi.topic_id, bi.category,
+                bi.title, bi.summary, bi.source_name, bi.url, bi.created_at,
+                op.type AS kind, op.org AS organization, op.deadline,
+                op.score,
+                COALESCE(op.status, 'new') AS opportunity_status,
+                op.raw_json
+            FROM briefing_items bi
+            LEFT JOIN opportunity_registry op ON op.canonical_url = bi.url
+            WHERE bi.briefing_id = ?
+            ORDER BY bi.created_at ASC
             """,
             (run_id,),
         )
-        return [dict(r) for r in rows]
+        results: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            raw = _safe_json_loads(d.pop("raw_json", None))
+            if isinstance(raw, dict):
+                d["benefits"] = raw.get("benefits")
+                d["eligibility"] = raw.get("eligibility")
+                d["score_breakdown"] = raw.get("score_breakdown")
+                d["source_evidence_snippet"] = raw.get("source_evidence_snippet")
+                d["source_evidence_url"] = raw.get("source_evidence_url")
+                d["country"] = raw.get("country")
+                d["mode"] = raw.get("mode")
+                d["raw"] = raw
+            else:
+                d["benefits"] = None
+                d["eligibility"] = None
+                d["score_breakdown"] = None
+                d["source_evidence_snippet"] = None
+                d["source_evidence_url"] = None
+                d["country"] = None
+                d["mode"] = None
+                d["raw"] = None
+            results.append(d)
+        return results
+
+
+@api_router.post("/briefings/opportunities/status", dependencies=WRITE_DEPS)
+async def update_opportunity_status(req: OpportunityStatusRequest) -> dict[str, Any]:
+    """Update user tracking status for an internship/hackathon opportunity."""
+    valid_statuses = {
+        "new",
+        "interested",
+        "applied",
+        "interview",
+        "offer",
+        "rejected",
+        "dismissed",
+    }
+    if req.status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{req.status}'. Must be one of: {sorted(valid_statuses)}",
+        )
+    async with get_db() as db:
+        res = await execute(
+            db,
+            """
+            UPDATE opportunity_registry
+            SET status = ?, last_changed = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            WHERE canonical_url = ?
+            """,
+            (req.status, req.canonical_url),
+        )
+        if res.rowcount == 0:
+            await execute(
+                db,
+                """
+                INSERT INTO opportunity_registry (
+                    canonical_url, type, title, org, first_seen, last_seen, status, last_changed
+                )
+                VALUES (
+                    ?, 'opportunity', ?, '',
+                    (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    ?,
+                    (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                )
+                ON CONFLICT(canonical_url) DO UPDATE
+                SET status = excluded.status, last_changed = excluded.last_changed
+                """,
+                (req.canonical_url, req.canonical_url, req.status),
+            )
+        await db.commit()
+    return {"ok": True, "canonical_url": req.canonical_url, "status": req.status}
 
 
 

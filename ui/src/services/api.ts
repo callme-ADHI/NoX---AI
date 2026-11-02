@@ -377,7 +377,38 @@ export const api = {
       source_name: string;
       url: string;
       created_at: string;
+      kind?: string;
+      organization?: string;
+      country?: string;
+      mode?: string;
+      deadline?: string;
+      score?: number;
+      opportunity_status?: string;
+      benefits?: {
+        housing?: string;
+        stipend?: string;
+        travel?: string;
+        abroad?: boolean;
+        visa_assistance?: string;
+      };
+      eligibility?: {
+        level?: string;
+        target_audience?: string;
+        open_to_international?: boolean;
+      };
+      score_breakdown?: Record<string, number>;
+      source_evidence_snippet?: string;
+      source_evidence_url?: string;
     }>>(`/briefings/${briefingId}/items`),
+
+  updateOpportunityStatus: (canonicalUrl: string, status: string) =>
+    request<{ ok: boolean; canonical_url: string; status: string }>(
+      '/briefings/opportunities/status',
+      {
+        method: 'POST',
+        body: JSON.stringify({ canonical_url: canonicalUrl, status }),
+      }
+    ),
 
   getNotesVaultInfo: () =>
     request<{

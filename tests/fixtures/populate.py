@@ -456,6 +456,182 @@ def populate_realistic_db(db_path: Path | str) -> None:
         "INSERT OR REPLACE INTO seed_state (key, applied_at) VALUES (?, ?)", ("seeds_v1", now)
     )
 
+    # 18. Opportunities & Briefing items
+    opp_raw = {
+        "benefits": {
+            "housing": "provided",
+            "stipend": "3200 CHF/month",
+            "travel": "covered",
+            "abroad": True,
+            "visa_assistance": "provided",
+        },
+        "eligibility": {
+            "level": "undergraduate",
+            "open_to_international": True,
+        },
+        "score_breakdown": {
+            "housing": 30,
+            "stipend": 25,
+            "travel": 15,
+            "abroad": 15,
+            "watchlist": 5,
+        },
+        "source_evidence_snippet": (
+            "Living allowance of CHF 3200 to cover housing and living costs in Switzerland."
+        ),
+        "source_evidence_url": "https://www.epfl.ch/education/studies/en/summer-internship/",
+        "country": "Switzerland",
+        "mode": "onsite",
+    }
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO briefing_runs (id, date, slot, state, title, created_at)
+        VALUES ('jobrun-1', '2026-11-02', 'morning', 'succeeded', 'Daily Technical Briefing', ?)
+        """,
+        (now,),
+    )
+    conn.execute(
+        """
+        INSERT INTO opportunity_registry (
+            canonical_url, type, title, org, first_seen,
+            last_seen, deadline, status, score, raw_json
+        )
+        VALUES (?, 'internship', ?, ?, ?, ?, ?, 'new', 90, ?)
+        """,
+        (
+            "https://www.epfl.ch/education/studies/en/summer-internship/",
+            "EPFL Summer at EPFL Research Internship",
+            "EPFL",
+            now,
+            now,
+            "2026-11-20",
+            json.dumps(opp_raw),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO briefing_items (
+            id, briefing_id, topic_id, category, title, summary, source_name, url, created_at
+        )
+        VALUES (?, 'jobrun-1', 'topic_internships', 'internship', ?, ?, 'EPFL Official', ?, ?)
+        """,
+        (
+            "item-epfl-1",
+            "EPFL Summer at EPFL Research Internship (Fully Funded)",
+            "3-month fully funded summer research fellowship at EPFL in Lausanne, Switzerland.",
+            "https://www.epfl.ch/education/studies/en/summer-internship/",
+            now,
+        ),
+    )
+
+    hack_raw = {
+        "benefits": {
+            "housing": "provided",
+            "stipend": "none",
+            "travel": "reimbursed",
+            "abroad": False,
+        },
+        "eligibility": {
+            "level": "all",
+            "open_to_international": True,
+        },
+        "score_breakdown": {
+            "cash_prize": 20,
+            "travel": 25,
+            "ai_track": 15,
+            "free": 10,
+        },
+        "source_evidence_snippet": (
+            "Over $50,000 in cash prizes with free accommodation and travel grants."
+        ),
+        "source_evidence_url": "https://hackmit.org",
+        "country": "United States",
+        "mode": "in-person",
+    }
+    conn.execute(
+        """
+        INSERT INTO opportunity_registry (
+            canonical_url, type, title, org, first_seen,
+            last_seen, deadline, status, score, raw_json
+        )
+        VALUES (?, 'hackathon', ?, ?, ?, ?, ?, 'interested', 75, ?)
+        """,
+        (
+            "https://hackmit.org",
+            "HackMIT 2026",
+            "MIT",
+            now,
+            now,
+            "2026-11-10",
+            json.dumps(hack_raw),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO briefing_items (
+            id, briefing_id, topic_id, category, title, summary, source_name, url, created_at
+        )
+        VALUES (?, 'jobrun-1', 'topic_hackathons', 'hackathon', ?, ?, 'HackMIT', ?, ?)
+        """,
+        (
+            "item-hackmit-1",
+            "HackMIT 2026: Premier Collegiate AI & Systems Hackathon",
+            "Annual collegiate hackathon at MIT featuring AI, hardware, and cybersecurity tracks.",
+            "https://hackmit.org",
+            now,
+        ),
+    )
+
+    comp_raw = {
+        "benefits": {
+            "housing": "unknown",
+            "stipend": "none",
+            "travel": "none",
+            "abroad": True,
+        },
+        "score_breakdown": {
+            "cash_prize": 20,
+            "security": 15,
+        },
+        "source_evidence_snippet": "CTF competition with $20,000 in prizes.",
+        "source_evidence_url": "https://ctftime.org",
+        "country": "Global",
+        "mode": "online",
+    }
+    conn.execute(
+        """
+        INSERT INTO opportunity_registry (
+            canonical_url, type, title, org, first_seen,
+            last_seen, deadline, status, score, raw_json
+        )
+        VALUES (?, 'competition', ?, ?, ?, ?, ?, 'new', 65, ?)
+        """,
+        (
+            "https://ctftime.org/event/9999",
+            "DEF CON CTF Qualifier 2026",
+            "DEF CON",
+            now,
+            now,
+            "2026-11-25",
+            json.dumps(comp_raw),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO briefing_items (
+            id, briefing_id, topic_id, category, title, summary, source_name, url, created_at
+        )
+        VALUES (?, 'jobrun-1', 'topic_competitions', 'competition', ?, ?, 'CTFtime', ?, ?)
+        """,
+        (
+            "item-defcon-1",
+            "DEF CON CTF Qualifier 2026",
+            "World championship cybersecurity CTF challenge qualification round.",
+            "https://ctftime.org/event/9999",
+            now,
+        ),
+    )
+
     conn.execute("PRAGMA foreign_keys=ON")
     conn.commit()
     conn.close()
