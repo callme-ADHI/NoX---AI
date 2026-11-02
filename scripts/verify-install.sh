@@ -47,7 +47,7 @@ fi
 if [ -n "$NOX_APP_PKG" ] && [ -f "$NOX_APP_PKG" ]; then
     pass "Found nox-app package: $(basename "$NOX_APP_PKG")"
     APP_FILES=$(bsdtar -tf "$NOX_APP_PKG")
-    for f in "usr/bin/nox-app" "usr/share/applications/nox.desktop"; do
+    for f in "usr/bin/nox-app" "usr/share/applications/nox.desktop" "opt/nox/bin/nox-desktop"; do
         if bsdtar -tf "$NOX_APP_PKG" | grep -Fq "$f"; then
             pass "nox-app package contains $f"
         else

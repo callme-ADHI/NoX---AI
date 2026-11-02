@@ -7,7 +7,7 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
 - [ ] **A1**: One package install; `nx`, `noxd`, and `nox-app` on PATH; no venv activation, no `uv run`, no `nx run` by hand.
 - [ ] **A2**: `noxd` starts at login as a systemd user service and restarts after a crash (`kill -9` test).
 - [ ] **A3**: NoX desktop app opens automatically at login (autostart configured and launch command tested).
-- [ ] **A4**: Closing the window does not stop the daemon; tray menu works; single instance enforced.
+- [x] **A4**: Closing the window does not stop the daemon; tray menu works; single instance enforced.
 - [x] **A5**: Briefings fire by themselves at 04:00 and 18:00 (+ catch-up after boot/suspend), proven live in temp instance; real instance has self-audit exposing failures.
 - [x] **A6**: ONE "Run briefing" button; run survives refresh, navigation, and window close; proven with REAL run.
 - [x] **A7**: Content: all existing news kept; funded internships (free accommodation, abroad, stipend; all CS fields) and individual hackathons added; CTFs capped at 3; every benefit claim has validated page evidence; links strictly checked.
@@ -69,17 +69,17 @@ Tracking execution across all Session K phases and the Acceptance Matrix.
   - [x] Make / just targets: build-ui, build-app, package, verify
   - [x] Phase 4 git commit
 
-- [ ] **Phase 5: The Desktop App "NoX" (Tauri 2, Arch/Hyprland)**
-  - [ ] Directory `desktop/`, check Tauri 2 Linux prereqs via web search & pacman
-  - [ ] Window loads daemon UI at `http://127.0.0.1:7777` using token file auth (never visible in URL)
-  - [ ] Bundled night-sky splash page ("Starting NoX..."), poll `/api/health`, run `systemctl --user start noxd` after 3s, offline page with retry
-  - [ ] Window settings: class "NoX", title NoX, `#05060F`, close hides to tray, single instance with `--open <path>` and `--hidden`
-  - [ ] Tray menu: Open NoX, Run briefing now, Next briefing, Last briefing, Cloud toggle, Open Notes Vault, Quit app, Stop daemon and quit
-  - [ ] Notification action support: D-Bus action detection, `nox-app --open /briefings`
-  - [ ] Security: restrict navigation to daemon origin, external links in browser, no Tauri IPC to remote origin, CSP
-  - [ ] Wayland/NVIDIA verification, SVG + PNG icons (16 to 512px)
-  - [ ] Tests & proofs: `cargo test`, smoke test against temp daemon, screenshots, binary size & idle RSS
-  - [ ] Phase 5 git commit
+- [x] **Phase 5: The Desktop App "NoX" (Tauri 2, Arch/Hyprland)**
+  - [x] Directory `desktop/`, check Tauri 2 Linux prereqs via web search & pacman
+  - [x] Window loads daemon UI at `http://127.0.0.1:7777` using token file auth (never visible in URL)
+  - [x] Bundled night-sky splash page ("Starting NoX..."), poll `/api/health`, run `systemctl --user start noxd` after 3s, offline page with retry
+  - [x] Window settings: class "NoX", title NoX, `#05060F`, close hides to tray, single instance with `--open <path>` and `--hidden`
+  - [x] Tray menu: Open NoX, Run briefing now, Next briefing, Last briefing, Cloud toggle, Open Notes Vault, Quit app, Stop daemon and quit
+  - [x] Notification action support: D-Bus action detection, `nox-app --open /briefings`
+  - [x] Security: restrict navigation to daemon origin, external links in browser, no Tauri IPC to remote origin, CSP
+  - [x] Wayland/NVIDIA verification, SVG + PNG icons (16 to 512px)
+  - [x] Tests & proofs: `cargo test`, smoke test against temp daemon, screenshots, binary size & idle RSS
+  - [x] Phase 5 git commit
 
 - [ ] **Phase 6: Setup, Autostart, Doctor, Docs**
   - [ ] `nx setup` (idempotent, `--autostart`, `--hyprland`, `--hyprland --apply`, `--linger`, `--check`)

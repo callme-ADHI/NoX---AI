@@ -1,6 +1,6 @@
 .PHONY: all build-ui build-app package verify clean test
 
-all: build-ui package verify
+all: build-ui build-app package verify
 
 build-ui:
 	@echo "==> Building UI assets..."
@@ -8,15 +8,10 @@ build-ui:
 	@cd ui && npm run build --silent
 
 build-app: build-ui
-	@echo "==> Preparing desktop application assets..."
-	@if [ -d desktop ] && [ -f desktop/src-tauri/Cargo.toml ]; then \
-		echo "Building Tauri desktop app..."; \
-		(cd desktop && npm run tauri build); \
-	else \
-		echo "Tauri desktop app target ready (Phase 5)."; \
-	fi
+	@echo "==> Building Tauri desktop app..."
+	@cd desktop/src-tauri && cargo build --release
 
-package: build-ui
+package: build-app
 	@echo "==> Building Arch Linux packages non-root (makepkg)..."
 	@cd packaging/arch && makepkg -f --nodeps
 
@@ -27,6 +22,7 @@ verify:
 test:
 	@echo "==> Running test suite..."
 	@uv run pytest tests/ -v
+	@cd desktop/src-tauri && cargo test
 
 clean:
 	@echo "==> Cleaning packaging artifacts..."

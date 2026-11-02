@@ -1,7 +1,7 @@
 # Maintainer: NoX Developers <https://github.com/callme-ADHI/NoX---AI>
 pkgbase=nox
 pkgname=('nox' 'nox-app')
-pkgver=0.1.0.r84.gaf8ba88
+pkgver=0.1.0.r85.g0387bff
 pkgrel=1
 pkgdesc="NoX personal AI agent for Arch Linux & Hyprland"
 arch=('x86_64')
@@ -119,6 +119,14 @@ package_nox-app() {
     pkgdesc="NoX desktop application launcher and desktop entry"
     depends=('nox')
     
+    local src_root="${startdir}/../.."
+    
+    if [ -f "${src_root}/desktop/src-tauri/target/release/nox-desktop" ]; then
+        msg2 "Installing native desktop binary to /opt/nox/bin/nox-desktop..."
+        mkdir -p "${pkgdir}/opt/nox/bin"
+        install -m 755 "${src_root}/desktop/src-tauri/target/release/nox-desktop" "${pkgdir}/opt/nox/bin/nox-desktop"
+    fi
+    
     msg2 "Installing desktop launcher wrapper..."
     mkdir -p "${pkgdir}/usr/bin"
     install -m 755 "${srcdir}/nox-app" "${pkgdir}/usr/bin/nox-app"
@@ -127,3 +135,4 @@ package_nox-app() {
     mkdir -p "${pkgdir}/usr/share/applications"
     install -m 644 "${srcdir}/nox.desktop" "${pkgdir}/usr/share/applications/nox.desktop"
 }
+

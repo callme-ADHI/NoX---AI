@@ -46,3 +46,7 @@ packaging/arch/src/
 packaging/arch/pkg/
 packaging/arch/*.pkg.tar.*
 packaging/arch/icons/
+
+# Desktop / Tauri build artifacts
+desktop/src-tauri/target/
+desktop/node_modules/
