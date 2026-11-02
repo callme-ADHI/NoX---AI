@@ -1131,6 +1131,7 @@ async def list_briefings(
 async def run_briefing_slot(request: Request, req: RunBriefingRequest | None = None) -> Any:
     """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
     from fastapi.responses import JSONResponse
+
     from noxai.briefing.scheduler import BriefingScheduler
 
     sched: BriefingScheduler | None = getattr(request.app.state, "briefing_scheduler", None)
@@ -1342,6 +1343,7 @@ async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback)
 async def get_notes_vault_info() -> dict[str, Any]:
     """Retrieve Notes Vault path, Obsidian URI, and system editor status."""
     import shutil
+
     from noxai.notes.vault import NotesVault
 
     vault = NotesVault()
@@ -1357,6 +1359,7 @@ async def open_notes_vault() -> dict[str, Any]:
     """Open Notes Vault in Obsidian or system default application."""
     import shutil
     import subprocess
+
     from noxai.notes.vault import NotesVault
 
     vault = NotesVault()
@@ -1366,18 +1369,32 @@ async def open_notes_vault() -> dict[str, Any]:
     target = path_str
     if shutil.which("obsidian"):
         try:
-            subprocess.Popen(["obsidian", uri], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                ["obsidian", uri],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             opened = True
             target = uri
-        except Exception:
+        except OSError:
             pass
     if not opened and shutil.which("xdg-open"):
         try:
-            subprocess.Popen(["xdg-open", path_str], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                ["xdg-open", path_str],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             opened = True
-        except Exception:
+        except OSError:
             pass
-    return {"ok": True, "opened": opened, "target": target, "vault_path": path_str, "obsidian_uri": uri}
+    return {
+        "ok": True,
+        "opened": opened,
+        "target": target,
+        "vault_path": path_str,
+        "obsidian_uri": uri,
+    }
 
 
 @api_router.get("/keys", dependencies=READ_DEPS)
@@ -1450,7 +1467,8 @@ async def get_thread_memory(conv_id: str) -> dict[str, Any]:
         csum = await fetch_one(
             db,
             """
-            SELECT fold_index, summary_markdown, key_facts_json, active_topics_json, token_count, created_at
+            SELECT fold_index, summary_markdown, key_facts_json,
+                   active_topics_json, token_count, created_at
             FROM conv_summaries WHERE conversation_id = ?
             ORDER BY fold_index DESC LIMIT 1
             """,
@@ -1493,7 +1511,11 @@ async def update_thread_summary(conv_id: str, body: ThreadSummaryUpdate) -> dict
     async with get_db() as db:
         csum = await fetch_one(
             db,
-            "SELECT id FROM conv_summaries WHERE conversation_id = ? ORDER BY fold_index DESC LIMIT 1",
+            """
+            SELECT id FROM conv_summaries
+            WHERE conversation_id = ?
+            ORDER BY fold_index DESC LIMIT 1
+            """,
             (conv_id,),
         )
         if csum:
@@ -1504,11 +1526,14 @@ async def update_thread_summary(conv_id: str, body: ThreadSummaryUpdate) -> dict
             )
         else:
             import uuid
+
             csum_id = f"csum_{uuid.uuid4().hex[:8]}"
             await execute(
                 db,
                 """
-                INSERT INTO conv_summaries (id, conversation_id, fold_index, summary_markdown, token_count)
+                INSERT INTO conv_summaries (
+                    id, conversation_id, fold_index, summary_markdown, token_count
+                )
                 VALUES (?, ?, 0, ?, ?)
                 """,
                 (csum_id, conv_id, body.summary, len(body.summary.split())),
@@ -1532,11 +1557,16 @@ async def reset_thread_memory(conv_id: str) -> dict[str, Any]:
 async def export_thread_to_vault(conv_id: str) -> dict[str, Any]:
     """Export thread digest note to Notes Vault."""
     from noxai.notes.vault import NotesVault
+
     async with get_db() as db:
         conv = await fetch_one(db, "SELECT title FROM conversations WHERE id = ?", (conv_id,))
         csum = await fetch_one(
             db,
-            "SELECT summary_markdown FROM conv_summaries WHERE conversation_id = ? ORDER BY fold_index DESC LIMIT 1",
+            """
+            SELECT summary_markdown FROM conv_summaries
+            WHERE conversation_id = ?
+            ORDER BY fold_index DESC LIMIT 1
+            """,
             (conv_id,),
         )
         title = conv["title"] if conv else f"Chat {conv_id}"

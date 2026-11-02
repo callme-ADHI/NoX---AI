@@ -520,12 +520,12 @@ export const BriefingsPage: React.FC = () => {
             {op.benefits?.stipend && op.benefits.stipend !== 'none' && op.benefits.stipend !== 'unpaid' ? (
               <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                 <DollarSign className="w-2.5 h-2.5" />
-                Stipend
+                Stipend: Paid
               </span>
             ) : (
               <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/15 text-rose-300 border border-rose-500/30 flex items-center gap-1">
                 <DollarSign className="w-2.5 h-2.5" />
-                Unpaid
+                Stipend: Unpaid
               </span>
             )}
 
