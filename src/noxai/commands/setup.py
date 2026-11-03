@@ -21,6 +21,7 @@ AUTOSTART_FILE = AUTOSTART_DIR / "nox.desktop"
 HYPRLAND_DIR = Path("~/.config/hypr").expanduser()
 HYPRLAND_CONF = HYPRLAND_DIR / "hyprland.conf"
 HYPRLAND_LUA_STARTUP = HYPRLAND_DIR / "startup.lua"
+HYPRLAND_LUA_WINDOWRULES = HYPRLAND_DIR / "windowrules.lua"
 
 
 class SetupStatus(NamedTuple):
@@ -46,7 +47,7 @@ def check_autostart_desktop() -> SetupStatus:
         return SetupStatus("XDG Autostart", False, "Not installed (nox.desktop)")
     try:
         content = AUTOSTART_FILE.read_text()
-        if "nox-app" in content or "nx" in content:
+        if "nox-app" in content or "nx" in content or "nox-desktop" in content:
             return SetupStatus("XDG Autostart", True, "Active and valid")
         return SetupStatus("XDG Autostart", False, "Invalid desktop entry")
     except Exception as exc:
@@ -57,16 +58,40 @@ def check_hyprland_autostart() -> SetupStatus:
     if HYPRLAND_LUA_STARTUP.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_LUA_STARTUP.read_text()
-            if "nox-app --hidden" in content or "nox-app" in content:
+            if any(k in content for k in ("nox-app", "nox-desktop")):
                 return SetupStatus("Hyprland exec-once", True, "Configured in startup.lua")
 
     if HYPRLAND_CONF.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_CONF.read_text()
-            if "nox-app --hidden" in content or "exec-once = nox-app" in content:
+            if any(k in content for k in ("nox-app", "nox-desktop")):
                 return SetupStatus("Hyprland exec-once", True, "Configured in hyprland.conf")
 
     return SetupStatus("Hyprland exec-once", False, "Not configured in ~/.config/hypr/")
+
+
+def check_hyprland_workspace_rule() -> SetupStatus:
+    if HYPRLAND_LUA_WINDOWRULES.exists():
+        with contextlib.suppress(Exception):
+            content = HYPRLAND_LUA_WINDOWRULES.read_text()
+            if any(k in content for k in ("nox-desktop", "NoX")) and (
+                "workspace" in content and "1" in content
+            ):
+                return SetupStatus(
+                    "Hyprland workspace 1", True, "Pinned to workspace 1 in windowrules.lua"
+                )
+
+    if HYPRLAND_CONF.exists():
+        with contextlib.suppress(Exception):
+            content = HYPRLAND_CONF.read_text()
+            if any(k in content for k in ("nox-desktop", "NoX")) and "workspace 1" in content:
+                return SetupStatus(
+                    "Hyprland workspace 1", True, "Pinned to workspace 1 in hyprland.conf"
+                )
+
+    return SetupStatus(
+        "Hyprland workspace 1", False, "No workspace 1 rule found in ~/.config/hypr/"
+    )
 
 
 def check_user_linger() -> SetupStatus:
@@ -135,12 +160,38 @@ X-GNOME-Autostart-enabled=true
     return True
 
 
+def install_hyprland_rules() -> bool:
+    HYPRLAND_DIR.mkdir(parents=True, exist_ok=True)
+    rule_lua = (
+        '\n-- NoX Desktop App — always on workspace 1\n'
+        'hl.window_rule({ match = { class = "^(nox-desktop|NoX)$" }, workspace = "1" })\n'
+        'hl.window_rule({ match = { class = "^(nox-desktop|NoX)$" }, opacity = 1.0 })\n'
+    )
+    if HYPRLAND_LUA_WINDOWRULES.exists():
+        with contextlib.suppress(Exception):
+            content = HYPRLAND_LUA_WINDOWRULES.read_text()
+            if "nox-desktop" not in content and "NoX" not in content:
+                with HYPRLAND_LUA_WINDOWRULES.open("a") as f:
+                    f.write(rule_lua)
+    elif HYPRLAND_CONF.exists():
+        with contextlib.suppress(Exception):
+            content = HYPRLAND_CONF.read_text()
+            if "nox-desktop" not in content and "NoX" not in content:
+                with HYPRLAND_CONF.open("a") as f:
+                    f.write(
+                        "\n# NoX Desktop App — always on workspace 1\n"
+                        "windowrulev2 = workspace 1, class:^(nox-desktop|NoX)$\n"
+                    )
+    return True
+
+
 def install_hyprland_autostart(apply: bool = False) -> bool:
     HYPRLAND_DIR.mkdir(parents=True, exist_ok=True)
+    install_hyprland_rules()
 
     if HYPRLAND_LUA_STARTUP.exists():
         content = HYPRLAND_LUA_STARTUP.read_text()
-        if "nox-app --hidden" not in content and "nox-app" not in content:
+        if not any(k in content for k in ("nox-app", "nox-desktop")):
             if "local exec_once = {" in content:
                 content = content.replace(
                     "local exec_once = {",
@@ -154,7 +205,7 @@ def install_hyprland_autostart(apply: bool = False) -> bool:
     else:
         conf_path = HYPRLAND_CONF
         content = conf_path.read_text() if conf_path.exists() else ""
-        if "nox-app --hidden" not in content and "nox-app" not in content:
+        if "exec-once = nox-app" not in content and "exec-once = nox-desktop" not in content:
             with conf_path.open("a") as f:
                 f.write(
                     "\n# NoX desktop app autostart in system tray\n"
@@ -211,6 +262,7 @@ def setup_main(
         statuses = [
             check_autostart_desktop(),
             check_hyprland_autostart(),
+            check_hyprland_workspace_rule(),
             check_user_linger(),
             check_systemd_service(),
         ]

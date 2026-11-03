@@ -19,6 +19,7 @@ def test_setup_check_mode() -> None:
     assert "NoX Setup & Autostart Status" in result.stdout
     assert "XDG Autostart" in result.stdout
     assert "Hyprland exec-once" in result.stdout
+    assert "Hyprland workspace 1" in result.stdout
 
 
 def test_setup_autostart_install(tmp_path: Path) -> None:
@@ -34,22 +35,30 @@ def test_setup_autostart_install(tmp_path: Path) -> None:
 
 def test_setup_hyprland_lua(tmp_path: Path) -> None:
     fake_startup = tmp_path / "startup.lua"
+    fake_rules = tmp_path / "windowrules.lua"
     fake_startup.write_text('local exec_once = {\n    "noctalia",\n}\n')
-    with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup):
+    fake_rules.write_text('-- window rules\n')
+    with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup), patch.object(
+        setup, "HYPRLAND_LUA_WINDOWRULES", fake_rules
+    ):
         result = runner.invoke(app, ["setup", "--hyprland"])
         assert result.exit_code == 0
         content = fake_startup.read_text()
         assert "nox-app --hidden" in content
+        rules_content = fake_rules.read_text()
+        assert "workspace = \"1\"" in rules_content
 
 
 def test_setup_hyprland_conf(tmp_path: Path) -> None:
     fake_conf = tmp_path / "hyprland.conf"
     fake_conf.write_text("# Hyprland config\n")
     fake_startup = tmp_path / "nonexistent.lua"
+    fake_rules = tmp_path / "nonexistent_rules.lua"
     with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup), patch.object(
-        setup, "HYPRLAND_CONF", fake_conf
-    ):
+        setup, "HYPRLAND_LUA_WINDOWRULES", fake_rules
+    ), patch.object(setup, "HYPRLAND_CONF", fake_conf):
         result = runner.invoke(app, ["setup", "--hyprland"])
         assert result.exit_code == 0
         content = fake_conf.read_text()
         assert "exec-once = nox-app --hidden" in content
+        assert "windowrulev2 = workspace 1" in content
