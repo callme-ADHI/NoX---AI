@@ -160,36 +160,56 @@
     let daemonStarted = false;
 
     async function checkHealth() {
-      try {
-        const res = await fetch(`${API_BASE}/api/health`, { method: "GET", cache: "no-store" });
-        if (res.ok) {
-          document.getElementById("status-text").textContent = "Connected. Loading application...";
-          
-          // Obtain token from Tauri backend if available or localStorage
-          let token = "";
-          if (window.__TAURI__ && window.__TAURI__.core) {
-            try {
-              token = await window.__TAURI__.core.invoke("get_session_token");
-            } catch (e) {
-              console.warn("Failed to invoke get_session_token:", e);
-            }
-          }
+      let isHealthy = false;
 
-          if (token) {
-            sessionStorage.setItem("nox_token", token);
-            localStorage.setItem("nox_token", token);
-          }
-
-          // Check for redirect path
-          const urlParams = new URLSearchParams(window.location.search);
-          const targetPath = urlParams.get("open") || "/";
-
-          // Navigate cleanly to daemon origin without exposing token in URL
-          window.location.href = `${API_BASE}${targetPath}`;
-          return;
+      // 1. Primary: Native Tauri IPC check (avoids browser CORS)
+      if (window.__TAURI__ && window.__TAURI__.core) {
+        try {
+          isHealthy = await window.__TAURI__.core.invoke("check_daemon_health");
+        } catch (e) {
+          console.warn("check_daemon_health invoke failed:", e);
         }
-      } catch (err) {
-        // Daemon not yet ready
+      }
+
+      // 2. Fallback: Direct fetch
+      if (!isHealthy) {
+        try {
+          const res = await fetch(`${API_BASE}/api/health`, { method: "GET", cache: "no-store" });
+          isHealthy = res.ok;
+        } catch (err) {
+          // Daemon not yet ready or CORS blocked
+        }
+      }
+
+      if (isHealthy) {
+        document.getElementById("status-text").textContent = "Connected. Loading application...";
+
+        let token = "";
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          try {
+            token = await window.__TAURI__.core.invoke("get_session_token");
+          } catch (e) {
+            console.warn("Failed to invoke get_session_token:", e);
+          }
+        }
+
+        if (token) {
+          sessionStorage.setItem("nox_token", token);
+          localStorage.setItem("nox_token", token);
+        }
+
+        // Check for redirect path
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetPath = urlParams.get("open") || "/";
+
+        // Initial navigation exchanges token to set HttpOnly session cookie,
+        // then the server 303 redirects cleanly to / or targetPath.
+        if (token) {
+          window.location.href = `${API_BASE}/?t=${encodeURIComponent(token)}`;
+        } else {
+          window.location.href = `${API_BASE}${targetPath}`;
+        }
+        return;
       }
 
       attempts++;

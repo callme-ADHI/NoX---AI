@@ -39,6 +39,18 @@ fn open_in_browser(url: String) {
     let _ = Command::new("xdg-open").arg(url).spawn();
 }
 
+#[tauri::command]
+fn check_daemon_health() -> bool {
+    let url = format!("{}/api/health", API_BASE);
+    let output = Command::new("curl")
+        .args(["-sf", &url])
+        .output();
+    match output {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
+}
+
 fn trigger_daemon_api(endpoint: &str, method: &str) {
     let url = format!("{}{}", API_BASE, endpoint);
     let token = get_session_token();
@@ -96,7 +108,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_session_token,
             start_daemon,
-            open_in_browser
+            open_in_browser,
+            check_daemon_health
         ])
         .setup(|app| {
             // Build Tray Menu
