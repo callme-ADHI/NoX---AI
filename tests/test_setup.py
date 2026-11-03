@@ -17,15 +17,38 @@ def test_setup_check_mode() -> None:
     result = runner.invoke(app, ["setup", "--check"])
     assert result.exit_code == 0
     assert "NoX Setup & Autostart Status" in result.stdout
+    assert "Desktop Entry (Launcher)" in result.stdout
     assert "XDG Autostart" in result.stdout
     assert "Hyprland exec-once" in result.stdout
     assert "Hyprland workspace 1" in result.stdout
 
 
+def test_setup_desktop_install(tmp_path: Path) -> None:
+    fake_apps_dir = tmp_path / "applications"
+    fake_apps_file = fake_apps_dir / "nox.desktop"
+    fake_bin_dir = tmp_path / "bin"
+    fake_pixmaps_dir = tmp_path / "pixmaps"
+    with patch.object(setup, "APPLICATIONS_DIR", fake_apps_dir), patch.object(
+        setup, "APPLICATIONS_FILE", fake_apps_file
+    ), patch.object(setup, "USER_BIN_DIR", fake_bin_dir), patch.object(
+        setup, "USER_PIXMAPS_DIR", fake_pixmaps_dir
+    ):
+        result = runner.invoke(app, ["setup", "--desktop"])
+        assert result.exit_code == 0
+        assert fake_apps_file.exists()
+        assert "Name=NoX" in fake_apps_file.read_text()
+        assert "Exec=/home/boss/.local/bin/nox-app %U" in fake_apps_file.read_text()
+
+
 def test_setup_autostart_install(tmp_path: Path) -> None:
     fake_autostart = tmp_path / "autostart" / "nox.desktop"
+    fake_apps_file = tmp_path / "applications" / "nox.desktop"
     with patch.object(setup, "AUTOSTART_DIR", tmp_path / "autostart"), patch.object(
         setup, "AUTOSTART_FILE", fake_autostart
+    ), patch.object(setup, "APPLICATIONS_FILE", fake_apps_file), patch.object(
+        setup, "APPLICATIONS_DIR", tmp_path / "applications"
+    ), patch.object(setup, "USER_BIN_DIR", tmp_path / "bin"), patch.object(
+        setup, "USER_PIXMAPS_DIR", tmp_path / "pixmaps"
     ):
         result = runner.invoke(app, ["setup", "--autostart"])
         assert result.exit_code == 0

@@ -18,6 +18,10 @@ console = Console()
 
 AUTOSTART_DIR = Path("~/.config/autostart").expanduser()
 AUTOSTART_FILE = AUTOSTART_DIR / "nox.desktop"
+APPLICATIONS_DIR = Path("~/.local/share/applications").expanduser()
+APPLICATIONS_FILE = APPLICATIONS_DIR / "nox.desktop"
+USER_BIN_DIR = Path("~/.local/bin").expanduser()
+USER_PIXMAPS_DIR = Path("~/.local/share/pixmaps").expanduser()
 HYPRLAND_DIR = Path("~/.config/hypr").expanduser()
 HYPRLAND_CONF = HYPRLAND_DIR / "hyprland.conf"
 HYPRLAND_LUA_STARTUP = HYPRLAND_DIR / "startup.lua"
@@ -40,6 +44,20 @@ def get_current_user() -> str:
         except Exception:
             user = "current-user"
     return user
+
+
+def check_desktop_entry() -> SetupStatus:
+    if not APPLICATIONS_FILE.exists():
+        return SetupStatus("Desktop Entry (Launcher)", False, "Not installed (nox.desktop)")
+    try:
+        content = APPLICATIONS_FILE.read_text()
+        if "nox-app" in content or "nox-desktop" in content:
+            return SetupStatus(
+                "Desktop Entry (Launcher)", True, "Installed (~/.local/share/applications)"
+            )
+        return SetupStatus("Desktop Entry (Launcher)", False, "Invalid desktop entry")
+    except Exception as exc:
+        return SetupStatus("Desktop Entry (Launcher)", False, f"Read error: {exc}")
 
 
 def check_autostart_desktop() -> SetupStatus:
@@ -126,8 +144,77 @@ def check_systemd_service() -> SetupStatus:
         return SetupStatus("systemd user service", False, f"systemctl error: {exc}")
 
 
+def install_desktop_entry() -> bool:
+    APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    USER_BIN_DIR.mkdir(parents=True, exist_ok=True)
+    USER_PIXMAPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    release_bin = project_root / "desktop" / "src-tauri" / "target" / "release" / "nox-desktop"
+    local_bin = USER_BIN_DIR / "nox-desktop"
+    if release_bin.exists() and not local_bin.exists():
+        with contextlib.suppress(Exception):
+            local_bin.symlink_to(release_bin)
+
+    wrapper_path = USER_BIN_DIR / "nox-app"
+    wrapper_content = f"""#!/usr/bin/env bash
+set -e
+if ! systemctl --user is-active --quiet noxd; then
+    systemctl --user start noxd 2>/dev/null || true
+fi
+if [ -x /opt/nox/bin/nox-desktop ]; then
+    exec /opt/nox/bin/nox-desktop "$@"
+elif [ -x "$HOME/.local/bin/nox-desktop" ]; then
+    exec "$HOME/.local/bin/nox-desktop" "$@"
+elif [ -x "{release_bin}" ]; then
+    exec "{release_bin}" "$@"
+else
+    TOKEN_FILE="${{HOME}}/.local/share/nox/session_token"
+    TOKEN=""
+    [ -f "$TOKEN_FILE" ] && TOKEN=$(cat "$TOKEN_FILE")
+    exec xdg-open "http://127.0.0.1:7777/?t=${{TOKEN}}"
+fi
+"""
+    if not wrapper_path.exists():
+        with contextlib.suppress(Exception):
+            wrapper_path.write_text(wrapper_content)
+            wrapper_path.chmod(0o755)
+
+    icon_src = project_root / "desktop" / "src-tauri" / "icons" / "icon.png"
+    pixmap_target = USER_PIXMAPS_DIR / "nox.png"
+    if icon_src.exists() and not pixmap_target.exists():
+        with contextlib.suppress(Exception):
+            shutil.copy2(icon_src, pixmap_target)
+
+    desktop_content = """[Desktop Entry]
+Name=NoX
+GenericName=Personal AI Agent
+Comment=Personal AI Agent for Arch Linux & Hyprland
+Exec=/home/boss/.local/bin/nox-app %U
+Icon=/home/boss/.local/share/pixmaps/nox.png
+Type=Application
+StartupNotify=true
+StartupWMClass=nox-desktop
+Categories=Utility;Development;
+Keywords=nox;NoX;AI;ai;agent;assistant;
+"""
+    APPLICATIONS_FILE.write_text(desktop_content)
+    with contextlib.suppress(Exception):
+        APPLICATIONS_FILE.chmod(0o644)
+
+    if shutil.which("update-desktop-database"):
+        with contextlib.suppress(Exception):
+            subprocess.run(
+                ["update-desktop-database", str(APPLICATIONS_DIR)],
+                capture_output=True,
+                check=False,
+            )
+    return True
+
+
 def install_autostart_desktop() -> bool:
     AUTOSTART_DIR.mkdir(parents=True, exist_ok=True)
+    install_desktop_entry()
     template = (
         Path(__file__).resolve().parent.parent.parent.parent
         / "packaging"
@@ -240,6 +327,9 @@ def setup_main(
     hyprland: bool = typer.Option(
         False, "--hyprland", help="Configure Hyprland exec-once."
     ),
+    desktop: bool = typer.Option(
+        False, "--desktop", help="Install desktop launcher entry and icons."
+    ),
     apply: bool = typer.Option(
         False, "--apply", help="Apply Hyprland configuration immediately."
     ),
@@ -257,9 +347,10 @@ def setup_main(
     if ctx.invoked_subcommand is not None:
         return
 
-    if check or (not autostart and not hyprland and not linger and not all_flags):
+    if check or (not autostart and not desktop and not hyprland and not linger and not all_flags):
         console.rule("[bold blue]NoX Setup & Autostart Status[/bold blue]")
         statuses = [
+            check_desktop_entry(),
             check_autostart_desktop(),
             check_hyprland_autostart(),
             check_hyprland_workspace_rule(),
@@ -280,11 +371,20 @@ def setup_main(
 
         console.print(table)
         console.print("\nTo apply setup:")
-        console.print("  [bold]nx setup --all[/bold]          Enable all autostart and linger")
+        console.print("  [bold]nx setup --all[/bold]          Enable all autostart & launcher")
+        console.print("  [bold]nx setup --desktop[/bold]      Install desktop launcher entry")
         console.print("  [bold]nx setup --autostart[/bold]    Enable XDG autostart desktop entry")
         console.print("  [bold]nx setup --hyprland[/bold]     Append exec-once to Hyprland")
         console.print("  [bold]nx setup --linger[/bold]       Enable persistent background runs")
         return
+
+    if desktop or all_flags:
+        if install_desktop_entry():
+            console.print(
+                f"[green]✓[/green] Configured Desktop Launcher: [bold]{APPLICATIONS_FILE}[/bold]"
+            )
+        else:
+            console.print("[red]✗[/red] Failed to configure Desktop Launcher")
 
     if autostart or all_flags:
         if install_autostart_desktop():
@@ -303,6 +403,7 @@ def setup_main(
     if linger or all_flags:
         if enable_user_linger():
             console.print("[green]✓[/green] Enabled loginctl user linger")
+        else:
             console.print(
                 "[yellow]![/yellow] Could not enable linger (run 'loginctl enable-linger')"
             )
