@@ -6,6 +6,10 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-check-daemon-health",
+    "allow-get-session-token",
+    "allow-open-in-browser",
+    "allow-start-daemon"
   ]
 }

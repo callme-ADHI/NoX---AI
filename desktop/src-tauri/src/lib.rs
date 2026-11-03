@@ -87,10 +87,18 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
                 if let Some(path) = target_open {
-                    let target = if path.starts_with("http") {
+                    let token = get_session_token();
+                    let target = if token.is_empty() {
+                        if path.starts_with("http") {
+                            path
+                        } else {
+                            format!("{}{}", API_BASE, path)
+                        }
+                    } else if path.starts_with("http") {
                         path
                     } else {
-                        format!("{}{}", API_BASE, path)
+                        let clean_path = if path.starts_with('/') { path } else { format!("/{}", path) };
+                        format!("{}/?t={}&next={}", API_BASE, token, clean_path)
                     };
                     let js = format!("window.location.href = '{}';", target);
                     let _ = window.eval(&js);
@@ -168,7 +176,14 @@ pub fn run() {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.show();
                                 let _ = w.set_focus();
-                                let _ = w.eval("window.location.href = 'http://127.0.0.1:7777/briefings';");
+                                let token = get_session_token();
+                                let target = if token.is_empty() {
+                                    format!("{}/briefings", API_BASE)
+                                } else {
+                                    format!("{}/?t={}&next=/briefings", API_BASE, token)
+                                };
+                                let js = format!("window.location.href = '{}';", target);
+                                let _ = w.eval(&js);
                             }
                         }
                         "cloud_toggle" => {
@@ -214,6 +229,12 @@ pub fn run() {
 
             // Window close behavior: hide to tray
             if let Some(window) = app.get_webview_window("main") {
+                let token = get_session_token();
+                if !token.is_empty() {
+                    let js = format!("window.__NOX_TOKEN__ = '{}';", token);
+                    let _ = window.eval(&js);
+                }
+
                 let window_clone = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {

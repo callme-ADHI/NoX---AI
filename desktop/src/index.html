@@ -184,8 +184,8 @@
       if (isHealthy) {
         document.getElementById("status-text").textContent = "Connected. Loading application...";
 
-        let token = "";
-        if (window.__TAURI__ && window.__TAURI__.core) {
+        let token = window.__NOX_TOKEN__ || "";
+        if (!token && window.__TAURI__ && window.__TAURI__.core) {
           try {
             token = await window.__TAURI__.core.invoke("get_session_token");
           } catch (e) {
@@ -194,21 +194,27 @@
         }
 
         if (token) {
-          sessionStorage.setItem("nox_token", token);
-          localStorage.setItem("nox_token", token);
+          try {
+            sessionStorage.setItem("nox_token", token);
+            localStorage.setItem("nox_token", token);
+          } catch (e) {}
+
+          const urlParams = new URLSearchParams(window.location.search);
+          const targetPath = urlParams.get("open") || "/";
+          const nextParam = targetPath !== "/" ? `&next=${encodeURIComponent(targetPath)}` : "";
+
+          window.location.href = `${API_BASE}/?t=${encodeURIComponent(token)}&shell=desktop${nextParam}`;
+          return;
         }
 
-        // Check for redirect path
-        const urlParams = new URLSearchParams(window.location.search);
-        const targetPath = urlParams.get("open") || "/";
-
-        // Initial navigation exchanges token to set HttpOnly session cookie,
-        // then the server 303 redirects cleanly to / or targetPath.
-        if (token) {
-          window.location.href = `${API_BASE}/?t=${encodeURIComponent(token)}`;
+        // If daemon is healthy but token is not yet loaded, wait and retry instead of navigating unauthenticated
+        attempts++;
+        if (attempts >= 20) {
+          document.getElementById("status-text").textContent = "Authenticating session failed. Retrying...";
         } else {
-          window.location.href = `${API_BASE}${targetPath}`;
+          document.getElementById("status-text").textContent = "Authenticating session...";
         }
+        setTimeout(checkHealth, 300);
         return;
       }
 

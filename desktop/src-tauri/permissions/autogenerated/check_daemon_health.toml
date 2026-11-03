@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-daemon-health"
+description = "Enables the check_daemon_health command without any pre-configured scope."
+commands.allow = ["check_daemon_health"]
+
+[[permission]]
+identifier = "deny-check-daemon-health"
+description = "Denies the check_daemon_health command without any pre-configured scope."
+commands.deny = ["check_daemon_health"]

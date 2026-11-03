@@ -526,12 +526,16 @@ def create_app(
     async def root_index(
         request: Request,
         t: str | None = Query(default=None),
+        next: str | None = Query(default=None),
+        direct: bool = Query(default=False),
+        shell: str | None = Query(default=None),
     ) -> Response:
         """Root endpoint.
-        If `?t=<token>` is supplied by `nx open`:
-        Validates token, sets HttpOnly SameSite=Strict `nox_session` cookie, and redirects
-        to `/` (cleaning URL query parameter).
-        If already authenticated via cookie:
+        If `?t=<token>` is supplied by `nx open` or desktop:
+        Validates token. If `direct=True` or `shell='desktop'`, serves the SPA index.html
+        directly with HttpOnly cookie set (preventing cross-origin redirect cookie loss).
+        Otherwise sets HttpOnly SameSite=Strict `nox_session` cookie and 303 redirects to `/`.
+        If already authenticated via cookie or Bearer authorization:
         Serves `ui/dist/index.html` if built, or daemon status HTML.
         """
         valid_token = load_session_token()
@@ -539,9 +543,34 @@ def create_app(
             valid_token = generate_session_token()
 
         if t is not None:
-            # Token exchange flow from `nx open`
+            # Token exchange flow from `nx open` or desktop
             if hmac.compare_digest(t, valid_token):
-                redirect = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+                if direct or shell == "desktop":
+                    if UI_DIST.exists() and (UI_DIST / "index.html").exists():
+                        resp = FileResponse(str(UI_DIST / "index.html"))
+                    else:
+                        resp = HTMLResponse(
+                            "<!DOCTYPE html><html><head><title>NoX Daemon</title></head>"
+                            "<body style='font-family:sans-serif;padding:2rem;"
+                            "background:#0d1117;color:#c9d1d9;'>"
+                            "<h2>NoX Daemon Active</h2>"
+                            "<p>Authenticated session established. Web UI build pending in "
+                            "<code>ui/dist</code>.</p>"
+                            "</body></html>"
+                        )
+                    resp.set_cookie(
+                        key=COOKIE_NAME,
+                        value=t,
+                        httponly=True,
+                        samesite="lax",
+                        path="/",
+                    )
+                    return resp
+
+                dest = "/"
+                if next and next.startswith("/") and not next.startswith("//"):
+                    dest = next
+                redirect = RedirectResponse(url=dest, status_code=status.HTTP_303_SEE_OTHER)
                 redirect.set_cookie(
                     key=COOKIE_NAME,
                     value=t,
@@ -570,6 +599,14 @@ def create_app(
                 "</body></html>"
             )
 
+        # Check Authorization header (Bearer token)
+        auth_hdr = request.headers.get("Authorization")
+        if auth_hdr and auth_hdr.startswith("Bearer "):
+            bearer_token = auth_hdr.removeprefix("Bearer ").strip()
+            if hmac.compare_digest(bearer_token, valid_token):
+                if UI_DIST.exists() and (UI_DIST / "index.html").exists():
+                    return FileResponse(str(UI_DIST / "index.html"))
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: authentication required. Launch via 'nx open'.",
@@ -584,7 +621,20 @@ def create_app(
 
         valid_token = load_session_token()
         cookie_val = request.cookies.get(COOKIE_NAME)
-        if valid_token and cookie_val and hmac.compare_digest(cookie_val, valid_token):
+        query_t = request.query_params.get("t")
+        auth_hdr = request.headers.get("Authorization", "")
+        bearer_val = auth_hdr.removeprefix("Bearer ").strip() if auth_hdr.startswith("Bearer ") else None
+
+        is_auth = False
+        if valid_token:
+            if cookie_val and hmac.compare_digest(cookie_val, valid_token):
+                is_auth = True
+            elif query_t and hmac.compare_digest(query_t, valid_token):
+                is_auth = True
+            elif bearer_val and hmac.compare_digest(bearer_val, valid_token):
+                is_auth = True
+
+        if is_auth:
             if UI_DIST.exists():
                 try:
                     resolved = (UI_DIST / full_path).resolve()
@@ -593,7 +643,10 @@ def create_app(
                 except (ValueError, RuntimeError):
                     pass
                 if (UI_DIST / "index.html").exists():
-                    return FileResponse(str(UI_DIST / "index.html"))
+                    resp = FileResponse(str(UI_DIST / "index.html"))
+                    if query_t:
+                        resp.set_cookie(key=COOKIE_NAME, value=query_t, httponly=True, samesite="lax", path="/")
+                    return resp
 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 

@@ -217,6 +217,47 @@ def test_token_exchange_sets_httponly_strict_cookie() -> None:
         assert bad_resp.status_code == 401
 
 
+def test_token_exchange_with_next_param() -> None:
+    """Verify GET /?t=<token>&next=/briefings redirects to /briefings."""
+    app = create_app(start_scheduler=False, manage_lock=False)
+    with TestClient(app) as client:
+        valid_token = app.state.session_token
+        resp = client.get(f"/?t={valid_token}&next=/briefings", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/briefings"
+        assert COOKIE_NAME in resp.cookies
+
+        # Disallow open external redirects
+        evil_resp = client.get(f"/?t={valid_token}&next=https://evil.com", follow_redirects=False)
+        assert evil_resp.status_code == 303
+        assert evil_resp.headers["location"] == "/"
+
+
+def test_root_index_bearer_auth() -> None:
+    """Verify GET / with Authorization: Bearer <valid_token> succeeds."""
+    app = create_app(start_scheduler=False, manage_lock=False)
+    with TestClient(app) as client:
+        valid_token = app.state.session_token
+        resp = client.get("/", headers={"Authorization": f"Bearer {valid_token}"})
+        assert resp.status_code == 200
+
+        bad_resp = client.get("/", headers={"Authorization": "Bearer bad_token"})
+        assert bad_resp.status_code == 401
+
+
+def test_root_index_desktop_shell_direct() -> None:
+    """Verify GET /?t=<token>&shell=desktop serves 200 directly without redirect and sets cookie."""
+    app = create_app(start_scheduler=False, manage_lock=False)
+    with TestClient(app) as client:
+        valid_token = app.state.session_token
+        resp = client.get(f"/?t={valid_token}&shell=desktop", follow_redirects=False)
+        assert resp.status_code == 200
+        assert COOKIE_NAME in resp.cookies
+        cookie_header = resp.headers.get("set-cookie", "")
+        assert "HttpOnly" in cookie_header
+        assert "samesite=lax" in cookie_header.lower()
+
+
 def test_security_headers_on_responses() -> None:
     """Verify Content-Security-Policy, X-Frame-Options, X-Content-Type-Options on all responses."""
     app = create_app(start_scheduler=False, manage_lock=False)
