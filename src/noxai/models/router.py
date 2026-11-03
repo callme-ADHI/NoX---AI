@@ -19,7 +19,6 @@ from noxai.models.base import (
 )
 from noxai.models.nvidia import NvidiaProvider
 from noxai.models.ollama import OllamaProvider
-from noxai.security.egress_filter import EgressFilter, record_egress_decision
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +31,8 @@ class ModelRouter:
         config: Settings,
         providers: dict[str, Provider] | None = None,
     ) -> None:
+        from noxai.security.egress_filter import EgressFilter
+
         self.config = config
         self.egress_filter = EgressFilter(config=self.config)
 
@@ -216,6 +217,8 @@ class ModelRouter:
         )
 
         try:
+            from noxai.security.egress_filter import record_egress_decision
+
             await record_egress_decision(
                 decision=egress_decision,
                 provider=provider.name,

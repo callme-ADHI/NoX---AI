@@ -540,6 +540,8 @@ class NvidiaProvider(Provider):
 
             if stream:
                 accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+                accumulated_content: list[str] = []
+                accumulated_reasoning: list[str] = []
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
@@ -558,11 +560,17 @@ class NvidiaProvider(Provider):
                         choice = choices[0]
                         delta = choice.get("delta", {})
                         delta_text = delta.get("content") or ""
+                        reasoning_text = delta.get("reasoning_content") or delta.get("reasoning") or ""
                         finish_reason = choice.get("finish_reason")
                         raw_tcs = delta.get("tool_calls")
 
-                        if (delta_text or raw_tcs) and ttft_sec is None:
+                        if (delta_text or reasoning_text or raw_tcs) and ttft_sec is None:
                             ttft_sec = time.perf_counter() - t0
+
+                        if delta_text:
+                            accumulated_content.append(delta_text)
+                        if reasoning_text:
+                            accumulated_reasoning.append(reasoning_text)
 
                         delta_tool_calls: list[ToolCall] = []
                         if raw_tcs and isinstance(raw_tcs, list):
@@ -604,6 +612,19 @@ class NvidiaProvider(Provider):
                             finish_reason=finish_reason,
                             usage=usage,
                         )
+
+                # Fallback: if model only produced reasoning tokens and zero content
+                # (e.g. hit finish_reason="length" while thinking), yield reasoning as answer
+                if not "".join(accumulated_content).strip() and accumulated_reasoning:
+                    fallback_text = "".join(accumulated_reasoning).strip()
+                    if fallback_text:
+                        yield ChatChunk(
+                            delta_text=fallback_text,
+                            delta_tool_calls=[],
+                            finish_reason="stop",
+                            usage=None,
+                        )
+
                 await resp.aclose()
             else:
                 data = resp.json()
@@ -616,6 +637,8 @@ class NvidiaProvider(Provider):
                     finish_reason = c.get("finish_reason")
                     msg = c.get("message", {})
                     delta_text = msg.get("content") or ""
+                    if not delta_text and (msg.get("reasoning_content") or msg.get("reasoning")):
+                        delta_text = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
                     raw_tcs = msg.get("tool_calls")
                     if raw_tcs and isinstance(raw_tcs, list):
                         for tc in raw_tcs:

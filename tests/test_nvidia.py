@@ -59,3 +59,121 @@ class TestNvidiaKeyGating:
         h = await provider.health()
         assert h.status == "degraded"
         assert h.details.get("enabled") is False
+
+
+class TestNvidiaReasoningModels:
+    async def test_streaming_reasoning_and_content(self) -> None:
+        """When streaming delta has reasoning_content then content, TTFT is recorded on first chunk and content is streamed."""
+        import httpx
+        from noxai.models.cloud_health import CloudHealth
+
+        chunks_to_send = [
+            b'data: {"id": "c1", "choices": [{"index": 0, "delta": {"role": "assistant", "reasoning_content": "Analyzing user greeting..."}, "finish_reason": null}]}\n\n',
+            b'data: {"id": "c1", "choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": null}]}\n\n',
+            b'data: {"id": "c1", "choices": [{"index": 0, "delta": {"content": " world!"}, "finish_reason": "stop"}], "usage": {"completion_tokens": 10}}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"".join(chunks_to_send))
+
+        transport = httpx.MockTransport(handler)
+        ch = CloudHealth(has_key=True)
+        provider = NvidiaProvider(
+            api_key="nvapi-test1234567890",
+            transport=transport,
+            cloud_health=ch,
+        )
+
+        texts = []
+        async for chunk in provider.chat(
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
+            messages=[Message(role="user", content="hi")],
+            stream=True,
+        ):
+            if chunk.text:
+                texts.append(chunk.text)
+
+        assert "".join(texts) == "Hello world!"
+        # Check cloud health recorded success and TTFT was captured
+        assert ch.state.value == "active"
+        assert ch.last_ttft is not None
+
+    async def test_streaming_reasoning_fallback_when_content_empty(self) -> None:
+        """When model hits token limit during reasoning with zero content, reasoning text is yielded as fallback."""
+        import httpx
+        from noxai.models.cloud_health import CloudHealth
+
+        chunks_to_send = [
+            b'data: {"id": "c2", "choices": [{"index": 0, "delta": {"role": "assistant", "reasoning_content": "Step 1: Calculate sum... "}, "finish_reason": null}]}\n\n',
+            b'data: {"id": "c2", "choices": [{"index": 0, "delta": {"reasoning_content": "Result is 42."}, "finish_reason": "length"}]}\n\n',
+            b"data: [DONE]\n\n",
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"".join(chunks_to_send))
+
+        transport = httpx.MockTransport(handler)
+        ch = CloudHealth(has_key=True)
+        provider = NvidiaProvider(
+            api_key="nvapi-test1234567890",
+            transport=transport,
+            cloud_health=ch,
+        )
+
+        texts = []
+        async for chunk in provider.chat(
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
+            messages=[Message(role="user", content="compute")],
+            stream=True,
+        ):
+            if chunk.text:
+                texts.append(chunk.text)
+
+        # Fallback emitted reasoning rather than empty void
+        full_text = "".join(texts)
+        assert "Result is 42." in full_text
+
+    async def test_non_streaming_reasoning_fallback(self) -> None:
+        """Non-streaming completions fall back to reasoning_content if content is None."""
+        import json
+        import httpx
+        from noxai.models.cloud_health import CloudHealth
+
+        body = {
+            "id": "c3",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "reasoning_content": "Calculated answer is 100.",
+                    },
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"completion_tokens": 50},
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=body)
+
+        transport = httpx.MockTransport(handler)
+        provider = NvidiaProvider(
+            api_key="nvapi-test1234567890",
+            transport=transport,
+            cloud_health=CloudHealth(has_key=True),
+        )
+
+        texts = []
+        async for chunk in provider.chat(
+            model="nvidia/nemotron-3.5-lightning-30b-a3b",
+            messages=[Message(role="user", content="compute")],
+            stream=False,
+        ):
+            if chunk.text:
+                texts.append(chunk.text)
+
+        assert "".join(texts) == "Calculated answer is 100."
+

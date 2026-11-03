@@ -573,10 +573,14 @@ async def orchestrate_chat_turn(
                     turn_chunks.append(chunk.text)
                     current_turn_so_far = "".join(turn_chunks)
                     # Suppress token streaming if it's a tool call XML tag
-                    if not any(
+                    is_tool_xml = any(
                         tag in current_turn_so_far
                         for tag in ("<tool_call", "<function=", "<parameter=")
-                    ) and not current_turn_so_far.lstrip().startswith("<"):
+                    ) or (
+                        current_turn_so_far.lstrip().startswith("<")
+                        and not current_turn_so_far.lstrip().startswith("<think")
+                    )
+                    if not is_tool_xml:
                         if on_token:
                             on_token(chunk.text)
                         await bus.publish(
@@ -785,9 +789,21 @@ async def orchestrate_chat_turn(
                 chunks = local_chunks
             except Exception as fallback_exc:
                 log.error("Fallback chat failed: %s", fallback_exc)
-                chunks.append(
-                    f"I encountered an error while processing your request: {fallback_exc}"
+                err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                chunks.append(err_msg)
+                if on_token:
+                    on_token(err_msg)
+                await bus.publish(
+                    make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
                 )
+        else:
+            err_msg = f"I encountered an error while processing your request: {exc}"
+            chunks.append(err_msg)
+            if on_token:
+                on_token(err_msg)
+            await bus.publish(
+                make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
+            )
 
     t_now = time.perf_counter()
     t_ttft = (first_token_time - t_stream_0) * 1000.0 if first_token_time else 0.0
@@ -798,6 +814,8 @@ async def orchestrate_chat_turn(
     final_text = _strip_text_tool_calls("".join(chunks).strip())
     if not final_text and last_tool_res_text:
         final_text = f"✅ {last_tool_res_text}"
+    elif not final_text:
+        final_text = "I processed your request, but no response was generated. Please try again."
     from noxai.agent.loop import extract_citations
 
     for cite_url in extract_citations(final_text):

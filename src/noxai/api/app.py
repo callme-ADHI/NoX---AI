@@ -308,9 +308,11 @@ def create_app(
                 cfg.gate.mode,
             )
 
-        # 11. Generate session token
-        log.info("11. Generating daemon session token...")
-        token = generate_session_token()
+        # 11. Initialize session token
+        log.info("11. Initializing daemon session token...")
+        token = load_session_token()
+        if not token:
+            token = generate_session_token()
         app.state.session_token = token
         log.info("Session token initialized: %s...", token[:8])
 
