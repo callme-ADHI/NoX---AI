@@ -7,6 +7,7 @@
     "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -21,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http://127.0.0.1:7777 ws://127.0.0.1:7777; img-src 'self' http://127.0.0.1:7777 data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' http://127.0.0.1:7777;"
+      "csp": "default-src 'self' http://127.0.0.1:7777 ws://127.0.0.1:7777; connect-src 'self' http://127.0.0.1:7777 ws://127.0.0.1:7777; img-src 'self' http://127.0.0.1:7777 data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' http://127.0.0.1:7777;"
     }
   },
   "bundle": {
