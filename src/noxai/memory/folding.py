@@ -214,6 +214,7 @@ class RollingSummaryFolder:
         )
 
         await save_summary(db, summary_obj)
+        await db.commit()
         log.info(
             "Created conversation fold %d for %s (reanchor=%s, tokens=%d, valid_citations=%d)",
             next_fold_index,

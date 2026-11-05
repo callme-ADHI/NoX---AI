@@ -118,6 +118,7 @@ async def process_conversation_turn(
 
     if new_chunks:
         await save_msg_chunks(db, new_chunks)
+        await db.commit()
         results["new_chunks"] = len(new_chunks)
 
     # 2. Extract facts from latest user turn
@@ -139,6 +140,7 @@ async def process_conversation_turn(
                 assistant_message="",
                 router=router,
             )
+            await db.commit()
             results["facts_extracted"] = len(ex_res.facts_created) if ex_res else 0
         except Exception as exc:
             log.debug("Fact extraction failed: %s", exc)
@@ -160,12 +162,14 @@ async def process_conversation_turn(
             state.open_questions = [user_query[:100], *state.open_questions[:4]]
 
         await save_conv_state(db, state)
+        await db.commit()
         results["state_updated"] = True
 
     # 4. Check and perform rolling fold (L3)
     folder = RollingSummaryFolder()
     if await folder.should_fold(db, conversation_id):
         summary = await folder.fold(db, conversation_id, router=router)
+        await db.commit()
         results["fold_created"] = bool(summary)
 
     await db.commit()

@@ -28,9 +28,14 @@ async function request<T>(
   // Attach session token if available
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('t') || params.get('token') || sessionStorage.getItem('nox_token');
+    const token =
+      params.get('t') ||
+      params.get('token') ||
+      sessionStorage.getItem('nox_token') ||
+      localStorage.getItem('nox_token');
     if (token) {
       sessionStorage.setItem('nox_token', token);
+      localStorage.setItem('nox_token', token);
       if (!headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`);
       }

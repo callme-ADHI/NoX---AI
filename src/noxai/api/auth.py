@@ -144,6 +144,9 @@ def verify_websocket_auth(websocket: WebSocket) -> bool:
             f"https://{host}",
             "http://localhost:7777",
             "http://127.0.0.1:7777",
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
         ]
         if not any(origin.startswith(a) for a in allowed):
             log.warning("WebSocket rejected invalid origin: %s", origin)
@@ -158,5 +161,24 @@ def verify_websocket_auth(websocket: WebSocket) -> bool:
     token_param = websocket.query_params.get("token") or websocket.query_params.get("t")
     if token_param and hmac.compare_digest(token_param, valid_token):
         return True
+
+    # Check Authorization header (Bearer <token>)
+    auth_header = websocket.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer_token = auth_header[7:].strip()
+        if hmac.compare_digest(bearer_token, valid_token):
+            return True
+
+    # Check X-Nox-Token header
+    custom_header = websocket.headers.get("x-nox-token")
+    if custom_header and hmac.compare_digest(custom_header, valid_token):
+        return True
+
+    # Check Sec-WebSocket-Protocol
+    subprotocols = websocket.headers.get("sec-websocket-protocol", "")
+    for part in subprotocols.split(","):
+        p = part.strip()
+        if p and hmac.compare_digest(p, valid_token):
+            return True
 
     return False

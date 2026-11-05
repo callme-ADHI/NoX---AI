@@ -247,125 +247,666 @@ async def orchestrate_chat_turn(
     else:
         active_db = db
 
-    # 1. Reflex Router Intent Analysis (<50ms zero-LLM) (§1.4, §G3.1)
-    t_route_0 = time.perf_counter()
-    intent_res = analyze_intent(message)
-    # Mask secrets first so secret tokens are redacted rather than misclassified as sensitive topics
-    masked_message = mask_secrets(message)
-    is_sens, _sens_reason = is_sensitive_prompt(masked_message)
-    has_sensitive_topic = is_sens or any(
-        topic in intent_res.reason
-        for topic in ("health_medical", "financial_banking", "auth_credentials")
-    )
-    t_route = (time.perf_counter() - t_route_0) * 1000.0
-
-    # 2. Content labeling at creation (§G3.2)
-    # The owner's message is CHAT (or LOCAL_ONLY if Private mode is active)
-    user_data_class = DataClass.LOCAL_ONLY if is_private_mode else DataClass.CHAT
-    user_taint = TaintFlag.PRIVATE if is_private_mode else TaintFlag.NONE
-    user_content = Content(text=message, data_class=user_data_class, taint=user_taint)
-    user_msg = Message(role="user", content=user_content)
-
-    # Publish lifecycle start events
-    await bus.publish(
-        make_event(
-            "run_started",
-            {
-                "run_id": actual_run_id,
-                "conversation_id": actual_conv_id,
-                "message": message,
-                "allow_cloud": allow_cloud,
-                "is_private_mode": is_private_mode,
-            },
-            run_id=actual_run_id,
-        ),
-        db=active_db,
-    )
-    await bus.publish(
-        make_event("intent_detected", intent_res.to_dict(), run_id=actual_run_id),
-        db=active_db,
-    )
-
-    async def _safe_db_write(write_fn: Callable[[Any], Any]) -> None:
-        try:
-            await write_fn(active_db)
-            await active_db.commit()
-        except Exception as exc:
-            log.warning("Database write failed: %s", exc)
-
-    current_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
-
-    async def _write_user_msg(conn: Any) -> None:
-        await execute(
-            conn,
-            """
-            INSERT INTO conversations (id, title, created_at, updated_at)
-            VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-                          strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-            ON CONFLICT(id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-            """,
-            (actual_conv_id, message[:40]),
+    try:
+        # 1. Reflex Router Intent Analysis (<50ms zero-LLM) (§1.4, §G3.1)
+        t_route_0 = time.perf_counter()
+        intent_res = analyze_intent(message)
+        # Mask secrets first so secret tokens are redacted rather than misclassified as sensitive topics
+        masked_message = mask_secrets(message)
+        is_sens, _sens_reason = is_sensitive_prompt(masked_message)
+        has_sensitive_topic = is_sens or any(
+            topic in intent_res.reason
+            for topic in ("health_medical", "financial_banking", "auth_credentials")
         )
-        await execute(
-            conn,
-            """
-            INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-            VALUES (?, ?, 'user', ?, ?)
-            """,
-            (current_msg_id, actual_conv_id, message, user_taint.value),
-        )
-
-    await _safe_db_write(_write_user_msg)
-
-    # 2b. Check complexity gate / `/deep` override for deep planning DAG (§6.4)
-    if message.strip().startswith("/deep"):
-        from noxai.agent.executor import DAGExecutor
-        clean_goal = message.strip()[5:].strip()
-        executor = DAGExecutor(
-            router=rtr,
-            registry=reg,
-            config=cfg,
-            event_bus=bus,
-        )
-        exec_res = await executor.execute_plan(
-            goal=clean_goal,
-            conversation_id=actual_conv_id,
-            allow_cloud=allow_cloud,
+        t_route = (time.perf_counter() - t_route_0) * 1000.0
+    
+        # 2. Content labeling at creation (§G3.2)
+        # The owner's message is CHAT (or LOCAL_ONLY if Private mode is active)
+        user_data_class = DataClass.LOCAL_ONLY if is_private_mode else DataClass.CHAT
+        user_taint = TaintFlag.PRIVATE if is_private_mode else TaintFlag.NONE
+        user_content = Content(text=message, data_class=user_data_class, taint=user_taint)
+        user_msg = Message(role="user", content=user_content)
+    
+        # Publish lifecycle start events
+        await bus.publish(
+            make_event(
+                "run_started",
+                {
+                    "run_id": actual_run_id,
+                    "conversation_id": actual_conv_id,
+                    "message": message,
+                    "allow_cloud": allow_cloud,
+                    "is_private_mode": is_private_mode,
+                },
+                run_id=actual_run_id,
+            ),
             db=active_db,
-            run_id=actual_run_id,
         )
-        final_text = exec_res.final_text or "Task execution completed."
-
-        async def _write_assistant_deep(conn: Any) -> None:
+        await bus.publish(
+            make_event("intent_detected", intent_res.to_dict(), run_id=actual_run_id),
+            db=active_db,
+        )
+    
+        async def _safe_db_write(write_fn: Callable[[Any], Any]) -> None:
+            try:
+                await write_fn(active_db)
+                await active_db.commit()
+            except Exception as exc:
+                log.warning("Database write failed: %s", exc)
+    
+        current_msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+    
+        async def _write_user_msg(conn: Any) -> None:
+            await execute(
+                conn,
+                """
+                INSERT INTO conversations (id, title, created_at, updated_at)
+                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                              strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                ON CONFLICT(id) DO UPDATE SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                """,
+                (actual_conv_id, message[:40]),
+            )
             await execute(
                 conn,
                 """
                 INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'assistant', ?, ?)
+                VALUES (?, ?, 'user', ?, ?)
                 """,
-                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text, 0),
+                (current_msg_id, actual_conv_id, message, user_taint.value),
+            )
+    
+        await _safe_db_write(_write_user_msg)
+    
+        # 2b. Check complexity gate / `/deep` override for deep planning DAG (§6.4)
+        if message.strip().startswith("/deep"):
+            from noxai.agent.executor import DAGExecutor
+            clean_goal = message.strip()[5:].strip()
+            executor = DAGExecutor(
+                router=rtr,
+                registry=reg,
+                config=cfg,
+                event_bus=bus,
+            )
+            exec_res = await executor.execute_plan(
+                goal=clean_goal,
+                conversation_id=actual_conv_id,
+                allow_cloud=allow_cloud,
+                db=active_db,
+                run_id=actual_run_id,
+            )
+            final_text = exec_res.final_text or "Task execution completed."
+    
+            async def _write_assistant_deep(conn: Any) -> None:
+                await execute(
+                    conn,
+                    """
+                    INSERT INTO messages (id, conversation_id, role, content, taint_flags)
+                    VALUES (?, ?, 'assistant', ?, ?)
+                    """,
+                    (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text, 0),
+                )
+                await execute(
+                    conn,
+                    "UPDATE conversations SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+                    (actual_conv_id,),
+                )
+    
+            await _safe_db_write(_write_assistant_deep)
+    
+            if on_token:
+                on_token(final_text)
+    
+            await bus.publish(
+                make_event(
+                    "message_done",
+                    {
+                        "text": final_text,
+                        "lane": "deep",
+                        "model_name": "planner-dag",
+                        "is_cloud": allow_cloud,
+                        "latency_ms": int((time.perf_counter() - t_route_0) * 1000.0),
+                        "fallback_reason": None,
+                    },
+                    run_id=actual_run_id,
+                ),
+                db=active_db,
+            )
+            await bus.publish(
+                make_event("run_done", {"status": "done"}, run_id=actual_run_id),
+                db=active_db,
+            )
+    
+    
+            return ChatTurnResult(
+                run_id=actual_run_id,
+                conversation_id=actual_conv_id,
+                text=final_text,
+                model_name="planner-dag",
+                provider_name="dag",
+                is_cloud=allow_cloud,
+                duration_seconds=(time.perf_counter() - t_route_0),
+            )
+    
+        # 3. CloudHealth check and engine determination (§G3.3, §G3.4)
+        nvidia_provider = getattr(rtr, "providers", {}).get("nvidia")
+        ch = getattr(nvidia_provider, "cloud_health", None) or get_cloud_health()
+        if ch.secrets_path:
+            ch.check_secrets_file()
+    
+        has_nvidia_key = bool(
+            getattr(nvidia_provider, "api_key", None)
+            or (cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
+            or ch._current_key
+        )
+    
+        target_role = "front"
+        fallback_reason: str | None = None
+    
+        if not allow_cloud:
+            target_role = "resident"
+            fallback_reason = "LOCAL_LANE"
+        elif is_private_mode:
+            target_role = "resident"
+            fallback_reason = "PRIVATE_MODE"
+        elif has_sensitive_topic:
+            target_role = "resident"
+            fallback_reason = "SENSITIVE"
+        elif not has_nvidia_key or ch.state == CloudHealthState.NO_KEY:
+            target_role = "resident"
+            fallback_reason = "NO_KEY"
+        elif ch.state == CloudHealthState.INVALID_KEY:
+            target_role = "resident"
+            fallback_reason = "INVALID_KEY"
+        elif ch.state == CloudHealthState.RATE_LIMITED:
+            target_role = "resident"
+            fallback_reason = "RATE_LIMITED"
+        elif ch.state == CloudHealthState.OFFLINE:
+            target_role = "resident"
+            fallback_reason = "OFFLINE"
+        elif ch.state == CloudHealthState.DEGRADED:
+            if not ch.circuit_breaker.can_attempt():
+                target_role = "resident"
+                fallback_reason = "DEGRADED"
+            else:
+                target_role = "front"
+        elif not ch.is_active():
+            target_role = "resident"
+            fallback_reason = "DEGRADED"
+    
+        # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
+        t_prompt_0 = time.perf_counter()
+        all_specs = tools if tools is not None else reg.get_specs()
+        front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
+    
+        from noxai.memory.context import build_context
+    
+        if active_db is not None:
+            ctx_front = await build_context(
+                conversation_id=actual_conv_id,
+                current_user_message=user_msg,
+                db=active_db,
+                router=rtr,
+                allow_cloud=True,
+                base_system_prompt=_build_cloud_system_prompt(),
+                exclude_message_id=current_msg_id,
+            )
+            ctx_local = await build_context(
+                conversation_id=actual_conv_id,
+                current_user_message=user_msg,
+                db=active_db,
+                router=rtr,
+                allow_cloud=False,
+                base_system_prompt=_build_local_system_prompt(),
+                exclude_message_id=current_msg_id,
+            )
+            cloud_turn_messages = ctx_front.messages
+            local_turn_messages = ctx_local.messages
+        else:
+            cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
+            local_turn_messages = [_build_local_system_prompt(), user_msg]
+    
+        if target_role == "front":
+            selected_tools = front_desk_specs
+    
+            # Evaluate Egress Filter (§1.2, §G3.2)
+            try:
+                cloud_provider, cloud_model_name = rtr.resolve_role("front")
+            except Exception:
+                cloud_provider, cloud_model_name = None, "nvidia/nemotron"
+    
+            provider_name = cloud_provider.name if cloud_provider else "nvidia"
+            egress_decision = rtr.egress_filter.evaluate(
+                cloud_turn_messages,
+                provider_name=provider_name,
+                model=cloud_model_name,
+                is_local=False,
+            )
+    
+            try:
+                await record_egress_decision(
+                    decision=egress_decision,
+                    provider=provider_name,
+                    model=cloud_model_name,
+                    db=active_db,
+                )
+            except Exception as exc:
+                log.debug("record_egress_decision error: %s", exc)
+    
+            if not egress_decision.allowed:
+                # Privacy policy v2 blocked cloud transmission
+                target_role = "resident"
+                fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
+                messages_to_send = local_turn_messages
+                selected_tools = all_specs
+            else:
+                messages_to_send = (
+                    egress_decision.sanitized_messages
+                    if egress_decision.sanitized_messages is not None
+                    else cloud_turn_messages
+                )
+        else:
+            # Local execution (resident model unless multi-step tools require brain)
+            messages_to_send = local_turn_messages
+            selected_tools = all_specs
+            if selected_tools:
+                target_role = "brain"
+    
+        t_prompt = (time.perf_counter() - t_prompt_0) * 1000.0
+    
+        # 5. Execute Chat Generation with Immediate Streaming (§G3.5, §G3.6)
+        model_used_record: dict[str, Any] = {}
+    
+        def _on_model_used_internal(info: dict[str, Any]) -> None:
+            nonlocal model_used_record
+            model_used_record = dict(info)
+            if fallback_reason and "fallback_reason" not in model_used_record:
+                model_used_record["fallback_reason"] = fallback_reason
+                model_used_record["fallback_from"] = "front"
+            if on_model_used:
+                on_model_used(model_used_record)
+            task = asyncio.create_task(
+                bus.publish(
+                    make_event("model_used", model_used_record, run_id=actual_run_id),
+                    db=active_db,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+    
+        chunks: list[str] = []
+        first_token_time: float | None = None
+        t_stream_0 = time.perf_counter()
+        citations_collected: list[str] = []
+    
+        try:
+            max_tool_steps = 3
+            step = 0
+            executed_tool_signatures: set[str] = set()
+            last_tool_res_text: str = ""
+            force_synthesis = False
+    
+            while step <= max_tool_steps:
+                turn_chunks: list[str] = []
+                turn_tool_calls: list[ToolCall] = []
+    
+                # If force_synthesis or reached max_tool_steps, don't pass tools to force text response
+                tools_for_step = (
+                    selected_tools
+                    if (selected_tools and step < max_tool_steps and not force_synthesis)
+                    else None
+                )
+    
+                async for chunk in rtr.chat(
+                    role=target_role,
+                    messages=messages_to_send,
+                    tools=tools_for_step,
+                    stream=True,
+                    max_tokens=max_tokens,
+                    on_notice=on_notice,
+                    on_model_used=_on_model_used_internal,
+                ):
+                    if chunk.text:
+                        if first_token_time is None:
+                            first_token_time = time.perf_counter()
+                        turn_chunks.append(chunk.text)
+                        current_turn_so_far = "".join(turn_chunks)
+                        # Suppress token streaming if it's a tool call XML tag
+                        is_tool_xml = any(
+                            tag in current_turn_so_far
+                            for tag in ("<tool_call", "<function=", "<parameter=")
+                        ) or (
+                            current_turn_so_far.lstrip().startswith("<")
+                            and not current_turn_so_far.lstrip().startswith("<think")
+                        )
+                        if not is_tool_xml:
+                            if on_token:
+                                on_token(chunk.text)
+                            await bus.publish(
+                                make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                            )
+    
+                    if chunk.tool_calls:
+                        for tc in chunk.tool_calls:
+                            existing = next(
+                                (
+                                    t
+                                    for t in turn_tool_calls
+                                    if (t.id and t.id == tc.id) or (t.name and t.name == tc.name)
+                                ),
+                                None,
+                            )
+                            if existing:
+                                if tc.id:
+                                    existing.id = tc.id
+                                if tc.name:
+                                    existing.name = tc.name
+                                if tc.arguments and tc.arguments != {}:
+                                    existing.arguments = tc.arguments
+                            else:
+                                turn_tool_calls.append(tc)
+    
+                chunks = turn_chunks
+    
+                # If no tool calls were made in delta, check for XML-style tool calls in text
+                if not turn_tool_calls:
+                    text_tcs = _parse_text_tool_calls("".join(turn_chunks))
+                    if text_tcs:
+                        turn_tool_calls.extend(text_tcs)
+                    else:
+                        break
+    
+                # Deduplication: check if any tool call was already executed in this turn
+                duplicate_call = False
+                for c in turn_tool_calls:
+                    c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
+                    if c_sig in executed_tool_signatures:
+                        duplicate_call = True
+                        break
+    
+                if duplicate_call:
+                    # Model repeated a tool call already executed; break loop to synthesize
+                    break
+    
+                for c in turn_tool_calls:
+                    c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
+                    executed_tool_signatures.add(c_sig)
+    
+                # Check if this turn executed an action tool; if so, next turn must be text synthesis
+                action_tools = {
+                    "reminder_create",
+                    "reminder_snooze",
+                    "reminder_cancel",
+                    "dispatch_reminder",
+                    "dispatch_job_edit",
+                    "dispatch_task",
+                    "save_fact",
+                    "job_create",
+                    "job_update",
+                    "job_delete",
+                }
+                if any(c.name in action_tools for c in turn_tool_calls):
+                    force_synthesis = True
+    
+                step += 1
+    
+                for call in turn_tool_calls:
+                    tool_item = reg.get(call.name)
+                    tier_val = getattr(tool_item, "tier", "read") if tool_item else "read"
+                    await bus.publish(
+                        make_event(
+                            "tool_call",
+                            {
+                                "id": call.id,
+                                "name": call.name,
+                                "arguments": call.arguments,
+                                "tier": tier_val,
+                                "tool": call.name,
+                                "args": call.arguments,
+                                "call_id": call.id,
+                            },
+                            run_id=actual_run_id,
+                        ),
+                        db=active_db,
+                    )
+    
+                # Append assistant message with tool calls to history
+                assistant_text = _strip_text_tool_calls("".join(turn_chunks).strip())
+                assistant_turn_msg = Message(
+                    role="assistant",
+                    content=Content.chat(assistant_text),
+                    tool_calls=turn_tool_calls,
+                )
+                messages_to_send.append(assistant_turn_msg)
+    
+                from noxai.tools.registry import ToolContext
+    
+                def _handle_tool_emit(ev_data: dict[str, Any]) -> None:
+                    ev_type = ev_data.get("type", "tool_event")
+                    emit_task = asyncio.create_task(
+                        bus.publish(
+                            make_event(ev_type, ev_data, run_id=actual_run_id),
+                            db=active_db,
+                        )
+                    )
+                    _background_tasks.add(emit_task)
+                    emit_task.add_done_callback(_background_tasks.discard)
+    
+                tool_ctx = ToolContext(
+                    run_id=actual_run_id,
+                    config=cfg,
+                    allow_cloud=allow_cloud,
+                    db=active_db,
+                    router=rtr,
+                    poll_approval=True,
+                    approval_timeout=cfg.safety.approval_timeout_seconds if cfg else 300.0,
+                    emit=_handle_tool_emit,
+                )
+    
+                for call in turn_tool_calls:
+                    t0_call = time.perf_counter()
+                    tool_def = reg.get(call.name)
+                    tool_res_text = ""
+                    if tool_def is not None:
+                        try:
+                            tool_res = await reg.execute(call.name, call.arguments, tool_ctx)
+                            tool_res_text = str(
+                                tool_res.output if tool_res.ok else f"Error: {tool_res.output}"
+                            )
+                            last_tool_res_text = tool_res_text
+                            if call.name in ("web_search", "fetch_page"):
+                                import re
+    
+                                urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
+                                citations_collected.extend(urls)
+                            t_call_dur = int((time.perf_counter() - t0_call) * 1000)
+                            await bus.publish(
+                                make_event(
+                                    "tool_result",
+                                    {
+                                        "id": call.id,
+                                        "name": call.name,
+                                        "tool": call.name,
+                                        "ok": tool_res.ok,
+                                        "summary": tool_res.summary,
+                                        "result_summary": tool_res.summary,
+                                        "output": tool_res_text[:500],
+                                        "duration_ms": t_call_dur,
+                                    },
+                                    run_id=actual_run_id,
+                                ),
+                                db=active_db,
+                            )
+                        except Exception as t_err:
+                            log.warning("Tool %s execution failed: %s", call.name, t_err)
+                            tool_res_text = f"Tool execution failed: {t_err}"
+                            last_tool_res_text = tool_res_text
+                    else:
+                        tool_res_text = f"Tool {call.name} not found in registry."
+                        last_tool_res_text = tool_res_text
+    
+                    is_untrusted = tool_def.untrusted_output if tool_def else False
+                    tool_content = (
+                        Content.untrusted(tool_res_text, source=call.name)
+                        if is_untrusted
+                        else Content.public(tool_res_text, source=call.name)
+                    )
+    
+                    messages_to_send.append(
+                        Message(
+                            role="tool",
+                            content=tool_content,
+                            tool_call_id=call.id,
+                            name=call.name,
+                        )
+                    )
+    
+        except Exception as exc:
+            log.exception("Execution error during chat turn: %s", exc)
+            # Handle unexpected failure with safe local fallback if not already fallback
+            if target_role == "front":
+                fallback_reason = "DEGRADED"
+                local_role = "resident"
+                local_chunks: list[str] = []
+                try:
+                    async for chunk in rtr.chat(
+                        role=local_role,
+                        messages=[_build_local_system_prompt(), user_msg],
+                        stream=True,
+                        on_notice=on_notice,
+                        on_model_used=_on_model_used_internal,
+                    ):
+                        if chunk.text:
+                            if first_token_time is None:
+                                first_token_time = time.perf_counter()
+                            local_chunks.append(chunk.text)
+                            if on_token:
+                                on_token(chunk.text)
+                            await bus.publish(
+                                make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                            )
+                    chunks = local_chunks
+                except Exception as fallback_exc:
+                    log.error("Fallback chat failed: %s", fallback_exc)
+                    err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                    chunks.append(err_msg)
+                    if on_token:
+                        on_token(err_msg)
+                    await bus.publish(
+                        make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
+                    )
+            else:
+                err_msg = f"I encountered an error while processing your request: {exc}"
+                chunks.append(err_msg)
+                if on_token:
+                    on_token(err_msg)
+                await bus.publish(
+                    make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
+                )
+    
+        t_now = time.perf_counter()
+        t_ttft = (first_token_time - t_stream_0) * 1000.0 if first_token_time else 0.0
+        t_generation = (t_now - (first_token_time or t_stream_0)) * 1000.0
+        total_elapsed = t_now - start_time
+        total_elapsed_ms = total_elapsed * 1000.0
+    
+        final_text = _strip_text_tool_calls("".join(chunks).strip())
+        if not final_text and last_tool_res_text:
+            final_text = f"✅ {last_tool_res_text}"
+        elif not final_text:
+            final_text = "I processed your request, but no response was generated. Please try again."
+        from noxai.agent.loop import extract_citations
+    
+        for cite_url in extract_citations(final_text):
+            if cite_url not in citations_collected:
+                citations_collected.append(cite_url)
+    
+        # Determine effective model and provider info
+        actual_model_name = str(model_used_record.get("model", "unknown"))
+        actual_provider_name = str(model_used_record.get("provider", "unknown"))
+        actual_is_local = bool(model_used_record.get("is_local", target_role in ("resident", "brain")))
+        actual_fallback_reason = model_used_record.get("fallback_reason") or fallback_reason
+    
+        prompt_tokens_est = sum(len(m.get_text()) for m in messages_to_send) // 4
+    
+        trace_data: dict[str, Any] = {
+            "route": round(t_route, 2),
+            "prompt_build": round(t_prompt, 2),
+            "provider_connect": round(t_ttft, 2),
+            "time_to_first_token": round(t_ttft, 2),
+            "generation": round(t_generation, 2),
+            "total": round(total_elapsed_ms, 2),
+            "prompt_tokens_est": prompt_tokens_est,
+            "model_used": actual_model_name,
+            "provider": actual_provider_name,
+            "role": model_used_record.get("role", target_role),
+            "intent": intent_res.intent.value,
+            "fallback_reason": actual_fallback_reason,
+        }
+    
+        lane_info = "cloud" if not actual_is_local else "local_resident"
+    
+        # Persist assistant response to DB
+        async def _write_assistant_msg(conn: Any) -> None:
+            await execute(
+                conn,
+                """
+                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
+                VALUES (?, ?, 'assistant', ?, 0)
+                """,
+                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
             )
             await execute(
                 conn,
-                "UPDATE conversations SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
-                (actual_conv_id,),
+                """
+                INSERT INTO runs (
+                    id, kind, conversation_id, status, allow_cloud, started_at, trace_json
+                )
+                VALUES (?, 'chat', ?, 'done', ?, datetime('now'), ?)
+                ON CONFLICT(id) DO UPDATE SET status = 'done', trace_json = ?
+                """,
+                (
+                    actual_run_id,
+                    actual_conv_id,
+                    0 if actual_is_local else 1,
+                    json.dumps(trace_data),
+                    json.dumps(trace_data),
+                ),
             )
-
-        await _safe_db_write(_write_assistant_deep)
-
-        if on_token:
-            on_token(final_text)
-
+    
+        await _safe_db_write(_write_assistant_msg)
+    
+        # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
+        if actual_conv_id:
+            async def _bg_cms() -> None:
+                try:
+                    from noxai.db import get_db
+                    from noxai.memory.post_process import process_conversation_turn
+                    async with get_db() as bg_db:
+                        await process_conversation_turn(actual_conv_id, bg_db, router=rtr)
+                except Exception as exc:
+                    log.debug("Background CMS post-process error: %s", exc)
+    
+            t_bg = asyncio.create_task(_bg_cms())
+            _background_tasks.add(t_bg)
+            t_bg.add_done_callback(_background_tasks.discard)
+    
+        # Publish completion events
+        await bus.publish(
+            make_event("trace", trace_data, run_id=actual_run_id),
+            db=active_db,
+        )
         await bus.publish(
             make_event(
                 "message_done",
                 {
                     "text": final_text,
-                    "lane": "deep",
-                    "model_name": "planner-dag",
-                    "is_cloud": allow_cloud,
-                    "latency_ms": int((time.perf_counter() - t_route_0) * 1000.0),
-                    "fallback_reason": None,
+                    "lane": lane_info,
+                    "model_name": actual_model_name,
+                    "is_cloud": not actual_is_local,
+                    "latency_ms": int(total_elapsed_ms),
+                    "fallback_reason": actual_fallback_reason,
+                    "trace": trace_data,
                 },
                 run_id=actual_run_id,
             ),
@@ -375,562 +916,21 @@ async def orchestrate_chat_turn(
             make_event("run_done", {"status": "done"}, run_id=actual_run_id),
             db=active_db,
         )
-
-        if db_ctx is not None:
-            await db_ctx.__aexit__(None, None, None)
-
+    
+    
         return ChatTurnResult(
             run_id=actual_run_id,
             conversation_id=actual_conv_id,
             text=final_text,
-            model_name="planner-dag",
-            provider_name="dag",
-            is_cloud=allow_cloud,
-            duration_seconds=(time.perf_counter() - t_route_0),
+            model_name=actual_model_name,
+            provider_name=actual_provider_name,
+            is_cloud=not actual_is_local,
+            fallback_reason=actual_fallback_reason,
+            intent=intent_res,
+            trace=trace_data,
+            citations=citations_collected,
+            duration_seconds=total_elapsed,
         )
-
-    # 3. CloudHealth check and engine determination (§G3.3, §G3.4)
-    nvidia_provider = getattr(rtr, "providers", {}).get("nvidia")
-    ch = getattr(nvidia_provider, "cloud_health", None) or get_cloud_health()
-    if ch.secrets_path:
-        ch.check_secrets_file()
-
-    has_nvidia_key = bool(
-        getattr(nvidia_provider, "api_key", None)
-        or (cfg.nvidia_api_key and cfg.nvidia_api_key.get_secret_value())
-        or ch._current_key
-    )
-
-    target_role = "front"
-    fallback_reason: str | None = None
-
-    if not allow_cloud:
-        target_role = "resident"
-        fallback_reason = "LOCAL_LANE"
-    elif is_private_mode:
-        target_role = "resident"
-        fallback_reason = "PRIVATE_MODE"
-    elif has_sensitive_topic:
-        target_role = "resident"
-        fallback_reason = "SENSITIVE"
-    elif not has_nvidia_key or ch.state == CloudHealthState.NO_KEY:
-        target_role = "resident"
-        fallback_reason = "NO_KEY"
-    elif ch.state == CloudHealthState.INVALID_KEY:
-        target_role = "resident"
-        fallback_reason = "INVALID_KEY"
-    elif ch.state == CloudHealthState.RATE_LIMITED:
-        target_role = "resident"
-        fallback_reason = "RATE_LIMITED"
-    elif ch.state == CloudHealthState.OFFLINE:
-        target_role = "resident"
-        fallback_reason = "OFFLINE"
-    elif ch.state == CloudHealthState.DEGRADED:
-        if not ch.circuit_breaker.can_attempt():
-            target_role = "resident"
-            fallback_reason = "DEGRADED"
-        else:
-            target_role = "front"
-    elif not ch.is_active():
-        target_role = "resident"
-        fallback_reason = "DEGRADED"
-
-    # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
-    t_prompt_0 = time.perf_counter()
-    all_specs = tools if tools is not None else reg.get_specs()
-    front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
-
-    from noxai.memory.context import build_context
-
-    if active_db is not None:
-        ctx_front = await build_context(
-            conversation_id=actual_conv_id,
-            current_user_message=user_msg,
-            db=active_db,
-            router=rtr,
-            allow_cloud=True,
-            base_system_prompt=_build_cloud_system_prompt(),
-            exclude_message_id=current_msg_id,
-        )
-        ctx_local = await build_context(
-            conversation_id=actual_conv_id,
-            current_user_message=user_msg,
-            db=active_db,
-            router=rtr,
-            allow_cloud=False,
-            base_system_prompt=_build_local_system_prompt(),
-            exclude_message_id=current_msg_id,
-        )
-        cloud_turn_messages = ctx_front.messages
-        local_turn_messages = ctx_local.messages
-    else:
-        cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
-        local_turn_messages = [_build_local_system_prompt(), user_msg]
-
-    if target_role == "front":
-        selected_tools = front_desk_specs
-
-        # Evaluate Egress Filter (§1.2, §G3.2)
-        try:
-            cloud_provider, cloud_model_name = rtr.resolve_role("front")
-        except Exception:
-            cloud_provider, cloud_model_name = None, "nvidia/nemotron"
-
-        provider_name = cloud_provider.name if cloud_provider else "nvidia"
-        egress_decision = rtr.egress_filter.evaluate(
-            cloud_turn_messages,
-            provider_name=provider_name,
-            model=cloud_model_name,
-            is_local=False,
-        )
-
-        try:
-            await record_egress_decision(
-                decision=egress_decision,
-                provider=provider_name,
-                model=cloud_model_name,
-                db=active_db,
-            )
-        except Exception as exc:
-            log.debug("record_egress_decision error: %s", exc)
-
-        if not egress_decision.allowed:
-            # Privacy policy v2 blocked cloud transmission
-            target_role = "resident"
-            fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
-            messages_to_send = local_turn_messages
-            selected_tools = all_specs
-        else:
-            messages_to_send = (
-                egress_decision.sanitized_messages
-                if egress_decision.sanitized_messages is not None
-                else cloud_turn_messages
-            )
-    else:
-        # Local execution (resident model unless multi-step tools require brain)
-        messages_to_send = local_turn_messages
-        selected_tools = all_specs
-        if selected_tools:
-            target_role = "brain"
-
-    t_prompt = (time.perf_counter() - t_prompt_0) * 1000.0
-
-    # 5. Execute Chat Generation with Immediate Streaming (§G3.5, §G3.6)
-    model_used_record: dict[str, Any] = {}
-
-    def _on_model_used_internal(info: dict[str, Any]) -> None:
-        nonlocal model_used_record
-        model_used_record = dict(info)
-        if fallback_reason and "fallback_reason" not in model_used_record:
-            model_used_record["fallback_reason"] = fallback_reason
-            model_used_record["fallback_from"] = "front"
-        if on_model_used:
-            on_model_used(model_used_record)
-        task = asyncio.create_task(
-            bus.publish(
-                make_event("model_used", model_used_record, run_id=actual_run_id),
-                db=active_db,
-            )
-        )
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-
-    chunks: list[str] = []
-    first_token_time: float | None = None
-    t_stream_0 = time.perf_counter()
-    citations_collected: list[str] = []
-
-    try:
-        max_tool_steps = 3
-        step = 0
-        executed_tool_signatures: set[str] = set()
-        last_tool_res_text: str = ""
-        force_synthesis = False
-
-        while step <= max_tool_steps:
-            turn_chunks: list[str] = []
-            turn_tool_calls: list[ToolCall] = []
-
-            # If force_synthesis or reached max_tool_steps, don't pass tools to force text response
-            tools_for_step = (
-                selected_tools
-                if (selected_tools and step < max_tool_steps and not force_synthesis)
-                else None
-            )
-
-            async for chunk in rtr.chat(
-                role=target_role,
-                messages=messages_to_send,
-                tools=tools_for_step,
-                stream=True,
-                max_tokens=max_tokens,
-                on_notice=on_notice,
-                on_model_used=_on_model_used_internal,
-            ):
-                if chunk.text:
-                    if first_token_time is None:
-                        first_token_time = time.perf_counter()
-                    turn_chunks.append(chunk.text)
-                    current_turn_so_far = "".join(turn_chunks)
-                    # Suppress token streaming if it's a tool call XML tag
-                    is_tool_xml = any(
-                        tag in current_turn_so_far
-                        for tag in ("<tool_call", "<function=", "<parameter=")
-                    ) or (
-                        current_turn_so_far.lstrip().startswith("<")
-                        and not current_turn_so_far.lstrip().startswith("<think")
-                    )
-                    if not is_tool_xml:
-                        if on_token:
-                            on_token(chunk.text)
-                        await bus.publish(
-                            make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                        )
-
-                if chunk.tool_calls:
-                    for tc in chunk.tool_calls:
-                        existing = next(
-                            (
-                                t
-                                for t in turn_tool_calls
-                                if (t.id and t.id == tc.id) or (t.name and t.name == tc.name)
-                            ),
-                            None,
-                        )
-                        if existing:
-                            if tc.id:
-                                existing.id = tc.id
-                            if tc.name:
-                                existing.name = tc.name
-                            if tc.arguments and tc.arguments != {}:
-                                existing.arguments = tc.arguments
-                        else:
-                            turn_tool_calls.append(tc)
-
-            chunks = turn_chunks
-
-            # If no tool calls were made in delta, check for XML-style tool calls in text
-            if not turn_tool_calls:
-                text_tcs = _parse_text_tool_calls("".join(turn_chunks))
-                if text_tcs:
-                    turn_tool_calls.extend(text_tcs)
-                else:
-                    break
-
-            # Deduplication: check if any tool call was already executed in this turn
-            duplicate_call = False
-            for c in turn_tool_calls:
-                c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
-                if c_sig in executed_tool_signatures:
-                    duplicate_call = True
-                    break
-
-            if duplicate_call:
-                # Model repeated a tool call already executed; break loop to synthesize
-                break
-
-            for c in turn_tool_calls:
-                c_sig = f"{c.name}:{json.dumps(c.arguments, sort_keys=True)}"
-                executed_tool_signatures.add(c_sig)
-
-            # Check if this turn executed an action tool; if so, next turn must be text synthesis
-            action_tools = {
-                "reminder_create",
-                "reminder_snooze",
-                "reminder_cancel",
-                "dispatch_reminder",
-                "dispatch_job_edit",
-                "dispatch_task",
-                "save_fact",
-                "job_create",
-                "job_update",
-                "job_delete",
-            }
-            if any(c.name in action_tools for c in turn_tool_calls):
-                force_synthesis = True
-
-            step += 1
-
-            for call in turn_tool_calls:
-                tool_item = reg.get(call.name)
-                tier_val = getattr(tool_item, "tier", "read") if tool_item else "read"
-                await bus.publish(
-                    make_event(
-                        "tool_call",
-                        {
-                            "id": call.id,
-                            "name": call.name,
-                            "arguments": call.arguments,
-                            "tier": tier_val,
-                            "tool": call.name,
-                            "args": call.arguments,
-                            "call_id": call.id,
-                        },
-                        run_id=actual_run_id,
-                    ),
-                    db=active_db,
-                )
-
-            # Append assistant message with tool calls to history
-            assistant_text = _strip_text_tool_calls("".join(turn_chunks).strip())
-            assistant_turn_msg = Message(
-                role="assistant",
-                content=Content.chat(assistant_text),
-                tool_calls=turn_tool_calls,
-            )
-            messages_to_send.append(assistant_turn_msg)
-
-            from noxai.tools.registry import ToolContext
-
-            def _handle_tool_emit(ev_data: dict[str, Any]) -> None:
-                ev_type = ev_data.get("type", "tool_event")
-                emit_task = asyncio.create_task(
-                    bus.publish(
-                        make_event(ev_type, ev_data, run_id=actual_run_id),
-                        db=active_db,
-                    )
-                )
-                _background_tasks.add(emit_task)
-                emit_task.add_done_callback(_background_tasks.discard)
-
-            tool_ctx = ToolContext(
-                run_id=actual_run_id,
-                config=cfg,
-                allow_cloud=allow_cloud,
-                db=active_db,
-                router=rtr,
-                poll_approval=True,
-                approval_timeout=cfg.safety.approval_timeout_seconds if cfg else 300.0,
-                emit=_handle_tool_emit,
-            )
-
-            for call in turn_tool_calls:
-                t0_call = time.perf_counter()
-                tool_def = reg.get(call.name)
-                tool_res_text = ""
-                if tool_def is not None:
-                    try:
-                        tool_res = await reg.execute(call.name, call.arguments, tool_ctx)
-                        tool_res_text = str(
-                            tool_res.output if tool_res.ok else f"Error: {tool_res.output}"
-                        )
-                        last_tool_res_text = tool_res_text
-                        if call.name in ("web_search", "fetch_page"):
-                            import re
-
-                            urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
-                            citations_collected.extend(urls)
-                        t_call_dur = int((time.perf_counter() - t0_call) * 1000)
-                        await bus.publish(
-                            make_event(
-                                "tool_result",
-                                {
-                                    "id": call.id,
-                                    "name": call.name,
-                                    "tool": call.name,
-                                    "ok": tool_res.ok,
-                                    "summary": tool_res.summary,
-                                    "result_summary": tool_res.summary,
-                                    "output": tool_res_text[:500],
-                                    "duration_ms": t_call_dur,
-                                },
-                                run_id=actual_run_id,
-                            ),
-                            db=active_db,
-                        )
-                    except Exception as t_err:
-                        log.warning("Tool %s execution failed: %s", call.name, t_err)
-                        tool_res_text = f"Tool execution failed: {t_err}"
-                        last_tool_res_text = tool_res_text
-                else:
-                    tool_res_text = f"Tool {call.name} not found in registry."
-                    last_tool_res_text = tool_res_text
-
-                is_untrusted = tool_def.untrusted_output if tool_def else False
-                tool_content = (
-                    Content.untrusted(tool_res_text, source=call.name)
-                    if is_untrusted
-                    else Content.public(tool_res_text, source=call.name)
-                )
-
-                messages_to_send.append(
-                    Message(
-                        role="tool",
-                        content=tool_content,
-                        tool_call_id=call.id,
-                        name=call.name,
-                    )
-                )
-
-    except Exception as exc:
-        log.exception("Execution error during chat turn: %s", exc)
-        # Handle unexpected failure with safe local fallback if not already fallback
-        if target_role == "front":
-            fallback_reason = "DEGRADED"
-            local_role = "resident"
-            local_chunks: list[str] = []
-            try:
-                async for chunk in rtr.chat(
-                    role=local_role,
-                    messages=[_build_local_system_prompt(), user_msg],
-                    stream=True,
-                    on_notice=on_notice,
-                    on_model_used=_on_model_used_internal,
-                ):
-                    if chunk.text:
-                        if first_token_time is None:
-                            first_token_time = time.perf_counter()
-                        local_chunks.append(chunk.text)
-                        if on_token:
-                            on_token(chunk.text)
-                        await bus.publish(
-                            make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                        )
-                chunks = local_chunks
-            except Exception as fallback_exc:
-                log.error("Fallback chat failed: %s", fallback_exc)
-                err_msg = f"I encountered an error while processing your request: {fallback_exc}"
-                chunks.append(err_msg)
-                if on_token:
-                    on_token(err_msg)
-                await bus.publish(
-                    make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
-                )
-        else:
-            err_msg = f"I encountered an error while processing your request: {exc}"
-            chunks.append(err_msg)
-            if on_token:
-                on_token(err_msg)
-            await bus.publish(
-                make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
-            )
-
-    t_now = time.perf_counter()
-    t_ttft = (first_token_time - t_stream_0) * 1000.0 if first_token_time else 0.0
-    t_generation = (t_now - (first_token_time or t_stream_0)) * 1000.0
-    total_elapsed = t_now - start_time
-    total_elapsed_ms = total_elapsed * 1000.0
-
-    final_text = _strip_text_tool_calls("".join(chunks).strip())
-    if not final_text and last_tool_res_text:
-        final_text = f"✅ {last_tool_res_text}"
-    elif not final_text:
-        final_text = "I processed your request, but no response was generated. Please try again."
-    from noxai.agent.loop import extract_citations
-
-    for cite_url in extract_citations(final_text):
-        if cite_url not in citations_collected:
-            citations_collected.append(cite_url)
-
-    # Determine effective model and provider info
-    actual_model_name = str(model_used_record.get("model", "unknown"))
-    actual_provider_name = str(model_used_record.get("provider", "unknown"))
-    actual_is_local = bool(model_used_record.get("is_local", target_role in ("resident", "brain")))
-    actual_fallback_reason = model_used_record.get("fallback_reason") or fallback_reason
-
-    prompt_tokens_est = sum(len(m.get_text()) for m in messages_to_send) // 4
-
-    trace_data: dict[str, Any] = {
-        "route": round(t_route, 2),
-        "prompt_build": round(t_prompt, 2),
-        "provider_connect": round(t_ttft, 2),
-        "time_to_first_token": round(t_ttft, 2),
-        "generation": round(t_generation, 2),
-        "total": round(total_elapsed_ms, 2),
-        "prompt_tokens_est": prompt_tokens_est,
-        "model_used": actual_model_name,
-        "provider": actual_provider_name,
-        "role": model_used_record.get("role", target_role),
-        "intent": intent_res.intent.value,
-        "fallback_reason": actual_fallback_reason,
-    }
-
-    lane_info = "cloud" if not actual_is_local else "local_resident"
-
-    # Persist assistant response to DB
-    async def _write_assistant_msg(conn: Any) -> None:
-        await execute(
-            conn,
-            """
-            INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-            VALUES (?, ?, 'assistant', ?, 0)
-            """,
-            (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
-        )
-        await execute(
-            conn,
-            """
-            INSERT INTO runs (
-                id, kind, conversation_id, status, allow_cloud, started_at, trace_json
-            )
-            VALUES (?, 'chat', ?, 'done', ?, datetime('now'), ?)
-            ON CONFLICT(id) DO UPDATE SET status = 'done', trace_json = ?
-            """,
-            (
-                actual_run_id,
-                actual_conv_id,
-                0 if actual_is_local else 1,
-                json.dumps(trace_data),
-                json.dumps(trace_data),
-            ),
-        )
-
-    await _safe_db_write(_write_assistant_msg)
-
-    # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
-    if actual_conv_id:
-        async def _bg_cms() -> None:
-            try:
-                from noxai.db import get_db
-                from noxai.memory.post_process import process_conversation_turn
-                async with get_db() as bg_db:
-                    await process_conversation_turn(actual_conv_id, bg_db, router=rtr)
-            except Exception as exc:
-                log.debug("Background CMS post-process error: %s", exc)
-
-        t_bg = asyncio.create_task(_bg_cms())
-        _background_tasks.add(t_bg)
-        t_bg.add_done_callback(_background_tasks.discard)
-
-    # Publish completion events
-    await bus.publish(
-        make_event("trace", trace_data, run_id=actual_run_id),
-        db=active_db,
-    )
-    await bus.publish(
-        make_event(
-            "message_done",
-            {
-                "text": final_text,
-                "lane": lane_info,
-                "model_name": actual_model_name,
-                "is_cloud": not actual_is_local,
-                "latency_ms": int(total_elapsed_ms),
-                "fallback_reason": actual_fallback_reason,
-                "trace": trace_data,
-            },
-            run_id=actual_run_id,
-        ),
-        db=active_db,
-    )
-    await bus.publish(
-        make_event("run_done", {"status": "done"}, run_id=actual_run_id),
-        db=active_db,
-    )
-
-    if db_ctx is not None:
-        await db_ctx.__aexit__(None, None, None)
-
-    return ChatTurnResult(
-        run_id=actual_run_id,
-        conversation_id=actual_conv_id,
-        text=final_text,
-        model_name=actual_model_name,
-        provider_name=actual_provider_name,
-        is_cloud=not actual_is_local,
-        fallback_reason=actual_fallback_reason,
-        intent=intent_res,
-        trace=trace_data,
-        citations=citations_collected,
-        duration_seconds=total_elapsed,
-    )
+    finally:
+        if db_ctx is not None:
+            await db_ctx.__aexit__(None, None, None)

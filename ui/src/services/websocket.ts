@@ -35,9 +35,15 @@ export class WebSocketService {
       let token = '';
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
-        token = params.get('t') || params.get('token') || sessionStorage.getItem('nox_token') || '';
+        token =
+          params.get('t') ||
+          params.get('token') ||
+          sessionStorage.getItem('nox_token') ||
+          localStorage.getItem('nox_token') ||
+          '';
         if (token) {
           sessionStorage.setItem('nox_token', token);
+          localStorage.setItem('nox_token', token);
         }
       }
       const tokenQuery = token ? `?t=${encodeURIComponent(token)}` : '';

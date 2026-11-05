@@ -425,11 +425,19 @@ export const ChatPage: React.FC = () => {
         setActiveConvId(resp.conversation_id);
         loadConversations();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to start chat run:', err);
       setIsRunning(false);
       setActiveRunId(null);
       activeRunIdRef.current = null;
+      const errMsgText = err?.message || String(err) || 'Server error';
+      const errorMsg: Message = {
+        id: `msg_err_${Date.now()}`,
+        conversation_id: activeConvId || '',
+        role: 'assistant',
+        content: `⚠️ Failed to send message: ${errMsgText}. Please try again.`,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     }
   };
 

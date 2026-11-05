@@ -152,7 +152,7 @@ class CloudHealth:
         has_key: bool = False,
         failure_threshold: int = 3,
         cooldown_seconds: float = 60.0,
-        ttft_threshold_seconds: float = 15.0,
+        ttft_threshold_seconds: float = 35.0,
         secrets_path: Path | None = None,
         probe_interval_seconds: float = 60.0,
     ) -> None:
