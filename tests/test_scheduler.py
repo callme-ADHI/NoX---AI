@@ -81,6 +81,51 @@ async def migrated_db(tmp_path: Path) -> AsyncIterator[aiosqlite.Connection]:
         conn.executescript(f.read())
     with open("src/noxai/migrations/002_spec_alignment.sql") as f:
         conn.executescript(f.read())
+    conn.execute("ALTER TABLE jobs ADD COLUMN deleted_at TEXT;")
+    conn.execute("ALTER TABLE job_runs ADD COLUMN heartbeat_at TEXT;")
+    conn.execute("ALTER TABLE job_runs ADD COLUMN current_step_index INTEGER;")
+    conn.execute("ALTER TABLE job_runs ADD COLUMN due_slot TEXT;")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS job_plans (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            source TEXT NOT NULL DEFAULT 'template',
+            plan_json TEXT NOT NULL,
+            summary_markdown TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            approved_at TEXT,
+            approved_by TEXT
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS job_run_steps (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            step_index INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            folder_alias TEXT,
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER DEFAULT 0,
+            started_at TEXT,
+            finished_at TEXT,
+            output_excerpt_redacted TEXT,
+            error TEXT
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            level TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            category TEXT NOT NULL,
+            payload_json TEXT,
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
     conn.commit()
     conn.close()
 

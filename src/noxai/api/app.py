@@ -159,6 +159,16 @@ def create_app(
             interrupted_count = await mark_interrupted_runs(db)
             log.info("Recovered %d interrupted runs and jobs.", interrupted_count)
 
+            from noxai.jobs.watchdog import repair_orphaned_runs
+
+            repaired_runs = await repair_orphaned_runs(db=db)
+            if repaired_runs:
+                log.info(
+                    "Reconciled %d orphaned/stalled planned job runs on startup.",
+                    len(repaired_runs),
+                )
+
+
         # 6. Build model router
         if test_mode:
             log.info("6. Building ModelRouter with FakeProvider backends (test mode)...")
