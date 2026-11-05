@@ -14,6 +14,7 @@ import { SystemStatus, WebSocketEvent } from './types';
 import { api } from './services/api';
 import { wsService } from './services/websocket';
 import { WifiOff, RefreshCw, Bell, X } from 'lucide-react';
+import { NotificationCenter } from './components/NotificationCenter';
 
 interface InAppNotification {
   id: string;
@@ -29,12 +30,18 @@ export const App: React.FC = () => {
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState<boolean>(false);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
 
   useEffect(() => {
-    // 1. Fetch system status
+    // 1. Fetch system status and unread notifications
     api.getStatus()
       .then(setStatus)
       .catch((err) => console.warn('Could not reach daemon status:', err));
+
+    api.getNotifications(true)
+      .then((items) => setUnreadCount(items.length))
+      .catch(() => {});
 
     // 2. Connect WebSocket
     wsService.connect();
@@ -190,6 +197,28 @@ export const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Notification Bell Button */}
+      <button
+        onClick={() => setIsNotificationCenterOpen((prev) => !prev)}
+        className="fixed top-3 right-4 z-40 p-2 rounded-xl bg-surface/80 hover:bg-surface border border-border/80 shadow-glass text-muted hover:text-text transition-all duration-200 flex items-center justify-center group"
+        title="Notification Center"
+        aria-label="Notification Center"
+      >
+        <Bell className="w-4 h-4 text-accent transition-transform group-hover:scale-110" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 px-1.5 min-w-[18px] h-[18px] rounded-full bg-accent text-black font-mono font-bold text-[10px] flex items-center justify-center shadow-[0_0_8px_rgba(56,189,248,0.7)] animate-pulse">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Notification Center Drawer */}
+      <NotificationCenter
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        onUnreadCountChange={setUnreadCount}
+      />
 
       {/* Global Command Palette (Ctrl+K) */}
       <CommandPalette
