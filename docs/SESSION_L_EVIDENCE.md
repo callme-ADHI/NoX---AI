@@ -293,3 +293,9 @@ tests/test_planned_jobs_validator.py::test_validator_rejects_force_operations PA
 - `pytest tests/test_scheduler.py tests/test_scheduler_mock.py`: 23 passed in 6.73s.
 - `pytest tests/test_api.py`: 15 passed in 9.41s.
 - `pytest tests/test_cli.py`: 17 passed in 17.18s.
+
+### Static Typing & Code Formatting
+`VERIFIED-TEST`:
+- `uv run mypy src/noxai/jobs/ tests/test_planned_jobs_*.py`: 0 issues across 17 files.
+- `uv run ruff format --check src/noxai/jobs/ tests/test_planned_jobs_*.py`: 17 files cleanly formatted.
+- `git grep -n 'nvapi-'`: 0 leaks or real keys committed; only redaction tests and mock patterns present.
