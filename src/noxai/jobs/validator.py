@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-from noxai.jobs.schema import JobPlan, WHITELISTED_STEP_KINDS
+from noxai.jobs.schema import WHITELISTED_STEP_KINDS, JobPlan
 
 FORBIDDEN_OPERATIONS = {
     "--force",
@@ -44,7 +43,6 @@ class ValidationResult:
         return "; ".join(self.errors)
 
 
-
 def validate_plan(
     plan: JobPlan | dict[str, Any],
     allowed_roots: list[str] | None = None,
@@ -61,7 +59,9 @@ def validate_plan(
     if len(plan.steps) == 0:
         errors.append("Plan contains 0 steps")
     elif len(plan.steps) > MAX_STEPS_ALLOWED:
-        errors.append(f"Plan exceeds maximum allowed steps ({len(plan.steps)} > {MAX_STEPS_ALLOWED})")
+        errors.append(
+            f"Plan exceeds maximum allowed steps ({len(plan.steps)} > {MAX_STEPS_ALLOWED})"
+        )
 
     roots = [os.path.expanduser(r).rstrip("/") for r in (allowed_roots or ["~/Documents"])]
 
@@ -82,9 +82,7 @@ def validate_plan(
             expanded = os.path.expanduser(fpath).rstrip("/")
             # Check inside allowed root
             if not any(expanded == r or expanded.startswith(r + "/") for r in roots):
-                errors.append(
-                    f"Step {idx}: path '{fpath}' is outside allowed roots ({roots})"
-                )
+                errors.append(f"Step {idx}: path '{fpath}' is outside allowed roots ({roots})")
 
         # 3. No shell strings or forbidden commands in params or remote
         serialized = f"{step.folder_path} {step.remote or ''} {step.params}".lower()

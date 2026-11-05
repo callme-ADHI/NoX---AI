@@ -6,15 +6,11 @@ import asyncio
 import os
 import re
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 from zoneinfo import ZoneInfo
-
-from noxai.jobs.schema import StepKind
 
 # Patterns for secret scanning
 SECRET_FILENAME_PATTERNS = [
@@ -77,7 +73,7 @@ async def run_argv_async(
         stdout = stdout_b.decode("utf-8", errors="replace").strip()
         stderr = stderr_b.decode("utf-8", errors="replace").strip()
         return proc.returncode or 0, stdout, stderr
-    except asyncio.TimeoutError:
+    except TimeoutError:
         try:
             proc.kill()
         except OSError:
@@ -90,7 +86,9 @@ async def run_argv_async(
 # ---------------------------------------------------------------------------
 
 
-async def step_git_preflight(folder: str, remote: str | None, timeout_sec: float = 30.0) -> StepResult:
+async def step_git_preflight(
+    folder: str, remote: str | None, timeout_sec: float = 30.0
+) -> StepResult:
     """Check git installation and non-interactive authentication."""
     # 1. Check git installed
     git_bin = shutil.which("git")
@@ -101,7 +99,9 @@ async def step_git_preflight(folder: str, remote: str | None, timeout_sec: float
     path = Path(os.path.expanduser(folder))
     effective_remote = remote
     if not effective_remote and (path / ".git").exists():
-        code, out, _ = await run_argv_async(["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0)
+        code, out, _ = await run_argv_async(
+            ["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0
+        )
         if code == 0:
             effective_remote = out.strip()
 
@@ -112,51 +112,83 @@ async def step_git_preflight(folder: str, remote: str | None, timeout_sec: float
             timeout_sec=timeout_sec,
         )
         if code != 0:
-            remediation = "Check git credentials or SSH agent. Remote auth failed non-interactively."
+            remediation = (
+                "Check git credentials or SSH agent. Remote auth failed non-interactively."
+            )
             if "Permission denied" in err or "publickey" in err:
                 remediation = "SSH authentication failed: ssh-agent not reachable from daemon or key not loaded."
             elif "Could not resolve host" in err:
-                return StepResult(ok=False, state="failed", error=f"Network offline: {err}", transient=True)
-            return StepResult(ok=False, state="failed", error=f"git.preflight auth failed: {err}. Remediation: {remediation}")
+                return StepResult(
+                    ok=False, state="failed", error=f"Network offline: {err}", transient=True
+                )
+            return StepResult(
+                ok=False,
+                state="failed",
+                error=f"git.preflight auth failed: {err}. Remediation: {remediation}",
+            )
 
-    return StepResult(ok=True, state="ok", output_excerpt="git preflight verified (git installed, auth non-interactive)")
+    return StepResult(
+        ok=True,
+        state="ok",
+        output_excerpt="git preflight verified (git installed, auth non-interactive)",
+    )
 
 
-async def step_git_ensure_repo(folder: str, remote: str | None, timeout_sec: float = 30.0) -> StepResult:
+async def step_git_ensure_repo(
+    folder: str, remote: str | None, timeout_sec: float = 30.0
+) -> StepResult:
     """Ensure the target directory exists and is initialized as a git repo with correct origin."""
     path = Path(os.path.expanduser(folder))
     path.mkdir(parents=True, exist_ok=True)
 
     git_dir = path / ".git"
     if not git_dir.exists():
-        code, out, err = await run_argv_async(["git", "init", "-b", "main"], cwd=path, timeout_sec=timeout_sec)
+        code, out, err = await run_argv_async(
+            ["git", "init", "-b", "main"], cwd=path, timeout_sec=timeout_sec
+        )
         if code != 0:
             return StepResult(ok=False, state="failed", error=f"git init failed: {err}")
 
     # Set or verify remote origin
     if remote:
-        code, out, _ = await run_argv_async(["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0)
+        code, out, _ = await run_argv_async(
+            ["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0
+        )
         if code == 0:
             cur_url = out.strip()
             if cur_url != remote:
-                await run_argv_async(["git", "remote", "set-url", "origin", remote], cwd=path, timeout_sec=10.0)
+                await run_argv_async(
+                    ["git", "remote", "set-url", "origin", remote], cwd=path, timeout_sec=10.0
+                )
         else:
-            await run_argv_async(["git", "remote", "add", "origin", remote], cwd=path, timeout_sec=10.0)
+            await run_argv_async(
+                ["git", "remote", "add", "origin", remote], cwd=path, timeout_sec=10.0
+            )
     else:
         # Check if remote exists
-        code, out, _ = await run_argv_async(["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0)
+        code, out, _ = await run_argv_async(
+            ["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0
+        )
         if code != 0:
-            return StepResult(ok=False, state="failed", error="Folder has no remote origin configured. Setup required.")
+            return StepResult(
+                ok=False,
+                state="failed",
+                error="Folder has no remote origin configured. Setup required.",
+            )
 
     return StepResult(ok=True, state="ok", output_excerpt=f"Repo ensured at {folder}")
 
 
-async def step_git_verify_remote_private(folder: str, remote: str | None, allow_unverified: bool = False, timeout_sec: float = 30.0) -> StepResult:
+async def step_git_verify_remote_private(
+    folder: str, remote: str | None, allow_unverified: bool = False, timeout_sec: float = 30.0
+) -> StepResult:
     """Enforce private-only policy for GitHub remotes."""
     path = Path(os.path.expanduser(folder))
     effective_remote = remote
     if not effective_remote and (path / ".git").exists():
-        code, out, _ = await run_argv_async(["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0)
+        code, out, _ = await run_argv_async(
+            ["git", "remote", "get-url", "origin"], cwd=path, timeout_sec=10.0
+        )
         if code == 0:
             effective_remote = out.strip()
 
@@ -177,12 +209,18 @@ async def step_git_verify_remote_private(folder: str, remote: str | None, allow_
 
         if not repo_part or "/" not in repo_part:
             if not allow_unverified:
-                return StepResult(ok=False, state="failed", error="Could not parse GitHub repo path; unverified remote blocked.")
-            return StepResult(ok=True, state="ok", output_excerpt="Unverified remote allowed by config")
+                return StepResult(
+                    ok=False,
+                    state="failed",
+                    error="Could not parse GitHub repo path; unverified remote blocked.",
+                )
+            return StepResult(
+                ok=True, state="ok", output_excerpt="Unverified remote allowed by config"
+            )
 
         # Unauthenticated GET
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         api_url = f"https://api.github.com/repos/{repo_part}"
         req = urllib.request.Request(api_url, headers={"User-Agent": "NoX-Security-Scan/1.0"})
@@ -198,16 +236,33 @@ async def step_git_verify_remote_private(folder: str, remote: str | None, allow_
         except urllib.error.HTTPError as he:
             if he.code == 404:
                 # 404 on unauth GET + valid auth check means PRIVATE
-                return StepResult(ok=True, state="ok", output_excerpt=f"GitHub repository {repo_part} verified PRIVATE (HTTP 404 unauthenticated)")
+                return StepResult(
+                    ok=True,
+                    state="ok",
+                    output_excerpt=f"GitHub repository {repo_part} verified PRIVATE (HTTP 404 unauthenticated)",
+                )
             else:
                 if not allow_unverified:
-                    return StepResult(ok=False, state="failed", error=f"GitHub API returned HTTP {he.code}; unverified remote blocked.")
+                    return StepResult(
+                        ok=False,
+                        state="failed",
+                        error=f"GitHub API returned HTTP {he.code}; unverified remote blocked.",
+                    )
         except Exception as exc:
             if not allow_unverified:
-                return StepResult(ok=False, state="failed", error=f"Could not reach GitHub API ({exc}); unverified remote blocked.", transient=True)
+                return StepResult(
+                    ok=False,
+                    state="failed",
+                    error=f"Could not reach GitHub API ({exc}); unverified remote blocked.",
+                    transient=True,
+                )
 
     elif not allow_unverified:
-        return StepResult(ok=False, state="failed", error=f"Non-GitHub remote '{effective_remote}' is unverified. Set allow_unverified_remote=true to allow.")
+        return StepResult(
+            ok=False,
+            state="failed",
+            error=f"Non-GitHub remote '{effective_remote}' is unverified. Set allow_unverified_remote=true to allow.",
+        )
 
     return StepResult(ok=True, state="ok", output_excerpt="Remote verified private")
 
@@ -223,14 +278,14 @@ async def step_scan_large_files(folder: str, timeout_sec: float = 60.0) -> StepR
     git_lfs_bin = shutil.which("git-lfs")
     if git_lfs_bin:
         code, _, _ = await run_argv_async(["git", "lfs", "version"], cwd=path, timeout_sec=5.0)
-        lfs_available = (code == 0)
+        lfs_available = code == 0
 
     large_files: list[str] = []
     for root, dirs, files in os.walk(path):
         if ".git" in dirs:
             dirs.remove(".git")
-        for f in files:
-            f_path = os.path.join(root, f)
+        for file_name in files:
+            f_path = os.path.join(root, file_name)
             try:
                 size = os.path.getsize(f_path)
                 if size > MAX_FILE_SIZE_BYTES:
@@ -242,14 +297,16 @@ async def step_scan_large_files(folder: str, timeout_sec: float = 60.0) -> StepR
     if large_files and not lfs_available:
         exclude_path = path / ".git" / "info" / "exclude"
         exclude_path.parent.mkdir(parents=True, exist_ok=True)
-        existing_excludes = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+        existing_excludes = (
+            exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
+        )
         new_lines = []
         for lf in large_files:
             if lf not in existing_excludes:
                 new_lines.append(lf)
         if new_lines:
-            with open(exclude_path, "a", encoding="utf-8") as f:
-                f.write("\n# NoX: large files >50MB excluded\n" + "\n".join(new_lines) + "\n")
+            with open(exclude_path, "a", encoding="utf-8") as f_ex:
+                f_ex.write("\n# NoX: large files >50MB excluded\n" + "\n".join(new_lines) + "\n")
 
     return StepResult(
         ok=True,
@@ -273,26 +330,26 @@ async def step_scan_secrets(folder: str, timeout_sec: float = 60.0) -> StepResul
         obsidian_rules = [".obsidian/workspace*.json", ".trash/"]
         to_add = [r for r in obsidian_rules if r not in existing]
         if to_add:
-            with open(exclude_path, "a", encoding="utf-8") as f:
-                f.write("\n# NoX: Obsidian volatile files\n" + "\n".join(to_add) + "\n")
+            with open(exclude_path, "a", encoding="utf-8") as f_ex:
+                f_ex.write("\n# NoX: Obsidian volatile files\n" + "\n".join(to_add) + "\n")
 
     skipped_files: list[str] = []
 
     for root, dirs, files in os.walk(path):
         if ".git" in dirs:
             dirs.remove(".git")
-        for f in files:
-            rel_path = os.path.relpath(os.path.join(root, f), path)
+        for file_name in files:
+            rel_path = os.path.relpath(os.path.join(root, file_name), path)
             # 1. Filename match
-            if any(pat.match(f) for pat in SECRET_FILENAME_PATTERNS):
+            if any(pat.match(file_name) for pat in SECRET_FILENAME_PATTERNS):
                 skipped_files.append(rel_path)
                 continue
 
             # 2. Content scan for text files under 2 MB
-            full_p = os.path.join(root, f)
+            full_p = os.path.join(root, file_name)
             try:
                 if os.path.getsize(full_p) < 2 * 1024 * 1024:
-                    with open(full_p, "r", encoding="utf-8", errors="ignore") as f_obj:
+                    with open(full_p, encoding="utf-8", errors="ignore") as f_obj:
                         content_sample = f_obj.read(100_000)
                         if any(pat.search(content_sample) for pat in SECRET_CONTENT_PATTERNS):
                             skipped_files.append(rel_path)
@@ -305,8 +362,8 @@ async def step_scan_secrets(folder: str, timeout_sec: float = 60.0) -> StepResul
         existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
         new_lines = [sf for sf in skipped_files if sf not in existing]
         if new_lines:
-            with open(exclude_path, "a", encoding="utf-8") as f:
-                f.write("\n# NoX: secret scan skipped files\n" + "\n".join(new_lines) + "\n")
+            with open(exclude_path, "a", encoding="utf-8") as f_ex:
+                f_ex.write("\n# NoX: secret scan skipped files\n" + "\n".join(new_lines) + "\n")
 
     return StepResult(
         ok=True,
@@ -319,7 +376,9 @@ async def step_scan_secrets(folder: str, timeout_sec: float = 60.0) -> StepResul
 async def step_fs_scan_changes(folder: str, timeout_sec: float = 30.0) -> StepResult:
     """Check if there are modified or untracked changes in the working tree."""
     path = Path(os.path.expanduser(folder))
-    code, out, err = await run_argv_async(["git", "status", "--porcelain"], cwd=path, timeout_sec=timeout_sec)
+    code, out, err = await run_argv_async(
+        ["git", "status", "--porcelain"], cwd=path, timeout_sec=timeout_sec
+    )
     if code != 0:
         return StepResult(ok=False, state="failed", error=f"git status failed: {err}")
 
@@ -350,7 +409,9 @@ async def step_git_stage(folder: str, timeout_sec: float = 60.0) -> StepResult:
     return StepResult(ok=True, state="ok", output_excerpt="Staged working tree changes")
 
 
-async def step_git_commit(folder: str, folder_alias: str, files_count: int = 0, timeout_sec: float = 30.0) -> StepResult:
+async def step_git_commit(
+    folder: str, folder_alias: str, files_count: int = 0, timeout_sec: float = 30.0
+) -> StepResult:
     """Commit staged changes with a deterministic commit message."""
     path = Path(os.path.expanduser(folder))
 
@@ -360,7 +421,9 @@ async def step_git_commit(folder: str, folder_alias: str, files_count: int = 0, 
     while lock_file.exists() and time.monotonic() - wait_start < 60.0:
         await asyncio.sleep(2.0)
     if lock_file.exists():
-        return StepResult(ok=False, state="failed", error="git index.lock present after 60s timeout")
+        return StepResult(
+            ok=False, state="failed", error="git index.lock present after 60s timeout"
+        )
 
     tz = ZoneInfo("Asia/Kolkata")
     now_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M")
@@ -378,10 +441,17 @@ async def step_git_commit(folder: str, folder_alias: str, files_count: int = 0, 
         return StepResult(ok=False, state="failed", error=f"git commit failed: {err}")
 
     # Extract short hash
-    code_h, out_h, _ = await run_argv_async(["git", "rev-parse", "--short", "HEAD"], cwd=path, timeout_sec=5.0)
+    code_h, out_h, _ = await run_argv_async(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=path, timeout_sec=5.0
+    )
     commit_hash = out_h.strip() if code_h == 0 else None
 
-    return StepResult(ok=True, state="ok", output_excerpt=f"Committed {commit_hash}: {msg}", commit_hash=commit_hash)
+    return StepResult(
+        ok=True,
+        state="ok",
+        output_excerpt=f"Committed {commit_hash}: {msg}",
+        commit_hash=commit_hash,
+    )
 
 
 async def step_git_push(folder: str, timeout_sec: float = 120.0) -> StepResult:
@@ -389,11 +459,15 @@ async def step_git_push(folder: str, timeout_sec: float = 120.0) -> StepResult:
     path = Path(os.path.expanduser(folder))
 
     # Determine current branch
-    code, out, _ = await run_argv_async(["git", "branch", "--show-current"], cwd=path, timeout_sec=5.0)
+    code, out, _ = await run_argv_async(
+        ["git", "branch", "--show-current"], cwd=path, timeout_sec=5.0
+    )
     branch = out.strip() if code == 0 and out.strip() else "main"
 
     # Fetch first to check ancestry
-    code_f, out_f, err_f = await run_argv_async(["git", "fetch", "origin", branch], cwd=path, timeout_sec=30.0)
+    code_f, out_f, err_f = await run_argv_async(
+        ["git", "fetch", "origin", branch], cwd=path, timeout_sec=30.0
+    )
     if code_f == 0:
         # Check if remote is ancestor or diverged
         code_anc, _, _ = await run_argv_async(
@@ -415,8 +489,14 @@ async def step_git_push(folder: str, timeout_sec: float = 120.0) -> StepResult:
         timeout_sec=timeout_sec,
     )
     if code_p != 0:
-        is_transient = "Could not resolve host" in err_p or "Connection refused" in err_p or "timed out" in err_p
-        return StepResult(ok=False, state="failed", error=f"git push failed: {err_p}", transient=is_transient)
+        is_transient = (
+            "Could not resolve host" in err_p
+            or "Connection refused" in err_p
+            or "timed out" in err_p
+        )
+        return StepResult(
+            ok=False, state="failed", error=f"git push failed: {err_p}", transient=is_transient
+        )
 
     return StepResult(ok=True, state="ok", output_excerpt=f"Pushed {branch} to origin")
 
@@ -424,7 +504,9 @@ async def step_git_push(folder: str, timeout_sec: float = 120.0) -> StepResult:
 async def step_git_verify_pushed(folder: str, timeout_sec: float = 30.0) -> StepResult:
     """Verify that remote HEAD matches local HEAD hash."""
     path = Path(os.path.expanduser(folder))
-    code_b, out_b, _ = await run_argv_async(["git", "branch", "--show-current"], cwd=path, timeout_sec=5.0)
+    code_b, out_b, _ = await run_argv_async(
+        ["git", "branch", "--show-current"], cwd=path, timeout_sec=5.0
+    )
     branch = out_b.strip() if code_b == 0 and out_b.strip() else "main"
 
     code_l, out_l, _ = await run_argv_async(["git", "rev-parse", "HEAD"], cwd=path, timeout_sec=5.0)
@@ -436,13 +518,22 @@ async def step_git_verify_pushed(folder: str, timeout_sec: float = 30.0) -> Step
         timeout_sec=timeout_sec,
     )
     if code_r != 0:
-        return StepResult(ok=False, state="failed", error=f"Verification ls-remote failed: {err_r}", transient=True)
+        return StepResult(
+            ok=False,
+            state="failed",
+            error=f"Verification ls-remote failed: {err_r}",
+            transient=True,
+        )
 
     remote_hash = out_r.split()[0] if out_r.strip() else ""
     if local_hash and remote_hash and local_hash == remote_hash:
-        return StepResult(ok=True, state="ok", output_excerpt=f"Push verified: remote matches {local_hash[:7]}")
+        return StepResult(
+            ok=True, state="ok", output_excerpt=f"Push verified: remote matches {local_hash[:7]}"
+        )
     elif not remote_hash:
-        return StepResult(ok=True, state="ok", output_excerpt="Push completed (first commit on remote branch)")
+        return StepResult(
+            ok=True, state="ok", output_excerpt="Push completed (first commit on remote branch)"
+        )
     else:
         return StepResult(
             ok=False,
@@ -451,7 +542,9 @@ async def step_git_verify_pushed(folder: str, timeout_sec: float = 30.0) -> Step
         )
 
 
-async def step_notify(summary: str, is_error: bool = False, run_id: str | None = None) -> StepResult:
+async def step_notify(
+    summary: str, is_error: bool = False, run_id: str | None = None
+) -> StepResult:
     """Send desktop notification via notify-send."""
     title = "NoX Backup Alert" if is_error else "NoX Backup"
     urgency = "critical" if is_error else "normal"

@@ -6,8 +6,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import aiosqlite
+
 from noxai.config import Settings, get_config
-from noxai.db import execute, fetch_all, fetch_one, get_db
+from noxai.db import execute, fetch_all, get_db
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +28,6 @@ async def repair_orphaned_runs(
     stale_sec = cfg.jobs.stale_heartbeat_seconds
     now_utc = datetime.now(UTC)
     cutoff = now_utc - timedelta(seconds=stale_sec)
-    cutoff_iso = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
     reconciled: list[dict[str, Any]] = []
 
@@ -96,7 +97,9 @@ async def _do_repair(
                     """,
                     (run_id,),
                 )
-                log.warning("Watchdog reconciled orphaned run %s (job %s) to 'stalled'", run_id, job_id)
+                log.warning(
+                    "Watchdog reconciled orphaned run %s (job %s) to 'stalled'", run_id, job_id
+                )
 
     if not dry_run and reconciled:
         await db.commit()

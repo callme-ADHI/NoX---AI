@@ -9,9 +9,6 @@ import os
 import random
 import time
 import uuid
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
 from noxai.config import Settings, get_config
 from noxai.db import execute, fetch_all, fetch_one, get_db
@@ -77,7 +74,10 @@ async def execute_planned_job(
                 return "waiting_approval"
             else:
                 from noxai.jobs.planner import generate_plan_for_job
-                await generate_plan_for_job(job_id, "Backup daily documents", config=cfg, force_template=True)
+
+                await generate_plan_for_job(
+                    job_id, "Backup daily documents", config=cfg, force_template=True
+                )
                 return "waiting_approval"
 
         plan_version = plan_row[0]
@@ -132,7 +132,7 @@ async def execute_planned_job(
                 pass
             try:
                 await asyncio.wait_for(stop_heartbeat.wait(), timeout=cfg.jobs.heartbeat_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     hb_task = asyncio.create_task(_heartbeat_worker())
@@ -156,12 +156,18 @@ async def execute_planned_job(
 
             if time.monotonic() - start_time > cfg.jobs.default_timeout_seconds:
                 final_status = "failed"
-                log.error("Job run %s exceeded hard timeout of %ds", run_id, cfg.jobs.default_timeout_seconds)
+                log.error(
+                    "Job run %s exceeded hard timeout of %ds",
+                    run_id,
+                    cfg.jobs.default_timeout_seconds,
+                )
                 break
 
             alias = s.folder_alias
 
-            if alias != "all" and (alias in folder_failed or alias in folder_skipped_all or alias in folder_needs_setup):
+            if alias != "all" and (
+                alias in folder_failed or alias in folder_skipped_all or alias in folder_needs_setup
+            ):
                 async with get_db() as db:
                     await execute(
                         db,
@@ -212,11 +218,17 @@ async def execute_planned_job(
                         break
                     backoff = min(
                         s.retry.max_backoff_seconds,
-                        s.retry.backoff_base_seconds * (2 ** (attempts - 1)) + random.uniform(0.1, 1.0),
+                        s.retry.backoff_base_seconds * (2 ** (attempts - 1))
+                        + random.uniform(0.1, 1.0),
                     )
                     if os.getenv("NOX_TEST_FAST_BACKOFF") == "1":
                         backoff = 0.05
-                    log.warning("Step %s on %s failed transiently; retrying in %.1fs", s.kind, alias, backoff)
+                    log.warning(
+                        "Step %s on %s failed transiently; retrying in %.1fs",
+                        s.kind,
+                        alias,
+                        backoff,
+                    )
                     await asyncio.sleep(backoff)
                 except Exception as exc:
                     step_res = StepResult(ok=False, state="failed", error=str(exc))
@@ -233,7 +245,14 @@ async def execute_planned_job(
                     SET state = ?, output_excerpt_redacted = ?, error = ?, finished_at = datetime('now'), attempts = ?
                     WHERE run_id = ? AND step_index = ?
                     """,
-                    (step_res.state, step_res.output_excerpt, step_res.error, attempts, run_id, s.step_index),
+                    (
+                        step_res.state,
+                        step_res.output_excerpt,
+                        step_res.error,
+                        attempts,
+                        run_id,
+                        s.step_index,
+                    ),
                 )
                 await db.commit()
 
@@ -338,7 +357,12 @@ async def _dispatch_step(step: JobStep, files_changed: int, cfg: Settings) -> St
     elif k == StepKind.GIT_ENSURE_REPO.value:
         return await step_git_ensure_repo(folder=f, remote=r, timeout_sec=t)
     elif k == StepKind.GIT_VERIFY_REMOTE_PRIVATE.value:
-        return await step_git_verify_remote_private(folder=f, remote=r, allow_unverified=cfg.jobs.backup.allow_unverified_remote, timeout_sec=t)
+        return await step_git_verify_remote_private(
+            folder=f,
+            remote=r,
+            allow_unverified=cfg.jobs.backup.allow_unverified_remote,
+            timeout_sec=t,
+        )
     elif k == StepKind.SCAN_LARGE_FILES.value:
         return await step_scan_large_files(folder=f, timeout_sec=t)
     elif k == StepKind.SCAN_SECRETS.value:
@@ -348,7 +372,9 @@ async def _dispatch_step(step: JobStep, files_changed: int, cfg: Settings) -> St
     elif k == StepKind.GIT_STAGE.value:
         return await step_git_stage(folder=f, timeout_sec=t)
     elif k == StepKind.GIT_COMMIT.value:
-        return await step_git_commit(folder=f, folder_alias=step.folder_alias, files_count=files_changed, timeout_sec=t)
+        return await step_git_commit(
+            folder=f, folder_alias=step.folder_alias, files_count=files_changed, timeout_sec=t
+        )
     elif k == StepKind.GIT_PUSH.value:
         return await step_git_push(folder=f, timeout_sec=t)
     elif k == StepKind.GIT_VERIFY_PUSHED.value:
@@ -384,5 +410,7 @@ def _build_summary(
     if secrets:
         lines.append(f"\n**Secrets Excluded ({len(secrets)})**: {', '.join(secrets[:10])}")
     if large_files:
-        lines.append(f"\n**Large Files Excluded ({len(large_files)})**: {', '.join(large_files[:10])}")
+        lines.append(
+            f"\n**Large Files Excluded ({len(large_files)})**: {', '.join(large_files[:10])}"
+        )
     return "\n".join(lines)

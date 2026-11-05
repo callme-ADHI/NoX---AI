@@ -1,7 +1,6 @@
 """Unit tests for static plan validator (Section 4.1 & 8.1)."""
 
-import pytest
-from noxai.jobs.schema import JobPlan, JobStep, StepKind, StepRetryPolicy
+from noxai.jobs.schema import JobPlan, JobStep, StepKind
 from noxai.jobs.validator import validate_plan
 
 
@@ -73,7 +72,9 @@ def test_validator_rejects_shell_metacharacters():
     )
     res = validate_plan(plan, allowed_roots=["~/Documents"])
     assert res.is_valid is False
-    assert any("forbidden shell metacharacter" in e or "forbidden operation" in e for e in res.errors)
+    assert any(
+        "forbidden shell metacharacter" in e or "forbidden operation" in e for e in res.errors
+    )
 
 
 def test_validator_rejects_force_operations():

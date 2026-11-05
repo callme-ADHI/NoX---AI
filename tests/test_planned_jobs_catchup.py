@@ -1,7 +1,8 @@
 """Unit tests for slot catch-up scheduling rule (Section 5 & 8.1)."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
+
 import pytest
 
 from noxai.jobs.catchup import compute_due_slot, is_job_due

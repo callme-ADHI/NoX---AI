@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass
@@ -86,7 +86,6 @@ def sanitize_instruction(instruction: str, user_home: str | None = None) -> Sani
             alias_map[leaf] = val
             text = text.replace(full_match, ph)
 
-
     # 3. Match standalone quoted folder names like "Obsidian Vault"
     quoted_pattern = re.compile(r'"([^"]+)"|\'([^\']+)\'')
     for match in quoted_pattern.finditer(instruction):
@@ -116,7 +115,6 @@ def sanitize_instruction(instruction: str, user_home: str | None = None) -> Sani
         alias = Path(clean_p).name.strip("\"'")
         alias_map[alias] = clean_p
         text = text.replace(p, ph)
-
 
     # 3. Match bare folder names from COMMON_FOLDER_NAMES if present
     for fname in sorted(COMMON_FOLDER_NAMES, key=len, reverse=True):
@@ -162,7 +160,7 @@ def resolve_plan(plan_dict: dict[str, Any], sanitized: SanitizedInstruction) -> 
             return {k: _replace_val(val) for k, val in v.items()}
         return v
 
-    return _replace_val(resolved)
+    return cast(dict[str, Any], _replace_val(resolved))
 
 
 def assert_no_paths_or_urls(data: Any, user_home: str | None = None) -> None:

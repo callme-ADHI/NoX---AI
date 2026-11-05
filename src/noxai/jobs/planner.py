@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from datetime import UTC, datetime
-from typing import Any
 
 from noxai.config import Settings, get_config
-from noxai.db import execute, fetch_all, fetch_one, get_db
+from noxai.db import execute, fetch_one, get_db
 from noxai.jobs.privacy import assert_no_paths_or_urls, resolve_plan, sanitize_instruction
-from noxai.jobs.schema import JobPlan, WHITELISTED_STEP_KINDS
+from noxai.jobs.schema import JobPlan
 from noxai.jobs.template import create_backup_template_plan, get_default_backup_folders
 from noxai.jobs.validator import validate_plan
 from noxai.models.keypool import AllocationMode, KeyPool, get_default_keypool
@@ -92,11 +89,17 @@ async def generate_plan_for_job(
                 if plan:
                     source = "cloud"
             except Exception as exc:
-                log.warning("Cloud planner failed for job %s: %s; falling back to template.", job_id, exc)
+                log.warning(
+                    "Cloud planner failed for job %s: %s; falling back to template.", job_id, exc
+                )
 
     if not plan:
         # Fallback to deterministic template planner
-        folders = list(sanitized.folder_map.values()) if sanitized.folder_map else get_default_backup_folders()
+        folders = (
+            list(sanitized.folder_map.values())
+            if sanitized.folder_map
+            else get_default_backup_folders()
+        )
         plan = create_backup_template_plan(
             job_id=job_id,
             folders=folders,
@@ -115,7 +118,10 @@ async def generate_plan_for_job(
     # Validate resolved plan
     val = validate_plan(resolved_plan, allowed_roots=cfg.jobs.allowed_roots)
     if not val.is_valid:
-        log.warning("Resolved plan failed validation (%s); regenerating canonical template.", val.error_summary)
+        log.warning(
+            "Resolved plan failed validation (%s); regenerating canonical template.",
+            val.error_summary,
+        )
         resolved_plan = create_backup_template_plan(job_id=job_id, version=version)
         resolved_plan.source = "template"
 
@@ -150,11 +156,13 @@ async def _call_cloud_planner(
     """Call cloud model with sanitized instruction and validate response."""
     messages = [
         {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-        {"role": "user", "content": f"Create a step-by-step plan for this job: {sanitized_instruction}"},
+        {
+            "role": "user",
+            "content": f"Create a step-by-step plan for this job: {sanitized_instruction}",
+        },
     ]
 
-    import httpx
-    async with pool.execute_request(priority=1, job_id=job_id, mode=AllocationMode.MULTI_JOB) as (key_state, client):
+    async with pool.lease(job_id=job_id, priority=1, mode=AllocationMode.MULTI_JOB) as lease:
         req_body = {
             "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
             "messages": messages,
@@ -164,10 +172,10 @@ async def _call_cloud_planner(
         # Double-check outbound payload
         assert_no_paths_or_urls(req_body)
 
-        resp = await client.post(
+        resp = await lease.client.post(
             "/chat/completions",
             json=req_body,
-            headers={"Authorization": f"Bearer {key_state.api_key}"},
+            headers={"Authorization": f"Bearer {lease.api_key}"},
             timeout=30.0,
         )
         if resp.status_code != 200:

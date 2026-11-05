@@ -27,7 +27,9 @@ async def delete_job(
     async with get_db() as local_db:
         conn = db or local_db
 
-        row = await fetch_one(conn, "SELECT id, name FROM jobs WHERE id = ? OR name = ?", (job_id, job_id))
+        row = await fetch_one(
+            conn, "SELECT id, name FROM jobs WHERE id = ? OR name = ?", (job_id, job_id)
+        )
         if not row:
             raise ValueError(f"Job '{job_id}' not found.")
         actual_id = row[0]
@@ -75,12 +77,18 @@ async def restore_job(job_id: str, db: aiosqlite.Connection | None = None) -> di
     """Restore a soft-deleted job."""
     async with get_db() as local_db:
         conn = db or local_db
-        row = await fetch_one(conn, "SELECT id, name FROM jobs WHERE id = ? OR name = ?", (job_id, job_id))
+        row = await fetch_one(
+            conn, "SELECT id, name FROM jobs WHERE id = ? OR name = ?", (job_id, job_id)
+        )
         if not row:
             raise ValueError(f"Job '{job_id}' not found.")
         actual_id = row[0]
 
-        await execute(conn, "UPDATE jobs SET deleted_at = NULL, enabled = 1, updated_at = datetime('now') WHERE id = ?", (actual_id,))
+        await execute(
+            conn,
+            "UPDATE jobs SET deleted_at = NULL, enabled = 1, updated_at = datetime('now') WHERE id = ?",
+            (actual_id,),
+        )
         await conn.commit()
         return {"ok": True, "id": actual_id, "name": row[1], "action": "restored"}
 
@@ -103,6 +111,7 @@ async def delete_task(
         # Cooperative cancellation if running
         if cur_status in ("running", "queued", "waiting_approval"):
             from noxai.tasks.supervisor import get_task_supervisor
+
             sup = get_task_supervisor()
             if sup:
                 await sup.cancel_task(actual_id)
@@ -116,7 +125,9 @@ async def delete_task(
             await execute(conn, "DELETE FROM tasks WHERE id = ?", (actual_id,))
             action = "purged"
         else:
-            await execute(conn, "UPDATE tasks SET deleted_at = datetime('now') WHERE id = ?", (actual_id,))
+            await execute(
+                conn, "UPDATE tasks SET deleted_at = datetime('now') WHERE id = ?", (actual_id,)
+            )
             action = "soft_deleted"
 
         await conn.commit()
@@ -139,7 +150,6 @@ async def clear_finished_tasks(db: aiosqlite.Connection | None = None) -> dict[s
         count = cursor.rowcount
         await conn.commit()
         return {"ok": True, "cleared": count}
-
 
 
 async def delete_briefing(
@@ -206,11 +216,17 @@ async def delete_briefing(
 
         # 3. Purge or Soft-delete
         if purge:
-            await execute(conn, "DELETE FROM briefing_items WHERE briefing_run_id = ?", (actual_id,))
+            await execute(
+                conn, "DELETE FROM briefing_items WHERE briefing_run_id = ?", (actual_id,)
+            )
             await execute(conn, "DELETE FROM briefing_runs WHERE id = ?", (actual_id,))
             action = "purged"
         else:
-            await execute(conn, "UPDATE briefing_runs SET deleted_at = datetime('now') WHERE id = ?", (actual_id,))
+            await execute(
+                conn,
+                "UPDATE briefing_runs SET deleted_at = datetime('now') WHERE id = ?",
+                (actual_id,),
+            )
             action = "soft_deleted"
 
         await conn.commit()
@@ -238,11 +254,17 @@ async def restore_task(task_id: str, db: aiosqlite.Connection | None = None) -> 
         return {"ok": True, "id": actual_id, "title": row[1], "action": "restored"}
 
 
-async def restore_briefing(briefing_id: str, db: aiosqlite.Connection | None = None) -> dict[str, Any]:
+async def restore_briefing(
+    briefing_id: str, db: aiosqlite.Connection | None = None
+) -> dict[str, Any]:
     """Restore a soft-deleted briefing."""
     async with get_db() as local_db:
         conn = db or local_db
-        row = await fetch_one(conn, "SELECT id, date, slot FROM briefing_runs WHERE id = ? OR (date || '-' || slot) = ?", (briefing_id, briefing_id))
+        row = await fetch_one(
+            conn,
+            "SELECT id, date, slot FROM briefing_runs WHERE id = ? OR (date || '-' || slot) = ?",
+            (briefing_id, briefing_id),
+        )
         if not row:
             raise ValueError(f"Briefing '{briefing_id}' not found.")
         actual_id = row[0]
@@ -264,7 +286,9 @@ async def purge_expired(
             cutoff_sql = "deleted_at IS NOT NULL"
             params: tuple[Any, ...] = ()
         else:
-            cutoff = (datetime.now(UTC) - timedelta(days=max_age_days)).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff = (datetime.now(UTC) - timedelta(days=max_age_days)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
             cutoff_sql = "deleted_at IS NOT NULL AND deleted_at <= ?"
             params = (cutoff,)
 
@@ -283,4 +307,3 @@ async def purge_expired(
             "purged_tasks": purged_tasks,
             "purged_briefings": purged_briefings,
         }
-

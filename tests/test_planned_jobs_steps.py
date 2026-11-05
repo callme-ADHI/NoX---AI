@@ -6,27 +6,20 @@ and notification generation.
 
 from __future__ import annotations
 
-import asyncio
-import os
-import shutil
 import subprocess
 from pathlib import Path
 
-import aiosqlite
 import pytest
 
-from noxai.jobs.schema import JobStep, StepKind
 from noxai.jobs.steps import (
-    step_git_preflight,
-    step_git_ensure_repo,
-    step_scan_secrets,
-    step_scan_large_files,
     step_fs_scan_changes,
-    step_git_stage,
     step_git_commit,
+    step_git_preflight,
     step_git_push,
+    step_git_stage,
     step_git_verify_pushed,
-    step_notify,
+    step_scan_large_files,
+    step_scan_secrets,
 )
 
 
@@ -42,9 +35,7 @@ def test_folders(tmp_path: Path):
 
     # Init working git repo
     subprocess.run(["git", "init", "-b", "main", str(work_dir)], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"], cwd=str(work_dir), check=True
-    )
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(work_dir), check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"], cwd=str(work_dir), check=True
     )
@@ -116,4 +107,3 @@ async def test_step_git_workflow_lifecycle(test_folders):
     # 5. git.verify_pushed
     r_verify = await step_git_verify_pushed(folder=str(work))
     assert r_verify.ok
-

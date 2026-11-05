@@ -22,12 +22,12 @@ def calculate_folder_summary(folder_path: str) -> dict[str, Any]:
     """Calculate upload preview summary: files count, total size, remote, private repo."""
     path = Path(os.path.expanduser(folder_path))
     exists = path.exists() and path.is_dir()
-    
+
     file_count = 0
     total_size_bytes = 0
     remote_url: str | None = None
     is_git_repo = (path / ".git").exists()
-    
+
     if exists:
         try:
             for root, dirs, files in os.walk(path):
@@ -61,6 +61,7 @@ def calculate_folder_summary(folder_path: str) -> dict[str, Any]:
         # Check via unauth GET
         try:
             import httpx
+
             # e.g. git@github.com:owner/repo.git or https://github.com/owner/repo
             match = None
             if "github.com:" in remote_url:
@@ -69,14 +70,14 @@ def calculate_folder_summary(folder_path: str) -> dict[str, Any]:
                 repo_part = remote_url.split("github.com/")[-1].removesuffix(".git")
             else:
                 repo_part = None
-            
+
             if repo_part:
                 api_url = f"https://api.github.com/repos/{repo_part}"
                 r = httpx.get(api_url, timeout=5.0)
                 if r.status_code == 200:
                     is_private = False  # Public repo!
                 elif r.status_code == 404:
-                    is_private = True   # Private or non-existent
+                    is_private = True  # Private or non-existent
         except Exception:
             pass
 

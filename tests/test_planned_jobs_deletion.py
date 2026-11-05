@@ -5,21 +5,20 @@ Verifies soft delete, restore, purge, clear-finished, and notes trashing behavio
 
 from __future__ import annotations
 
-import aiosqlite
-import pytest
 from pathlib import Path
 
+import aiosqlite
+import pytest
+
+from noxai.db import execute, fetch_all, fetch_one
 from noxai.jobs.deletion import (
-    delete_job,
-    restore_job,
-    delete_task,
-    restore_task,
     clear_finished_tasks,
-    delete_briefing,
-    restore_briefing,
+    delete_job,
+    delete_task,
     purge_expired,
+    restore_job,
+    restore_task,
 )
-from noxai.db import execute, fetch_one, fetch_all
 
 
 @pytest.fixture
@@ -126,6 +125,7 @@ async def mem_db(tmp_path: Path):
         await conn.commit()
 
     import os
+
     orig_env = os.environ.get("NOX_TEST_DB")
     os.environ["NOX_TEST_DB"] = str(db_file)
     try:
@@ -240,7 +240,6 @@ async def test_task_soft_delete_and_clear_finished(mem_db):
         remaining = await fetch_all(conn, "SELECT id FROM tasks WHERE deleted_at IS NULL")
         assert len(remaining) == 1
         assert remaining[0]["id"] == "task_4"
-
 
 
 @pytest.mark.asyncio

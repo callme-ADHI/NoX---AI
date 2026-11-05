@@ -1,9 +1,8 @@
-import asyncio
-import os
 import sqlite3
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
 import pytest
 
 from noxai.jobs.executor import execute_planned_job
@@ -102,7 +101,10 @@ def e2e_env(tmp_path, monkeypatch):
             );
         """)
 
-        mig_path = Path(__file__).parent.parent / "src/noxai/migrations/012_planned_jobs_and_delete_controls.sql"
+        mig_path = (
+            Path(__file__).parent.parent
+            / "src/noxai/migrations/012_planned_jobs_and_delete_controls.sql"
+        )
         conn.executescript(mig_path.read_text())
 
     # Create user folders under ~/Documents
@@ -117,16 +119,26 @@ def e2e_env(tmp_path, monkeypatch):
 
     for f in folders:
         bare_repo = tmp_path / f"{f}.git"
-        subprocess.run(["git", "init", "--bare", "-b", "main", str(bare_repo)], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "--bare", "-b", "main", str(bare_repo)], check=True, capture_output=True
+        )
         # Also ensure HEAD points to main
-        subprocess.run(["git", "--git-dir", str(bare_repo), "symbolic-ref", "HEAD", "refs/heads/main"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "--git-dir", str(bare_repo), "symbolic-ref", "HEAD", "refs/heads/main"],
+            check=True,
+            capture_output=True,
+        )
         bare_remotes[f] = str(bare_repo)
 
         work_dir = docs_dir / f
         work_dir.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "init", "-b", "main", str(work_dir)], check=True, capture_output=True)
         subprocess.run(
-            ["git", "-C", str(work_dir), "config", "user.name", "NoX Test"], check=True, capture_output=True
+            ["git", "init", "-b", "main", str(work_dir)], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(work_dir), "config", "user.name", "NoX Test"],
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "-C", str(work_dir), "config", "user.email", "test@nox.local"],
@@ -142,8 +154,14 @@ def e2e_env(tmp_path, monkeypatch):
         readme = work_dir / "README.md"
         readme.write_text(f"Initial {f}")
         subprocess.run(["git", "-C", str(work_dir), "add", "."], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(work_dir), "commit", "-m", "init"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(work_dir), "push", "-u", "origin", "main"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(work_dir), "commit", "-m", "init"], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(work_dir), "push", "-u", "origin", "main"],
+            check=True,
+            capture_output=True,
+        )
 
         folder_paths[f] = f"~/Documents/{f}" if " " not in f else f'~/Documents/"{f}"'
 
@@ -162,9 +180,7 @@ async def test_full_planned_backup_execution_and_step_persistence(e2e_env):
     fpaths = e2e_env["folder_paths"]
 
     job_id = "job_backup_e2e"
-    instruction = (
-        f"Push folders to GitHub: {fpaths['Certificates']}, {fpaths['Study']}, {fpaths['Obsidian Vault']}"
-    )
+    instruction = f"Push folders to GitHub: {fpaths['Certificates']}, {fpaths['Study']}, {fpaths['Obsidian Vault']}"
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -209,7 +225,9 @@ async def test_full_planned_backup_execution_and_step_persistence(e2e_env):
             assert s["state"] == "ok"
             assert s["finished_at"] is not None
 
-        notif = conn.execute("SELECT * FROM notifications ORDER BY created_at DESC LIMIT 1").fetchone()
+        notif = conn.execute(
+            "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
         assert notif is not None
         assert notif["level"] in ("info", "normal")
         assert "SUCCEEDED" in notif["message"]
@@ -288,7 +306,15 @@ async def test_preflight_failure_stops_execution(e2e_env):
     # Break remote on Study folder
     study_path = Path(e2e_env["docs_dir"]) / "Study"
     subprocess.run(
-        ["git", "-C", str(study_path), "remote", "set-url", "origin", "file:///nonexistent/repo.git"],
+        [
+            "git",
+            "-C",
+            str(study_path),
+            "remote",
+            "set-url",
+            "origin",
+            "file:///nonexistent/repo.git",
+        ],
         check=True,
     )
 
@@ -336,10 +362,13 @@ async def test_watchdog_reconciliation_of_orphaned_runs(e2e_env):
             INSERT INTO jobs (id, name, schedule_type, schedule_expr, timezone, instruction, enabled)
             VALUES (?, ?, 'cron', '0 20 * * *', 'Asia/Kolkata', 'echo test', 1)
             """,
-            (job_id, "Stale Job",),
+            (
+                job_id,
+                "Stale Job",
+            ),
         )
 
-        stale_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+        stale_time = (datetime.now(UTC) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
             """
             INSERT INTO job_runs (id, job_id, status, started_at, heartbeat_at, current_step_index)
