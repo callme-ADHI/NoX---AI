@@ -56,3 +56,31 @@ This document records all architectural decisions, trade-offs, and clarification
 - **Context**: Schema migrations and routine operations must never risk data loss on the real SQLite database (`~/.local/share/nox/nox.db`).
 - **Decision**: Enforce automatic timestamped backups before migrations and operations in `~/.local/share/nox/backups/nox_YYYYMMDD_HHMMSS_<hash>.db`, retaining the last 10 backups.
 - **Consequences**: Complete safety net with instant rollback capability via `nx backup restore <file>`.
+
+---
+
+### ADR-L1: Plan-First Job Architecture & Step Isolation
+- **Context**: Jobs previously executed freeform agent loops with LLMs invoked during execution. For scheduled maintenance (such as git backups), this caused unpredictability, long stalls waiting for local LLMs, unhandled tool approval requirements, and lack of step tracking.
+- **Decision**: Separate planning from execution. When a job is created or updated, a plan is generated ahead of time (via cloud LLM or deterministic template), validated statically, and approved once by the user. Execution runs deterministic Python subprocesses step-by-step with zero LLM calls during execution. Each step is persisted in `job_run_steps`.
+- **Consequences**: Deterministic, robust scheduled execution; progress is auditable per step; elimination of execution-time LLM delays and hangs.
+
+---
+
+### ADR-L2: Strict Privacy Sanitization with Local Placeholder Resolution
+- **Context**: Rule 7 and user privacy dictate that cloud models must never receive actual filesystem paths, folder names, file contents, remote URLs, or git details.
+- **Decision**: `noxai.jobs.privacy` detects filesystem paths and URLs in instructions and replaces them with generic numbered placeholders (`{{folder_1}}`, `{{remote_1}}`). Only the sanitized instruction is transmitted to the cloud API. The plan is returned with placeholders and re-hydrated locally before display, approval, and execution.
+- **Consequences**: Zero leakage of personal folder structures, user account names, or repository URLs to third-party endpoints. Verified via unit and network capture tests.
+
+---
+
+### ADR-L3: Generalized Slot Catch-up Scheduling & Heartbeat Watchdog
+- **Context**: Jobs scheduled at 20:00 Asia/Kolkata were missed if the machine was off. Furthermore, a run could remain "running" indefinitely if interrupted or hung.
+- **Decision**: Implement a due-slot catch-up rule where `due_slot` is the most recent scheduled slot in the past. If unserved, it is executed on startup immediately after network availability. In addition, `job_runs` maintain a 5-second heartbeat. Runs with no heartbeat for 3 minutes are marked `stalled`. `nx jobs repair` reconciles orphaned runs at startup.
+- **Consequences**: Guarantees daily execution even across system reboots or power downs. Completely prevents runs from remaining permanently in an unmonitored "running" state.
+
+---
+
+### ADR-L4: Cascading Soft Delete with Cooperative Cancellation and 10s Undo
+- **Context**: Users need delete controls for jobs, tasks, and briefings with safety against accidental deletion.
+- **Decision**: Soft delete via `deleted_at` timestamp. Running items are cooperatively cancelled first through TaskSupervisor (within 5s). Deleted items are hidden from default views and can be restored within 24h (`/restore` API or CLI, or 10s toast in UI). Deleting a briefing safely cleans up unmodified generated vault notes while preserving user-edited notes and opportunity entries.
+- **Consequences**: Immediate, safe responsiveness without permanent accidental data loss.
