@@ -675,7 +675,6 @@ async def clear_finished_tasks_endpoint() -> dict[str, Any]:
     return await clear_finished_tasks()
 
 
-
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
@@ -928,9 +927,27 @@ async def update_job_endpoint(job_id: str, updates: JobUpdateRequest) -> dict[st
         if updates.description is not None:
             sets.append("description = ?")
             vals.append(updates.description)
+        if updates.schedule_type is not None:
+            sets.append("schedule_type = ?")
+            vals.append(updates.schedule_type)
         if updates.schedule_expr is not None:
             sets.append("schedule_expr = ?")
             vals.append(updates.schedule_expr)
+        if updates.timezone is not None:
+            sets.append("timezone = ?")
+            vals.append(updates.timezone)
+        if updates.schedule_expr is not None or updates.schedule_type is not None:
+            eff_type = updates.schedule_type or str(row["schedule_type"])
+            eff_expr = updates.schedule_expr or str(row["schedule_expr"])
+            eff_tz = updates.timezone or str(row["timezone"] or "Asia/Kolkata")
+            try:
+                from noxai.scheduler.time_utils import compute_next_run
+
+                next_dt = compute_next_run(eff_type, eff_expr, eff_tz)
+                sets.append("next_run_at = ?")
+                vals.append(next_dt.isoformat())
+            except Exception:
+                pass
         if updates.instruction is not None:
             sets.append("instruction = ?")
             vals.append(updates.instruction)
@@ -1229,7 +1246,6 @@ async def get_job_run_steps_endpoint(job_id: str, run_id: str) -> list[dict[str,
         ]
 
 
-
 @api_router.get("/jobs/{job_id}/runs", response_model=list[JobRunResponse], dependencies=READ_DEPS)
 async def get_job_runs_endpoint(
     job_id: str,
@@ -1262,14 +1278,15 @@ async def get_job_runs_endpoint(
                 output_markdown=str(r["output_markdown"]) if r["output_markdown"] else None,
                 error=str(r["error"]) if r["error"] else None,
                 heartbeat_at=str(r["heartbeat_at"]) if r["heartbeat_at"] else None,
-                current_step_index=int(r["current_step_index"]) if r["current_step_index"] is not None else None,
+                current_step_index=int(r["current_step_index"])
+                if r["current_step_index"] is not None
+                else None,
                 total_steps=int(r["total_steps"]) if r["total_steps"] is not None else None,
                 due_slot=str(r["due_slot"]) if r["due_slot"] else None,
                 plan_version=int(r["plan_version"]) if r["plan_version"] is not None else None,
             )
             for r in runs
         ]
-
 
 
 # ---------------------------------------------------------------------------
@@ -1525,7 +1542,6 @@ async def update_opportunity_status(req: OpportunityStatusRequest) -> dict[str, 
     return {"ok": True, "canonical_url": req.canonical_url, "status": req.status}
 
 
-
 @api_router.post("/briefings/{briefing_id}/feedback/detailed", dependencies=WRITE_DEPS)
 async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback) -> dict[str, Any]:
     """Submit granular feedback for briefing self-rewriting prompt engine."""
@@ -1742,6 +1758,7 @@ class ThreadSummaryUpdate(BaseModel):
 async def get_thread_memory(conv_id: str) -> dict[str, Any]:
     """Retrieve full CMS L1-L3 thread state, summary, and entities."""
     import json
+
     async with get_db() as db:
         csum = await fetch_one(
             db,
@@ -1811,7 +1828,9 @@ async def get_thread_memory(conv_id: str) -> dict[str, Any]:
 async def toggle_pin_thread_message(conv_id: str, msg_id: str) -> dict[str, Any]:
     """Pin or unpin a specific dialogue message in thread working memory."""
     async with get_db() as db:
-        cstate = await fetch_one(db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,))
+        cstate = await fetch_one(
+            db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,)
+        )
         meta = json.loads(cstate["meta_json"]) if (cstate and cstate["meta_json"]) else {}
         pinned_ids = meta.setdefault("pinned_message_ids", [])
         if msg_id in pinned_ids:
@@ -1838,9 +1857,13 @@ async def toggle_pin_thread_message(conv_id: str, msg_id: str) -> dict[str, Any]
 async def forget_thread_message(conv_id: str, msg_id: str) -> dict[str, Any]:
     """Forget and delete a message and its search chunks from thread history."""
     async with get_db() as db:
-        await execute(db, "DELETE FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, conv_id))
+        await execute(
+            db, "DELETE FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, conv_id)
+        )
         await execute(db, "DELETE FROM msg_chunks WHERE message_id = ?", (msg_id,))
-        cstate = await fetch_one(db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,))
+        cstate = await fetch_one(
+            db, "SELECT meta_json FROM conv_state WHERE conversation_id = ?", (conv_id,)
+        )
         if cstate and cstate["meta_json"]:
             meta = json.loads(cstate["meta_json"])
             pinned_ids = meta.get("pinned_message_ids", [])
