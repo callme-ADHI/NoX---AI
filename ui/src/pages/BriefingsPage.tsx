@@ -28,11 +28,14 @@ import {
   ChevronUp,
   Search,
   CheckCircle,
+  Trash2,
 } from 'lucide-react';
 import { Briefing } from '../types';
 import { api } from '../services/api';
 import { SafeMarkdown } from '../components/SafeMarkdown';
 import { isSafeHttpUrl } from '../utils/sanitizer';
+import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { UndoToast } from '../components/UndoToast';
 
 const FEEDBACK_TAGS = [
   'Actionable',
@@ -156,6 +159,45 @@ export const BriefingsPage: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [feedbackReason, setFeedbackReason] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+
+  // Delete & Undo state
+  const [briefingToDelete, setBriefingToDelete] = useState<Briefing | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [undoItem, setUndoItem] = useState<{ id: number; message: string } | null>(null);
+
+  const handleDeleteBriefing = async () => {
+    if (!briefingToDelete) return;
+    setDeleteLoading(true);
+    try {
+      await api.deleteBriefing(briefingToDelete.id);
+      const title = briefingToDelete.title || 'Briefing';
+      const id = briefingToDelete.id;
+      setBriefingToDelete(null);
+      if (selectedBriefing?.id === id) {
+        setSelectedBriefing(null);
+      }
+      setUndoItem({
+        id,
+        message: `"${title}" deleted.`,
+      });
+      loadBriefings();
+    } catch (err) {
+      console.error('Failed to delete briefing:', err);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!undoItem) return;
+    try {
+      await api.restoreBriefing(undoItem.id);
+      setUndoItem(null);
+      loadBriefings();
+    } catch (err) {
+      console.error('Failed to restore briefing:', err);
+    }
+  };
 
   useEffect(() => {
     loadBriefings();
@@ -798,14 +840,26 @@ export const BriefingsPage: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-text truncate max-w-[170px]">
+                    <span className="font-semibold text-text truncate max-w-[150px]">
                       {b.title || 'Briefing Report'}
                     </span>
-                    {b.feedback && (
-                      <span className="text-[10px] text-accent">
-                        {b.feedback === 1 ? '👍' : '👎'}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {b.feedback && (
+                        <span className="text-[10px] text-accent">
+                          {b.feedback === 1 ? '👍' : '👎'}
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setBriefingToDelete(b);
+                        }}
+                        title="Delete briefing"
+                        className="p-1 rounded text-muted hover:text-danger hover:bg-raised transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 text-[11px] text-muted">
                     <Calendar className="w-3 h-3" />
@@ -919,6 +973,15 @@ export const BriefingsPage: React.FC = () => {
                   >
                     <ThumbsDown className="w-3.5 h-3.5" />
                     <span>Not Relevant</span>
+                  </button>
+
+                  <button
+                    onClick={() => setBriefingToDelete(selectedBriefing)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-raised border-border text-danger hover:bg-danger/10 text-xs transition-colors"
+                    title="Delete briefing"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
                   </button>
                 </div>
               </div>
@@ -1430,6 +1493,28 @@ export const BriefingsPage: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!briefingToDelete}
+        title="Delete Intelligence Briefing"
+        message={`Are you sure you want to delete briefing "${briefingToDelete?.title || 'Report'}"?`}
+        loading={deleteLoading}
+        onConfirm={handleDeleteBriefing}
+        onCancel={() => setBriefingToDelete(null)}
+      />
+
+      {/* Undo Toast */}
+      {undoItem && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <UndoToast
+            id={String(undoItem.id)}
+            message={undoItem.message}
+            onUndo={handleUndoDelete}
+            onDismiss={() => setUndoItem(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

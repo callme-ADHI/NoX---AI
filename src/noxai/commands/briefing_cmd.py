@@ -226,7 +226,7 @@ def briefing_list(
         async with get_db() as db:
             return await fetch_all(
                 db,
-                "SELECT * FROM briefing_runs ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM briefing_runs WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             )
 
@@ -272,7 +272,7 @@ def briefing_show(
         async with get_db() as db:
             return await fetch_one(
                 db,
-                "SELECT * FROM briefing_runs WHERE id = ? OR date = ?",
+                "SELECT * FROM briefing_runs WHERE (id = ? OR date = ?) AND deleted_at IS NULL",
                 (briefing_id, briefing_id),
             )
 
@@ -448,3 +448,46 @@ def briefing_audit(
                 )
             except Exception as exc:
                 console.print(f"[dim]Failed to send notification: {exc}[/dim]")
+
+
+@briefing_app.command(name="delete")
+def briefing_delete(
+    briefing_id: str = typer.Argument(..., help="Briefing run ID or date (YYYY-MM-DD-slot)."),
+    purge: bool = typer.Option(False, "--purge", help="Permanently purge instead of soft-delete."),
+) -> None:
+    """Delete a briefing (soft delete by default, or permanent with --purge)."""
+
+    async def _delete() -> None:
+        await run_migrations()
+        from noxai.jobs.deletion import delete_briefing
+
+        try:
+            res = await delete_briefing(briefing_id, purge=purge)
+            action_str = "purged" if purge else "soft-deleted"
+            console.print(f"[green]✓[/] Briefing '{res['id']}' ({res['title']}) {action_str}.")
+        except ValueError as err:
+            console.print(f"[red]Error:[/] {err}")
+            raise typer.Exit(1) from err
+
+    asyncio.run(_delete())
+
+
+@briefing_app.command(name="restore")
+def briefing_restore(
+    briefing_id: str = typer.Argument(..., help="Briefing run ID or date to restore."),
+) -> None:
+    """Restore a soft-deleted briefing."""
+
+    async def _restore() -> None:
+        await run_migrations()
+        from noxai.jobs.deletion import restore_briefing
+
+        try:
+            res = await restore_briefing(briefing_id)
+            console.print(f"[green]✓[/] Briefing '{res['id']}' restored.")
+        except ValueError as err:
+            console.print(f"[red]Error:[/] {err}")
+            raise typer.Exit(1) from err
+
+    asyncio.run(_restore())
+

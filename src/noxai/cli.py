@@ -100,6 +100,38 @@ app.add_typer(eval_app, name="eval")
 app.command(name="remind")(remind_command)
 app.command(name="session-env")(session_env_command)
 
+
+@app.command(name="purge")
+def purge_command(
+    all: bool = typer.Option(
+        False,
+        "--all",
+        help="Immediately purge all soft-deleted records, regardless of age.",
+    ),
+    days: int = typer.Option(
+        30,
+        "--days",
+        help="Age in days of soft-deleted records to purge (default: 30).",
+    ),
+) -> None:
+    """Purge soft-deleted jobs, tasks, and briefings from the database."""
+    import asyncio
+
+    from noxai.db import run_migrations
+    from noxai.jobs.deletion import purge_expired
+
+    async def _purge() -> None:
+        await run_migrations()
+        res = await purge_expired(max_age_days=days, force_all=all)
+        console.print(
+            f"[green]✓[/] Purged [bold]{res['purged_jobs']}[/] jobs, "
+            f"[bold]{res['purged_tasks']}[/] tasks, "
+            f"[bold]{res['purged_briefings']}[/] briefings."
+        )
+
+    asyncio.run(_purge())
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------

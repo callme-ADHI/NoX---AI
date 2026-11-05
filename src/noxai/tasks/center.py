@@ -119,12 +119,16 @@ class TaskCenter:
     async def get_task(
         self,
         task_id: str,
+        include_deleted: bool = False,
         db: aiosqlite.Connection | None = None,
     ) -> Task | None:
         """Retrieve task by ID."""
 
         async def _query(conn: aiosqlite.Connection) -> Task | None:
-            row = await fetch_one(conn, "SELECT * FROM tasks WHERE id = ?", (task_id,))
+            sql = "SELECT * FROM tasks WHERE id = ?"
+            if not include_deleted:
+                sql += " AND deleted_at IS NULL"
+            row = await fetch_one(conn, sql, (task_id,))
             if not row:
                 return None
             return self._row_to_task(row)
@@ -139,12 +143,16 @@ class TaskCenter:
         status: str | TaskStatus | None = None,
         lane: str | TaskLane | None = None,
         limit: int = 50,
+        include_deleted: bool = False,
         db: aiosqlite.Connection | None = None,
     ) -> list[Task]:
         """List tasks with optional filtering by status and lane."""
         query = "SELECT * FROM tasks"
         clauses = []
         params: list[Any] = []
+
+        if not include_deleted:
+            clauses.append("deleted_at IS NULL")
 
         if status:
             s_val = status.value if isinstance(status, TaskStatus) else status

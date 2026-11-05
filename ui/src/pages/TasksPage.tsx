@@ -9,16 +9,25 @@ import {
   Ban,
   ShieldAlert,
   Play,
+  Trash2,
 } from 'lucide-react';
 import { Task, WebSocketEvent } from '../types';
 import { api } from '../services/api';
 import { wsService } from '../services/websocket';
+import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { UndoToast } from '../components/UndoToast';
 
 export const TasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [filterTab, setFilterTab] = useState<'all' | 'active' | 'waiting' | 'completed'>('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  // Delete & Undo state
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [clearingFinished, setClearingFinished] = useState(false);
+  const [undoItem, setUndoItem] = useState<{ id: string; message: string } | null>(null);
 
   // New task form state
   const [newTitle, setNewTitle] = useState('');
@@ -59,6 +68,49 @@ export const TasksPage: React.FC = () => {
       loadTasks(false);
     } catch (err) {
       console.error('Failed to cancel task:', err);
+    }
+  };
+
+  const handleDeleteTask = async () => {
+    if (!taskToDelete) return;
+    setDeleteLoading(true);
+    try {
+      await api.deleteTask(taskToDelete.id);
+      const title = taskToDelete.title;
+      const id = taskToDelete.id;
+      setTaskToDelete(null);
+      setUndoItem({
+        id,
+        message: `Task "${title}" deleted.`,
+      });
+      loadTasks(false);
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleUndoDelete = async () => {
+    if (!undoItem) return;
+    try {
+      await api.restoreTask(undoItem.id);
+      setUndoItem(null);
+      loadTasks(false);
+    } catch (err) {
+      console.error('Failed to restore task:', err);
+    }
+  };
+
+  const handleClearFinished = async () => {
+    setClearingFinished(true);
+    try {
+      await api.clearFinishedTasks();
+      loadTasks(false);
+    } catch (err) {
+      console.error('Failed to clear finished tasks:', err);
+    } finally {
+      setClearingFinished(false);
     }
   };
 
@@ -191,6 +243,15 @@ export const TasksPage: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={handleClearFinished}
+            disabled={clearingFinished || loading}
+            title="Clear all completed, cancelled, and failed tasks"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-raised border border-border text-xs text-muted hover:text-text transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            {clearingFinished ? 'Clearing...' : 'Clear Finished'}
+          </button>
+          <button
             onClick={() => loadTasks(true)}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-raised border border-border text-xs text-text transition-colors"
@@ -297,6 +358,13 @@ export const TasksPage: React.FC = () => {
                           Cancel
                         </button>
                       )}
+                      <button
+                        onClick={() => setTaskToDelete(task)}
+                        title="Delete task"
+                        className="p-1 rounded bg-raised hover:bg-border text-danger border border-border text-[11px] inline-flex items-center transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -382,6 +450,28 @@ export const TasksPage: React.FC = () => {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={!!taskToDelete}
+        title="Delete Background Task"
+        message={`Are you sure you want to delete task "${taskToDelete?.title}"? Active executions will be cancelled.`}
+        loading={deleteLoading}
+        onConfirm={handleDeleteTask}
+        onCancel={() => setTaskToDelete(null)}
+      />
+
+      {/* Undo Toast */}
+      {undoItem && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <UndoToast
+            id={undoItem.id}
+            message={undoItem.message}
+            onUndo={handleUndoDelete}
+            onDismiss={() => setUndoItem(null)}
+          />
         </div>
       )}
     </div>

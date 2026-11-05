@@ -154,3 +154,60 @@ def tasks_create(
             raise typer.Exit(1) from exc
 
     asyncio.run(_create())
+
+
+@tasks_app.command(name="delete")
+def tasks_delete(
+    task_id: str = typer.Argument(..., help="Task ID to delete."),
+    purge: bool = typer.Option(False, "--purge", help="Permanently purge instead of soft-delete."),
+) -> None:
+    """Delete a task (soft delete by default, or permanent with --purge)."""
+
+    async def _delete() -> None:
+        await run_migrations()
+        from noxai.jobs.deletion import delete_task
+
+        try:
+            res = await delete_task(task_id, purge=purge)
+            action_str = "purged" if purge else "soft-deleted"
+            console.print(f"[green]✓[/] Task '{task_id}' {action_str}.")
+        except ValueError as err:
+            console.print(f"[red]Error:[/] {err}")
+            raise typer.Exit(1) from err
+
+    asyncio.run(_delete())
+
+
+@tasks_app.command(name="restore")
+def tasks_restore(
+    task_id: str = typer.Argument(..., help="Task ID to restore."),
+) -> None:
+    """Restore a soft-deleted task."""
+
+    async def _restore() -> None:
+        await run_migrations()
+        from noxai.jobs.deletion import restore_task
+
+        try:
+            res = await restore_task(task_id)
+            console.print(f"[green]✓[/] Task '{task_id}' ({res['title']}) restored.")
+        except ValueError as err:
+            console.print(f"[red]Error:[/] {err}")
+            raise typer.Exit(1) from err
+
+    asyncio.run(_restore())
+
+
+@tasks_app.command(name="clear-finished")
+def tasks_clear_finished() -> None:
+    """Clear all finished tasks (done, failed, cancelled)."""
+
+    async def _clear() -> None:
+        await run_migrations()
+        from noxai.jobs.deletion import clear_finished_tasks
+
+        res = await clear_finished_tasks()
+        console.print(f"[green]✓[/] Cleared {res['cleared']} finished tasks.")
+
+    asyncio.run(_clear())
+

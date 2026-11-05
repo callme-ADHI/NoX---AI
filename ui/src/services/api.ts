@@ -11,7 +11,11 @@ import {
   EgressRecord,
   Episode,
   Job,
+  JobPlanData,
+  JobRun,
+  JobRunStep,
   JobVersion,
+  NotificationItem,
   SystemStatus,
   Task,
 } from '../types';
@@ -144,6 +148,33 @@ export const api = {
       body: JSON.stringify({ version }),
     }),
 
+  restoreJob: (id: string) =>
+    request<{ ok: boolean; status: string }>(`/jobs/${id}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  getJobPlan: (id: string) =>
+    request<JobPlanData>(`/jobs/${id}/plan`),
+
+  generateJobPlan: (id: string, mode?: string) =>
+    request<JobPlanData>(`/jobs/${id}/plan/generate`, {
+      method: 'POST',
+      body: JSON.stringify(mode ? { mode } : {}),
+    }),
+
+  approveJobPlan: (id: string, version?: number) =>
+    request<{ ok: boolean; version: number }>(`/jobs/${id}/plan/approve`, {
+      method: 'POST',
+      body: JSON.stringify(version !== undefined ? { version } : {}),
+    }),
+
+  getJobRuns: (id: string) =>
+    request<JobRun[]>(`/jobs/${id}/runs`),
+
+  getJobRunSteps: (jobId: string, runId: string) =>
+    request<JobRunStep[]>(`/jobs/${jobId}/runs/${runId}/steps`),
+
   // Briefings
   getBriefings: () => request<Briefing[]>('/briefings'),
 
@@ -153,6 +184,16 @@ export const api = {
     request<{ ok: boolean }>(`/briefings/${id}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ rating, note }),
+    }),
+
+  deleteBriefing: (id: number | string) =>
+    request<{ ok: boolean }>(`/briefings/${id}`, {
+      method: 'DELETE',
+    }),
+
+  restoreBriefing: (id: number | string) =>
+    request<{ ok: boolean; status: string }>(`/briefings/${id}/restore`, {
+      method: 'POST',
     }),
 
   // Memory
@@ -276,6 +317,21 @@ export const api = {
 
   cancelTask: (id: string) =>
     request<{ ok: boolean; status: string }>(`/tasks/${id}/cancel`, {
+      method: 'POST',
+    }),
+
+  deleteTask: (id: string) =>
+    request<{ ok: boolean; status: string }>(`/tasks/${id}`, {
+      method: 'DELETE',
+    }),
+
+  restoreTask: (id: string) =>
+    request<{ ok: boolean; status: string }>(`/tasks/${id}/restore`, {
+      method: 'POST',
+    }),
+
+  clearFinishedTasks: () =>
+    request<{ ok: boolean; cleared: number }>('/tasks/clear-finished', {
       method: 'POST',
     }),
 
@@ -443,4 +499,24 @@ export const api = {
       vault_path: string;
       obsidian_uri: string;
     }>('/notes/open', { method: 'POST' }),
+
+  // Purge & Notifications
+  purgeDeleted: (params: { all?: boolean; days?: number } = {}) =>
+    request<{ ok: boolean; purged: Record<string, number> }>('/purge', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  getNotifications: (unreadOnly = false) =>
+    request<NotificationItem[]>(`/notifications?unread_only=${unreadOnly}`),
+
+  clearNotifications: () =>
+    request<{ ok: boolean; count: number }>('/notifications/clear', {
+      method: 'POST',
+    }),
+
+  markNotificationRead: (id: number) =>
+    request<{ ok: boolean }>(`/notifications/${id}/read`, {
+      method: 'POST',
+    }),
 };

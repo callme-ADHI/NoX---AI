@@ -156,7 +156,7 @@ class JobUpdateRequest(BaseModel):
 
 
 class JobRestoreRequest(BaseModel):
-    version: int
+    version: int | None = None
 
 
 class SourceCreateRequest(BaseModel):
@@ -245,6 +245,11 @@ class JobRunResponse(BaseModel):
     task_run_id: str | None = None
     output_markdown: str | None = None
     error: str | None = None
+    heartbeat_at: str | None = None
+    current_step_index: int | None = None
+    total_steps: int | None = None
+    due_slot: str | None = None
+    plan_version: int | None = None
 
 
 class JobVersionResponse(BaseModel):
@@ -640,6 +645,37 @@ async def cancel_task_endpoint(task_id: str) -> dict[str, Any]:
     return {"ok": True, "task_id": task_id, "status": "cancelled"}
 
 
+@api_router.delete("/tasks/{task_id}", dependencies=WRITE_DEPS)
+async def delete_task_endpoint(task_id: str, purge: bool = False) -> dict[str, Any]:
+    """Delete a task (soft-delete with 30-day grace period, or purge)."""
+    from noxai.jobs.deletion import delete_task
+
+    try:
+        return await delete_task(task_id, purge=purge)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+
+
+@api_router.post("/tasks/{task_id}/restore", dependencies=WRITE_DEPS)
+async def restore_task_endpoint(task_id: str) -> dict[str, Any]:
+    """Restore a soft-deleted task."""
+    from noxai.jobs.deletion import restore_task
+
+    try:
+        return await restore_task(task_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+
+
+@api_router.post("/tasks/clear-finished", dependencies=WRITE_DEPS)
+async def clear_finished_tasks_endpoint() -> dict[str, Any]:
+    """Clear all finished tasks (done, failed, cancelled)."""
+    from noxai.jobs.deletion import clear_finished_tasks
+
+    return await clear_finished_tasks()
+
+
+
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
@@ -750,7 +786,7 @@ async def list_jobs() -> list[JobResponse]:
             SELECT id, name, description, schedule_type, schedule_expr, timezone,
                    instruction, config_json, enabled, created_by, version,
                    created_at, updated_at, last_run_at, next_run_at
-            FROM jobs ORDER BY name ASC
+            FROM jobs WHERE deleted_at IS NULL ORDER BY name ASC
             """,
         )
         results: list[JobResponse] = []
@@ -845,7 +881,7 @@ async def get_job_endpoint(job_id: str) -> JobResponse:
             SELECT id, name, description, schedule_type, schedule_expr, timezone,
                    instruction, config_json, enabled, created_by, version,
                    created_at, updated_at, last_run_at, next_run_at
-            FROM jobs WHERE id = ? OR name = ?
+            FROM jobs WHERE (id = ? OR name = ?) AND deleted_at IS NULL
             """,
             (job_id, job_id),
         )
@@ -944,12 +980,14 @@ async def update_job_endpoint(job_id: str, updates: JobUpdateRequest) -> dict[st
 
 
 @api_router.delete("/jobs/{job_id}", dependencies=WRITE_DEPS)
-async def delete_job_endpoint(job_id: str) -> dict[str, bool]:
-    """Delete a scheduled job."""
-    async with get_db() as db:
-        await execute(db, "DELETE FROM jobs WHERE id = ? OR name = ?", (job_id, job_id))
-        await db.commit()
-    return {"ok": True}
+async def delete_job_endpoint(job_id: str, purge: bool = False) -> dict[str, Any]:
+    """Delete a scheduled job (soft-delete with 30-day grace period, or purge)."""
+    from noxai.jobs.deletion import delete_job
+
+    try:
+        return await delete_job(job_id, purge=purge)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
 
 
 @api_router.post("/jobs/{job_id}/run", dependencies=WRITE_DEPS)
@@ -998,60 +1036,198 @@ async def get_job_versions_endpoint(job_id: str) -> list[JobVersionResponse]:
 
 
 @api_router.post("/jobs/{job_id}/restore", dependencies=WRITE_DEPS)
-async def restore_job_endpoint(job_id: str, body: JobRestoreRequest) -> dict[str, Any]:
-    """Restore a job to a specific previous version."""
+async def restore_job_endpoint(
+    job_id: str, body: JobRestoreRequest | None = None
+) -> dict[str, Any]:
+    """Restore a job from soft-delete or restore a specific historical version snapshot."""
+    if body and body.version is not None:
+        async with get_db() as db:
+            row = await fetch_one(
+                db, "SELECT id FROM jobs WHERE id = ? OR name = ?", (job_id, job_id)
+            )
+            if not row:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            real_id = str(row["id"])
+            v_row = await fetch_one(
+                db,
+                "SELECT snapshot_json FROM job_versions WHERE job_id = ? AND version = ?",
+                (real_id, body.version),
+            )
+            if not v_row:
+                raise HTTPException(status_code=404, detail=f"Version {body.version} not found")
+
+            snap = _safe_json_loads(v_row["snapshot_json"])
+            if not isinstance(snap, dict):
+                snap = {}
+
+            schedule_type = snap.get("schedule_type", "cron")
+            schedule_expr = snap.get("schedule_expr", "0 0 * * *")
+            timezone = snap.get("timezone", "Asia/Kolkata")
+            instruction = snap.get("instruction", "")
+            config_val = snap.get("config")
+            config_json = (
+                json.dumps(config_val)
+                if isinstance(config_val, dict)
+                else snap.get("config_json", "{}")
+            )
+            enabled = int(snap.get("enabled", 1))
+
+            await execute(
+                db,
+                """
+                UPDATE jobs SET
+                    schedule_type = ?, schedule_expr = ?, timezone = ?,
+                    instruction = ?, config_json = ?, enabled = ?,
+                    version = ?, updated_at = datetime('now'), deleted_at = NULL
+                WHERE id = ?
+                """,
+                (
+                    schedule_type,
+                    schedule_expr,
+                    timezone,
+                    instruction,
+                    config_json,
+                    enabled,
+                    body.version,
+                    real_id,
+                ),
+            )
+            await db.commit()
+            return {"ok": True, "restored_version": body.version}
+    else:
+        from noxai.jobs.deletion import restore_job
+
+        try:
+            return await restore_job(job_id)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+
+
+@api_router.get("/jobs/{job_id}/plan", dependencies=READ_DEPS)
+async def get_job_plan_endpoint(job_id: str) -> dict[str, Any]:
+    """Retrieve the latest plan for a job along with folder summaries."""
+    async with get_db() as db:
+        row = await fetch_one(
+            db, "SELECT id, instruction FROM jobs WHERE id = ? OR name = ?", (job_id, job_id)
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        real_id = str(row["id"])
+
+        plan_row = await fetch_one(
+            db,
+            """
+            SELECT version, steps_json, status, source, approved_at, approved_by, created_at
+            FROM job_plans WHERE job_id = ? ORDER BY version DESC LIMIT 1
+            """,
+            (real_id,),
+        )
+        if not plan_row:
+            return {"job_id": real_id, "has_plan": False}
+
+        steps_data = _safe_json_loads(plan_row["steps_json"])
+
+        from noxai.jobs.template import calculate_folder_summary
+
+        folders_summary = []
+        if isinstance(steps_data, list):
+            seen_folders = set()
+            for s in steps_data:
+                target_folder = s.get("target_folder")
+                if target_folder and target_folder not in seen_folders:
+                    seen_folders.add(target_folder)
+                    summary = calculate_folder_summary(target_folder)
+                    folders_summary.append(summary)
+
+        return {
+            "job_id": real_id,
+            "has_plan": True,
+            "version": plan_row["version"],
+            "status": plan_row["status"],
+            "source": plan_row["source"],
+            "approved_at": plan_row["approved_at"],
+            "approved_by": plan_row["approved_by"],
+            "created_at": plan_row["created_at"],
+            "steps": steps_data,
+            "folders": folders_summary,
+        }
+
+
+@api_router.post("/jobs/{job_id}/plan/generate", dependencies=WRITE_DEPS)
+async def generate_job_plan_endpoint(job_id: str, force_template: bool = False) -> dict[str, Any]:
+    """Generate a plan for a job using cloud API or deterministic fallback template."""
+    async with get_db() as db:
+        row = await fetch_one(
+            db, "SELECT id, instruction FROM jobs WHERE id = ? OR name = ?", (job_id, job_id)
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        real_id = str(row["id"])
+        instruction = str(row["instruction"])
+
+    from noxai.jobs.planner import generate_plan_for_job
+
+    try:
+        plan, version = await generate_plan_for_job(
+            real_id, instruction, force_template=force_template
+        )
+        return {
+            "ok": True,
+            "job_id": real_id,
+            "version": version,
+            "steps": [s.model_dump() for s in plan.steps],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@api_router.post("/jobs/{job_id}/plan/approve", dependencies=WRITE_DEPS)
+async def approve_job_plan_endpoint(job_id: str, version: int | None = None) -> dict[str, Any]:
+    """Approve a draft plan for execution."""
     async with get_db() as db:
         row = await fetch_one(db, "SELECT id FROM jobs WHERE id = ? OR name = ?", (job_id, job_id))
         if not row:
             raise HTTPException(status_code=404, detail="Job not found")
-
         real_id = str(row["id"])
-        v_row = await fetch_one(
-            db,
-            "SELECT snapshot_json FROM job_versions WHERE job_id = ? AND version = ?",
-            (real_id, body.version),
-        )
-        if not v_row:
-            raise HTTPException(status_code=404, detail=f"Version {body.version} not found")
 
-        snap = _safe_json_loads(v_row["snapshot_json"])
-        if not isinstance(snap, dict):
-            snap = {}
+    from noxai.jobs.planner import approve_job_plan
 
-        schedule_type = snap.get("schedule_type", "cron")
-        schedule_expr = snap.get("schedule_expr", "0 0 * * *")
-        timezone = snap.get("timezone", "Asia/Kolkata")
-        instruction = snap.get("instruction", "")
-        config_val = snap.get("config")
-        config_json = (
-            json.dumps(config_val)
-            if isinstance(config_val, dict)
-            else snap.get("config_json", "{}")
-        )
-        enabled = int(snap.get("enabled", 1))
+    try:
+        app_version = await approve_job_plan(real_id, version=version)
+        return {"ok": True, "job_id": real_id, "version": app_version, "status": "approved"}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-        await execute(
+
+@api_router.get("/jobs/{job_id}/runs/{run_id}/steps", dependencies=READ_DEPS)
+async def get_job_run_steps_endpoint(job_id: str, run_id: str) -> list[dict[str, Any]]:
+    """Get step-by-step execution details for a job run."""
+    async with get_db() as db:
+        rows = await fetch_all(
             db,
             """
-            UPDATE jobs SET
-                schedule_type = ?, schedule_expr = ?, timezone = ?,
-                instruction = ?, config_json = ?, enabled = ?,
-                version = ?, updated_at = datetime('now')
-            WHERE id = ?
+            SELECT id, step_index, kind, label, state, output_json, error, duration_ms, started_at, finished_at
+            FROM job_run_steps WHERE run_id = ? ORDER BY step_index ASC
             """,
-            (
-                schedule_type,
-                schedule_expr,
-                timezone,
-                instruction,
-                config_json,
-                enabled,
-                body.version,
-                real_id,
-            ),
+            (run_id,),
         )
-        await db.commit()
-        return {"ok": True, "restored_version": body.version}
+        return [
+            {
+                "id": r["id"],
+                "step_index": r["step_index"],
+                "kind": r["kind"],
+                "label": r["label"],
+                "state": r["state"],
+                "output": _safe_json_loads(r["output_json"]),
+                "error": r["error"],
+                "duration_ms": r["duration_ms"],
+                "started_at": r["started_at"],
+                "finished_at": r["finished_at"],
+            }
+            for r in rows
+        ]
+
 
 
 @api_router.get("/jobs/{job_id}/runs", response_model=list[JobRunResponse], dependencies=READ_DEPS)
@@ -1069,7 +1245,8 @@ async def get_job_runs_endpoint(
         runs = await fetch_all(
             db,
             """
-            SELECT id, job_id, started_at, finished_at, status, task_run_id, output_markdown, error
+            SELECT id, job_id, started_at, finished_at, status, task_run_id, output_markdown, error,
+                   heartbeat_at, current_step_index, total_steps, due_slot, plan_version
             FROM job_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?
             """,
             (str(row["id"]), limit, offset),
@@ -1084,9 +1261,15 @@ async def get_job_runs_endpoint(
                 task_run_id=str(r["task_run_id"]) if r["task_run_id"] else None,
                 output_markdown=str(r["output_markdown"]) if r["output_markdown"] else None,
                 error=str(r["error"]) if r["error"] else None,
+                heartbeat_at=str(r["heartbeat_at"]) if r["heartbeat_at"] else None,
+                current_step_index=int(r["current_step_index"]) if r["current_step_index"] is not None else None,
+                total_steps=int(r["total_steps"]) if r["total_steps"] is not None else None,
+                due_slot=str(r["due_slot"]) if r["due_slot"] else None,
+                plan_version=int(r["plan_version"]) if r["plan_version"] is not None else None,
             )
             for r in runs
         ]
+
 
 
 # ---------------------------------------------------------------------------
@@ -1357,6 +1540,82 @@ async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback)
         tags=fb.tags,
     )
     return {"ok": True, "feedback_id": fb_id}
+
+
+@api_router.delete("/briefings/{briefing_id}", dependencies=WRITE_DEPS)
+async def delete_briefing_endpoint(briefing_id: str, purge: bool = False) -> dict[str, Any]:
+    """Delete a briefing (soft delete with 30-day grace period, or purge)."""
+    from noxai.jobs.deletion import delete_briefing
+
+    try:
+        return await delete_briefing(briefing_id, purge=purge)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+
+
+@api_router.post("/briefings/{briefing_id}/restore", dependencies=WRITE_DEPS)
+async def restore_briefing_endpoint(briefing_id: str) -> dict[str, Any]:
+    """Restore a soft-deleted briefing."""
+    from noxai.jobs.deletion import restore_briefing
+
+    try:
+        return await restore_briefing(briefing_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+
+
+@api_router.post("/purge", dependencies=WRITE_DEPS)
+async def purge_endpoint(all: bool = False, days: int = 30) -> dict[str, int]:
+    """Purge soft-deleted jobs, tasks, and briefings."""
+    from noxai.jobs.deletion import purge_expired
+
+    return await purge_expired(max_age_days=days, force_all=all)
+
+
+@api_router.get("/notifications", dependencies=READ_DEPS)
+async def list_notifications_endpoint(
+    limit: int = 50, unread_only: bool = False
+) -> list[dict[str, Any]]:
+    """List in-app notifications from the notification center."""
+    async with get_db() as db:
+        sql = "SELECT id, category, title, body, payload_json, read, created_at FROM notifications"
+        if unread_only:
+            sql += " WHERE read = 0"
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        rows = await fetch_all(db, sql, (limit,))
+        return [
+            {
+                "id": r["id"],
+                "category": r["category"],
+                "title": r["title"],
+                "body": r["body"],
+                "payload": _safe_json_loads(r["payload_json"]),
+                "read": bool(r["read"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+
+@api_router.post("/notifications/clear", dependencies=WRITE_DEPS)
+async def clear_notifications_endpoint(all: bool = False) -> dict[str, Any]:
+    """Mark all notifications as read (or delete if all=True)."""
+    async with get_db() as db:
+        if all:
+            await execute(db, "DELETE FROM notifications")
+        else:
+            await execute(db, "UPDATE notifications SET read = 1 WHERE read = 0")
+        await db.commit()
+    return {"ok": True}
+
+
+@api_router.post("/notifications/{notif_id}/read", dependencies=WRITE_DEPS)
+async def mark_notification_read_endpoint(notif_id: int) -> dict[str, Any]:
+    """Mark a single notification as read."""
+    async with get_db() as db:
+        await execute(db, "UPDATE notifications SET read = 1 WHERE id = ?", (notif_id,))
+        await db.commit()
+    return {"ok": True, "id": notif_id}
 
 
 @api_router.get("/notes/info", dependencies=READ_DEPS)

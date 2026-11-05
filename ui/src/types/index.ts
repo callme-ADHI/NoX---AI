@@ -202,3 +202,77 @@ export interface EgressRecord {
   sha256_hash: string;
   created_at: string;
 }
+
+export interface JobStep {
+  kind: string;
+  folder?: string | null;
+  params: Record<string, unknown>;
+  timeout_seconds: number;
+  retry_policy?: {
+    max_retries: number;
+    backoff_seconds: number;
+  };
+}
+
+export interface FolderSummary {
+  folder: string;
+  file_count: number;
+  total_size_bytes: number;
+  status: string;
+  error?: string | null;
+}
+
+export interface JobPlanData {
+  version: number;
+  plan_json: {
+    steps: JobStep[];
+    folders?: string[];
+  };
+  source: 'cloud' | 'template' | string;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  created_at: string;
+  folder_summaries?: FolderSummary[];
+}
+
+export interface JobRunStep {
+  id: number;
+  run_id: string;
+  step_index: number;
+  kind: string;
+  folder?: string | null;
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped' | string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  exit_code?: number | null;
+  stdout_tail?: string | null;
+  stderr_tail?: string | null;
+  error?: string | null;
+  retry_count: number;
+}
+
+export interface JobRun {
+  id: string;
+  job_id: string;
+  status: 'running' | 'success' | 'failed' | 'aborted' | string;
+  started_at: string;
+  finished_at?: string | null;
+  error?: string | null;
+  plan_version?: number | null;
+  current_step_index?: number | null;
+  heartbeat_at?: string | null;
+  due_slot?: string | null;
+}
+
+export interface NotificationItem {
+  id: number;
+  job_id?: string | null;
+  job_run_id?: string | null;
+  title: string;
+  message: string;
+  level: 'info' | 'success' | 'warning' | 'error' | string;
+  read: boolean | number;
+  created_at: string;
+}
+
