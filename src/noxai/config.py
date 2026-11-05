@@ -329,6 +329,28 @@ class NotesConfig(_StrictModel):
     export_threads: bool = True
 
 
+class JobsBackupConfig(_StrictModel):
+    """Daily GitHub backup configuration."""
+
+    folders: list[str] = [
+        "~/Documents/Certificates",
+        "~/Documents/Study",
+        "~/Documents/Obsidian Vault",
+    ]
+    schedule: str = "daily 20:00 Asia/Kolkata"
+    allow_unverified_remote: bool = False
+
+
+class JobsConfig(_StrictModel):
+    """Planned jobs and background executor configuration."""
+
+    allowed_roots: list[str] = ["~/Documents"]
+    backup: JobsBackupConfig = JobsBackupConfig()
+    default_timeout_seconds: int = 2700  # 45 min
+    heartbeat_seconds: int = 5
+    stale_heartbeat_seconds: int = 180  # 3 min
+
+
 # ---------------------------------------------------------------------------
 # Root config model
 # ---------------------------------------------------------------------------
@@ -353,6 +375,7 @@ class Settings(BaseModel):
     briefing: BriefingConfig = BriefingConfig()
     research: ResearchConfig = ResearchConfig()
     notes: NotesConfig = NotesConfig()
+    jobs: JobsConfig = JobsConfig()
 
     # Secrets (loaded separately, not from TOML)
     nvidia_api_key: SecretStr | None = None

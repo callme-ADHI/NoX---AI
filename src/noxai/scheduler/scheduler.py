@@ -75,49 +75,85 @@ class JobScheduler:
             db,
             """
             SELECT id, name, schedule_type, schedule_expr, timezone, instruction,
-                   config_json, next_run_at
+                   config_json, next_run_at, last_run_at
             FROM jobs
-            WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+            WHERE enabled = 1 AND deleted_at IS NULL
             """,
-            (now_iso,),
         )
 
         caught_up = 0
+        from noxai.jobs.catchup import is_job_due
+
         for r in rows:
             cfg = json.loads(r["config_json"]) if r["config_json"] else {}
-            catchup_policy = cfg.get("catchup", "once")
-            next_run_str = str(r["next_run_at"])
+            st = str(r["schedule_type"])
+            se = str(r["schedule_expr"])
+            tz = str(r["timezone"] or DEFAULT_TIMEZONE)
+            is_backup = (
+                "backup" in str(r["name"]).lower()
+                or "backup" in str(r["instruction"]).lower()
+                or cfg.get("kind") in ("planned_job", "backup")
+            )
 
-            try:
-                next_dt = datetime.fromisoformat(next_run_str)
-                if next_dt.tzinfo is None:
-                    next_dt = next_dt.replace(tzinfo=UTC)
-            except Exception:
-                next_dt = now_utc
+            due_slot_val = None
+            should_run = False
 
-            if should_catchup(next_dt, now_utc, catchup_policy):
-                log.info("Catching up missed job '%s' (scheduled for %s)", r["name"], next_run_str)
-                await self.run_job(r, db, run_context="catchup")
+            if st == "daily" or is_backup or ":" in se:
+                hour = 20
+                minute = 0
+                if ":" in se:
+                    parts = se.split(":")
+                    try:
+                        hour = int(parts[0])
+                        minute = int(parts[1])
+                    except (ValueError, IndexError):
+                        pass
+                due, slot_iso = await is_job_due(
+                    str(r["id"]),
+                    schedule_hour=hour,
+                    schedule_minute=minute,
+                    tz_name=tz,
+                    db=db,
+                    now_dt=now_utc,
+                )
+                if due:
+                    should_run = True
+                    due_slot_val = slot_iso
+            elif r["next_run_at"] and str(r["next_run_at"]) <= now_iso:
+                catchup_policy = cfg.get("catchup", "once")
+                next_run_str = str(r["next_run_at"])
+                try:
+                    next_dt = datetime.fromisoformat(next_run_str)
+                    if next_dt.tzinfo is None:
+                        next_dt = next_dt.replace(tzinfo=UTC)
+                except Exception:
+                    next_dt = now_utc
+                if should_catchup(next_dt, now_utc, catchup_policy):
+                    should_run = True
+
+            if should_run:
+                log.info(
+                    "Catching up missed job '%s' (due slot: %s)",
+                    r["name"],
+                    due_slot_val or r["next_run_at"],
+                )
+                await self.run_job(r, db, run_context="catchup", due_slot=due_slot_val)
                 caught_up += 1
             else:
-                # Skip to next occurrence
-                new_next = compute_next_run(
-                    schedule_type=str(r["schedule_type"]),
-                    schedule_expr=str(r["schedule_expr"]),
-                    tz_name=str(r["timezone"] or DEFAULT_TIMEZONE),
-                    base_dt=now_utc,
-                )
-                new_iso = new_next.isoformat() if new_next else None
-                await execute(
-                    db,
-                    "UPDATE jobs SET next_run_at = ?, updated_at = datetime('now') WHERE id = ?",
-                    (new_iso, str(r["id"])),
-                )
-                log.info(
-                    "Skipped missed job '%s'; rescheduled to %s",
-                    r["name"],
-                    new_iso,
-                )
+                # Skip to next occurrence if past next_run_at
+                if r["next_run_at"] and str(r["next_run_at"]) <= now_iso:
+                    new_next = compute_next_run(
+                        schedule_type=st,
+                        schedule_expr=se,
+                        tz_name=tz,
+                        base_dt=now_utc,
+                    )
+                    new_iso = new_next.isoformat() if new_next else None
+                    await execute(
+                        db,
+                        "UPDATE jobs SET next_run_at = ?, updated_at = datetime('now') WHERE id = ?",
+                        (new_iso, str(r["id"])),
+                    )
 
         if rows:
             await db.commit()
@@ -134,7 +170,7 @@ class JobScheduler:
             SELECT id, name, schedule_type, schedule_expr, timezone, instruction,
                    config_json, next_run_at
             FROM jobs
-            WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+            WHERE enabled = 1 AND deleted_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?
             ORDER BY next_run_at ASC
             """,
             (now_iso,),
@@ -156,8 +192,9 @@ class JobScheduler:
         job_row: Any,
         db: aiosqlite.Connection,
         run_context: str = "manual",
+        due_slot: str | None = None,
     ) -> dict[str, Any]:
-        """Execute a single job (reminder or agent task) and schedule its next occurrence."""
+        """Execute a single job (reminder, planned job, or agent task) and schedule its next occurrence."""
         job_id = str(job_row["id"])
         job_name = str(job_row["name"])
         schedule_type = str(job_row["schedule_type"])
@@ -173,20 +210,27 @@ class JobScheduler:
         )
         job_run_id = f"jrun_{uuid.uuid4().hex[:12]}"
 
-        # Record job run started
+        # Record job run started and ensure last_run_at is populated right away
         await execute(
             db,
             """
-            INSERT INTO job_runs (id, job_id, started_at, status)
-            VALUES (?, ?, datetime('now'), 'running')
+            INSERT INTO job_runs (id, job_id, started_at, status, heartbeat_at, due_slot)
+            VALUES (?, ?, datetime('now'), 'running', datetime('now'), ?)
             """,
-            (job_run_id, job_id),
+            (job_run_id, job_id, due_slot),
+        )
+        await execute(
+            db,
+            "UPDATE jobs SET last_run_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+            (job_id,),
         )
         await db.commit()
+
 
         output_text = ""
         status = "ok"
         error_msg: str | None = None
+        is_planned = False
 
         if kind == "reminder" or job_id.startswith("rem_"):
             # Section 6.7: "Reminders fire WITHOUT ANY LLM CALL: deliver the message directly."
@@ -229,118 +273,161 @@ class JobScheduler:
                     output_text = f"Consolidation error: {exc}"
 
         else:
-            # General agent job: pipeline with complexity gate & DAG / loop
-            tz = get_zoneinfo(tz_name)
-            today_str = datetime.now(tz).strftime("%A, %d %B %Y")
-            formatted_instruction = instruction.replace("{today}", today_str)
+            # Check if this job has a plan or is a backup / planned job
+            is_backup_or_planned = (
+                cfg.get("kind") in ("planned_job", "backup")
+                or "backup" in job_name.lower()
+                or "backup" in instruction.lower()
+                or "github" in instruction.lower()
+            )
+            plan_row = await fetch_one(
+                db, "SELECT version FROM job_plans WHERE job_id = ?", (job_id,)
+            )
 
-            allow_cloud = bool(cfg.get("allow_cloud", False))
-            max_runtime = cfg.get("max_runtime_seconds")
-            timeout_sec = float(max_runtime) if max_runtime is not None else None
+            if is_backup_or_planned or plan_row:
+                is_planned = True
+                from noxai.jobs.executor import execute_planned_job
 
-            async def _execute_agent_job() -> str:
-                nonlocal status
-                from noxai.agent.gate import evaluate_complexity
-
-                gate_res = await evaluate_complexity(
-                    formatted_instruction,
-                    router=self.router,
-                )
-
-                if gate_res.is_complex:
-                    from noxai.agent.executor import DAGExecutor
-
-                    executor = DAGExecutor(
-                        router=self.router,
-                        registry=self.registry,
-                        config=self.config,
-                        event_bus=self.event_bus,
-                    )
-                    exec_res = await executor.execute_plan(
-                        goal=formatted_instruction,
-                        allow_cloud=allow_cloud,
-                        db=db,
-                    )
-                    status = "ok" if exec_res.status == "done" else "failed"
-                    return exec_res.final_text
-                else:
-                    from noxai.agent.loop import AgentLoop
-
-                    loop = AgentLoop(
-                        router=self.router,
-                        registry=self.registry,
-                        config=self.config,
-                        event_bus=self.event_bus,
-                    )
-                    loop_res = await loop.run(
-                        formatted_instruction,
-                        allow_cloud=allow_cloud,
-                        db=db,
-                    )
-                    status = "ok" if loop_res.status == "done" else "failed"
-                    return loop_res.text
-
-            async with self._local_job_sem:
                 try:
-                    if timeout_sec is not None:
-                        output_text = await asyncio.wait_for(
-                            _execute_agent_job(), timeout=timeout_sec
-                        )
-                    else:
-                        output_text = await _execute_agent_job()
-
-                    # Deliver output - delivery channel failure never fails the job
-                    channels = cfg.get("delivery") or ["ui"]
-                    try:
-                        await self.delivery_router.deliver(
-                            channel_names=channels,
-                            title=f"Briefing: {job_name}",
-                            message=output_text[:300],
-                            payload={
-                                "kind": "briefing",
-                                "job_id": job_id,
-                                "job_run_id": job_run_id,
-                            },
-                            db=db,
-                        )
-                    except Exception as deliv_exc:
-                        log.warning("Delivery error for job '%s': %s", job_name, deliv_exc)
-
-                    # Store in outputs table for Briefings view
-                    await execute(
-                        db,
-                        """
-                        INSERT INTO outputs (job_run_id, title, markdown)
-                        VALUES (?, ?, ?)
-                        """,
-                        (job_run_id, job_name, output_text),
+                    output_text = await execute_planned_job(
+                        job_id=job_id,
+                        run_id=job_run_id,
+                        config=self.config,
                     )
-
-                except TimeoutError:
-                    log.error(
-                        "Job '%s' cancelled: exceeded max_runtime_seconds (%.1fs)",
-                        job_name,
-                        timeout_sec,
+                    status = (
+                        "ok"
+                        if output_text not in ("failed", "stalled", "waiting_approval")
+                        else output_text
                     )
-                    status = "failed"
-                    error_msg = f"Job cancelled: exceeded max_runtime_seconds ({timeout_sec}s)"
-                    output_text = f"Execution timed out after {timeout_sec}s"
                 except Exception as exc:
-                    log.error("Agent job '%s' execution error: %s", job_name, exc)
+                    log.error("Planned job '%s' execution error: %s", job_name, exc)
                     status = "failed"
                     error_msg = str(exc)
                     output_text = f"Execution failed: {exc}"
+                    await execute(
+                        db,
+                        """
+                        UPDATE job_runs
+                        SET finished_at = datetime('now'), status = 'failed', error = ?
+                        WHERE id = ?
+                        """,
+                        (error_msg, job_run_id),
+                    )
+            else:
+                # General agent job: pipeline with complexity gate & DAG / loop
+                tz = get_zoneinfo(tz_name)
+                today_str = datetime.now(tz).strftime("%A, %d %B %Y")
+                formatted_instruction = instruction.replace("{today}", today_str)
 
-        # Finalize job_runs record
-        await execute(
-            db,
-            """
-            UPDATE job_runs
-            SET finished_at = datetime('now'), status = ?, output_markdown = ?, error = ?
-            WHERE id = ?
-            """,
-            (status, output_text, error_msg, job_run_id),
-        )
+                allow_cloud = bool(cfg.get("allow_cloud", False))
+                max_runtime = cfg.get("max_runtime_seconds")
+                timeout_sec = float(max_runtime) if max_runtime is not None else None
+
+                async def _execute_agent_job() -> str:
+                    nonlocal status
+                    from noxai.agent.gate import evaluate_complexity
+
+                    gate_res = await evaluate_complexity(
+                        formatted_instruction,
+                        router=self.router,
+                    )
+
+                    if gate_res.is_complex:
+                        from noxai.agent.executor import DAGExecutor
+
+                        executor = DAGExecutor(
+                            router=self.router,
+                            registry=self.registry,
+                            config=self.config,
+                            event_bus=self.event_bus,
+                        )
+                        exec_res = await executor.execute_plan(
+                            goal=formatted_instruction,
+                            allow_cloud=allow_cloud,
+                            db=db,
+                        )
+                        status = "ok" if exec_res.status == "done" else "failed"
+                        return exec_res.final_text
+                    else:
+                        from noxai.agent.loop import AgentLoop
+
+                        loop = AgentLoop(
+                            router=self.router,
+                            registry=self.registry,
+                            config=self.config,
+                            event_bus=self.event_bus,
+                        )
+                        loop_res = await loop.run(
+                            formatted_instruction,
+                            allow_cloud=allow_cloud,
+                            db=db,
+                        )
+                        status = "ok" if loop_res.status == "done" else "failed"
+                        return loop_res.text
+
+                async with self._local_job_sem:
+                    try:
+                        if timeout_sec is not None:
+                            output_text = await asyncio.wait_for(
+                                _execute_agent_job(), timeout=timeout_sec
+                            )
+                        else:
+                            output_text = await _execute_agent_job()
+
+                        # Deliver output - delivery channel failure never fails the job
+                        channels = cfg.get("delivery") or ["ui"]
+                        try:
+                            await self.delivery_router.deliver(
+                                channel_names=channels,
+                                title=f"Briefing: {job_name}",
+                                message=output_text[:300],
+                                payload={
+                                    "kind": "briefing",
+                                    "job_id": job_id,
+                                    "job_run_id": job_run_id,
+                                },
+                                db=db,
+                            )
+                        except Exception as deliv_exc:
+                            log.warning("Delivery error for job '%s': %s", job_name, deliv_exc)
+
+                        # Store in outputs table for Briefings view
+                        await execute(
+                            db,
+                            """
+                            INSERT INTO outputs (job_run_id, title, markdown)
+                            VALUES (?, ?, ?)
+                            """,
+                            (job_run_id, job_name, output_text),
+                        )
+
+                    except TimeoutError:
+                        log.error(
+                            "Job '%s' cancelled: exceeded max_runtime_seconds (%.1fs)",
+                            job_name,
+                            timeout_sec,
+                        )
+                        status = "failed"
+                        error_msg = f"Job cancelled: exceeded max_runtime_seconds ({timeout_sec}s)"
+                        output_text = f"Execution timed out after {timeout_sec}s"
+                    except Exception as exc:
+                        log.error("Agent job '%s' execution error: %s", job_name, exc)
+                        status = "failed"
+                        error_msg = str(exc)
+                        output_text = f"Execution failed: {exc}"
+
+        # Finalize job_runs record if not handled by planned executor
+        if not is_planned:
+            await execute(
+                db,
+                """
+                UPDATE job_runs
+                SET finished_at = datetime('now'), status = ?, output_markdown = ?, error = ?
+                WHERE id = ?
+                """,
+                (status, output_text, error_msg, job_run_id),
+            )
+
 
         # Reschedule or disable job
         now_utc = datetime.now(UTC)
