@@ -1262,7 +1262,9 @@ async def get_job_runs_endpoint(
             db,
             """
             SELECT id, job_id, started_at, finished_at, status, task_run_id, output_markdown, error,
-                   heartbeat_at, current_step_index, total_steps, due_slot, plan_version
+                   heartbeat_at, current_step_index,
+                   (SELECT COUNT(*) FROM job_run_steps WHERE run_id = job_runs.id) AS total_steps,
+                   due_slot, plan_version
             FROM job_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?
             """,
             (str(row["id"]), limit, offset),

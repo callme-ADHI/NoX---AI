@@ -16,6 +16,7 @@ TimeoutStopSec=15
 # Environment
 Environment=HOME=%h
 Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=LD_LIBRARY_PATH=%h/.local/lib
 # Logging goes to the rotating JSON file; also captured by journald
 StandardOutput=journal
 StandardError=journal

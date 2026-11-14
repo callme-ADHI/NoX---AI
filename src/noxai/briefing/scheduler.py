@@ -425,7 +425,7 @@ class BriefingScheduler:
                 if active["task_status"] in ("done", "failed", "cancelled", "interrupted"):
                     # Task terminated; never mark succeeded here without validated pipeline output
                     new_state = "failed" if active["task_status"] == "failed" else "interrupted"
-                    err_msg = f"Task {active.get('task_status')}; interrupted before completion"
+                    err_msg = f"Task {active['task_status']}; interrupted before completion"
                     await execute(
                         conn,
                         "UPDATE briefing_runs SET state = ?, error = ? WHERE id = ?",
@@ -512,7 +512,7 @@ class BriefingScheduler:
                 "interrupted",
             ):
                 new_state = "failed" if active_row["task_status"] == "failed" else "interrupted"
-                err_msg = f"Task {active_row.get('task_status')}; interrupted before completion"
+                err_msg = f"Task {active_row['task_status']}; interrupted before completion"
                 await execute(
                     conn,
                     "UPDATE briefing_runs SET state = ?, error = ? WHERE id = ?",
