@@ -332,8 +332,16 @@ def create_app(
             app.state.briefing_scheduler = briefing_sched
             await briefing_sched.start()
             log.info("BriefingScheduler started in daemon.")
+
+            log.info("8c. Starting PersistentScheduler (Workstream B)...")
+            from noxai.scheduler.persistent import get_persistent_scheduler
+            persistent_sched = get_persistent_scheduler(config=cfg)
+            app.state.persistent_scheduler = persistent_sched
+            await persistent_sched.start()
+            log.info("PersistentScheduler active in daemon.")
         else:
-            log.info("8. JobScheduler & BriefingScheduler startup skipped.")
+            persistent_sched = None
+            log.info("8. JobScheduler, BriefingScheduler & PersistentScheduler startup skipped.")
 
         # 9. Start approval timeout sweeper
         log.info("9. Starting approval timeout sweeper...")
@@ -396,6 +404,9 @@ def create_app(
             set_task_supervisor(None)
 
         # 2. Stop schedulers
+        if persistent_sched is not None:
+            log.info("Stopping PersistentScheduler...")
+            await persistent_sched.stop()
         if briefing_sched is not None:
             log.info("Stopping BriefingScheduler...")
             await briefing_sched.stop()

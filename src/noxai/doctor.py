@@ -321,6 +321,36 @@ def check_configured_models(cfg: Any) -> list[DoctorCheck]:
     return checks
 
 
+def check_persistent_scheduler_state() -> DoctorCheck:
+    """Report persistent scheduler state and active schedules."""
+    import sqlite3
+    from noxai.db import get_db_path
+
+    path = get_db_path()
+    if not path.exists():
+        return DoctorCheck("Persistent scheduler", "WARN", "Database not found")
+
+    try:
+        conn = sqlite3.connect(path)
+        cur = conn.cursor()
+        rows = cur.execute(
+            "SELECT name, enabled, next_run_at FROM schedules WHERE enabled = 1"
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return DoctorCheck("Persistent scheduler", "WARN", "No active schedules configured")
+
+        names = [r[0] for r in rows]
+        return DoctorCheck(
+            f"Persistent scheduler ({len(rows)} active: {', '.join(names)})",
+            "PASS",
+            "",
+        )
+    except Exception as exc:
+        return DoctorCheck("Persistent scheduler", "WARN", str(exc))
+
+
 def check_nvidia_models_endpoint(cfg: Any, has_key: bool) -> DoctorCheck:
     if not has_key:
         return DoctorCheck("NVIDIA API endpoint", "WARN", "Cloud disabled; skipping endpoint check")
@@ -934,6 +964,7 @@ def run_all_checks(cfg: Any = None) -> list[DoctorCheck]:
     checks.extend(check_configured_models(cfg))
     checks.append(check_key_pool_state(cfg))
     checks.append(check_cloud_health_state(has_key=has_key))
+    checks.append(check_persistent_scheduler_state())
 
 
     # 10. Server port

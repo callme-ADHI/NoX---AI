@@ -2351,3 +2351,173 @@ async def delete_source_endpoint(source_id: int) -> dict[str, bool]:
         await execute(db, "DELETE FROM sources WHERE id = ?", (source_id,))
         await db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Persistent Schedules Endpoints (Workstream B)
+# ---------------------------------------------------------------------------
+
+
+class CreateScheduleRequest(BaseModel):
+    name: str
+    kind: str = "cron"
+    expression: str
+    timezone: str = "Asia/Kolkata"
+    catchup_policy: str = "run_once"
+    target_action: str = "generic"
+    config_json: str | None = None
+    enabled: bool = True
+
+
+@api_router.get("/schedules", dependencies=READ_DEPS)
+async def list_schedules_endpoint(request: Request) -> list[dict[str, Any]]:
+    """List all persistent schedules."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    items = await sched.list_schedules()
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "kind": s.kind,
+            "expression": s.expression,
+            "timezone": s.timezone,
+            "enabled": s.enabled,
+            "last_run_at": s.last_run_at,
+            "next_run_at": s.next_run_at,
+            "last_status": s.last_status,
+            "catchup_policy": s.catchup_policy,
+            "target_action": s.target_action,
+            "created_at": s.created_at,
+        }
+        for s in items
+    ]
+
+
+@api_router.post("/schedules", dependencies=WRITE_DEPS)
+async def create_schedule_endpoint(
+    req: CreateScheduleRequest, request: Request
+) -> dict[str, Any]:
+    """Create a new persistent schedule."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    created = await sched.add_schedule(
+        name=req.name,
+        kind=req.kind,
+        expression=req.expression,
+        timezone=req.timezone,
+        catchup_policy=req.catchup_policy,
+        target_action=req.target_action,
+        config_json=req.config_json,
+        enabled=req.enabled,
+    )
+    return {
+        "id": created.id,
+        "name": created.name,
+        "next_run_at": created.next_run_at,
+        "enabled": created.enabled,
+    }
+
+
+@api_router.get("/schedules/{name_or_id}", dependencies=READ_DEPS)
+async def get_schedule_endpoint(name_or_id: str, request: Request) -> dict[str, Any]:
+    """Get schedule details by name or ID."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    item = await sched.get_schedule(name_or_id)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Schedule '{name_or_id}' not found.")
+    return {
+        "id": item.id,
+        "name": item.name,
+        "kind": item.kind,
+        "expression": item.expression,
+        "timezone": item.timezone,
+        "enabled": item.enabled,
+        "last_run_at": item.last_run_at,
+        "next_run_at": item.next_run_at,
+        "last_status": item.last_status,
+        "catchup_policy": item.catchup_policy,
+        "target_action": item.target_action,
+        "created_at": item.created_at,
+    }
+
+
+@api_router.delete("/schedules/{name_or_id}", dependencies=WRITE_DEPS)
+async def delete_schedule_endpoint(name_or_id: str, request: Request) -> dict[str, bool]:
+    """Delete a schedule, cooperatively cancelling active execution."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    ok = await sched.remove_schedule(name_or_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{name_or_id}' not found.")
+    return {"ok": True}
+
+
+@api_router.post("/schedules/{name_or_id}/run", dependencies=WRITE_DEPS)
+async def trigger_schedule_run_endpoint(
+    name_or_id: str, request: Request
+) -> dict[str, Any]:
+    """Trigger an immediate run of a schedule in the daemon."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    try:
+        run_id = await sched.trigger_run(name_or_id)
+        return {"status": "triggered", "run_id": run_id}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Schedule '{name_or_id}' not found.")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@api_router.post("/schedules/{name_or_id}/enable", dependencies=WRITE_DEPS)
+async def enable_schedule_endpoint(name_or_id: str, request: Request) -> dict[str, bool]:
+    """Enable a schedule."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    ok = await sched.enable_schedule(name_or_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{name_or_id}' not found.")
+    return {"ok": True}
+
+
+@api_router.post("/schedules/{name_or_id}/disable", dependencies=WRITE_DEPS)
+async def disable_schedule_endpoint(name_or_id: str, request: Request) -> dict[str, bool]:
+    """Disable a schedule."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    ok = await sched.disable_schedule(name_or_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Schedule '{name_or_id}' not found.")
+    return {"ok": True}
+
+
+@api_router.get("/schedules/{name_or_id}/runs", dependencies=READ_DEPS)
+async def get_schedule_runs_endpoint(
+    name_or_id: str, request: Request, limit: int = 20
+) -> list[dict[str, Any]]:
+    """Get history of runs for a schedule."""
+    from noxai.scheduler.persistent import get_persistent_scheduler
+
+    sched = getattr(request.app.state, "persistent_scheduler", None) or get_persistent_scheduler()
+    history = await sched.get_history(name_or_id, limit=limit)
+    return [
+        {
+            "id": r.id,
+            "schedule_id": r.schedule_id,
+            "started_at": r.started_at,
+            "finished_at": r.finished_at,
+            "status": r.status,
+            "error": r.error,
+            "heartbeat_at": r.heartbeat_at,
+        }
+        for r in history
+    ]
+

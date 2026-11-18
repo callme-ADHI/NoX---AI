@@ -40,6 +40,7 @@ from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
 from noxai.commands.notes import notes_app
 from noxai.commands.reminders import remind_command, reminders_app
+from noxai.commands.schedule import schedule_app
 from noxai.commands.service import service_app, session_env_command
 from noxai.commands.setup import setup_app
 from noxai.commands.sources import sources_app
@@ -68,6 +69,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(service_app, name="service")
 app.add_typer(setup_app, name="setup")
 app.add_typer(backup_app, name="backup")
+app.add_typer(schedule_app, name="schedule")
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
 bench_app.command(name="local")(models_bench_local)

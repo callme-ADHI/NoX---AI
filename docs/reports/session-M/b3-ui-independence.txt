@@ -1,0 +1,10 @@
+--- B3 UI Independence Proof ---
+Triggered daemon run: sched_2c8add64 for schedule "test_b3_ui_indep"
+UI Client opened window / connected to daemon
+UI Client unexpectedly killed by user (closing window)
+UI Client process terminated (PID=76112)
+Waiting for daemon task to finish independently...
+Run srun_6b90449bb054 status in DB: success
+Run started_at: 2026-11-18T14:00:16.326929+00:00, finished_at: 2026-11-18T14:00:17.862780+00:00
+Handler progress log: ['started', 'step_0', 'step_1', 'step_2', 'completed']
+PROVED: Running job in daemon survived UI process death and finished with success.
