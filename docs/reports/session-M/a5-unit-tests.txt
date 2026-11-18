@@ -1,0 +1,22 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.10, pytest-9.1.1, pluggy-1.7.0 -- /home/boss/Documents/Projects/NoX/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/boss/Documents/Projects/NoX
+configfile: pyproject.toml
+plugins: anyio-4.15.1, asyncio-1.4.0, cov-7.1.0, repeat-0.9.4, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 8 items
+
+tests/test_engine_health.py::test_nvidia_engine_classify_error PASSED    [ 12%]
+tests/test_engine_health.py::test_ollama_engine_classify_error PASSED    [ 25%]
+tests/test_engine_health.py::test_fallback_policy_ask PASSED             [ 37%]
+tests/test_engine_health.py::test_fallback_policy_auto_notify PASSED     [ 50%]
+tests/test_engine_health.py::test_fallback_policy_never PASSED           [ 62%]
+tests/test_engine_health.py::test_validate_configured_models_present PASSED [ 75%]
+tests/test_engine_health.py::test_validate_configured_models_missing PASSED [ 87%]
+tests/test_engine_health.py::test_keypool_health_check_leasing PASSED    [100%]
+
+============================== 8 passed in 0.58s ===============================

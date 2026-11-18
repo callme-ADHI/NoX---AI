@@ -412,6 +412,19 @@ def chat_cmd(
             )
 
             console.print("\n")
+            served_by = getattr(result, "served_by", None)
+            fallback_reason = getattr(result, "fallback_reason", None)
+            fallback_offered = getattr(result, "fallback_offered", False)
+            model_name = getattr(result, "model_name", "")
+            if served_by == "ollama" and fallback_reason:
+                console.print(
+                    f"[yellow][Notice: Cloud model is down ({fallback_reason}); answered via local fallback ({model_name})][/]\n"
+                )
+            elif fallback_offered:
+                console.print(
+                    f"[yellow][Notice: Cloud engine unavailable ({fallback_reason}); fallback offered to local model][/]\n"
+                )
+
             if result.citations:
                 console.print("\n[bold dim]Sources / Citations:[/]")
                 for c in result.citations:

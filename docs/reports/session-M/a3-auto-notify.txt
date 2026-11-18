@@ -1,0 +1,11 @@
+Model validation: valid=False, missing=nvidia/nonexistent-decommissioned-model-410, status=down, reason=model_gone
+
+--- CHAT TURN UNDER POLICY AUTO_NOTIFY ---
+Response text preview: [Notice: Cloud model is down (degraded); answered via local fallback]
+
+Of course! What do you need help with?...
+Served by: ollama
+Model name: qwen2.5:14b
+Fallback reason: degraded
+Fallback banner: False
+Ollama call count: 2 (PROVED: Ollama was called)

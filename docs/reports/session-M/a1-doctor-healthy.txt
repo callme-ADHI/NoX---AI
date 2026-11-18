@@ -1,0 +1,113 @@
+──────────────────────────────────────────── NoX Doctor ────────────────────────────────────────────
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃                                                                                ┃        ┃ Fix /  ┃
+┃ Check                                                                          ┃ Status ┃ Note   ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ Python version (found 3.14)                                                    │  WARN  │ Python │
+│                                                                                │        │ 3.14   │
+│                                                                                │        │ is     │
+│                                                                                │        │ above  │
+│                                                                                │        │ tested │
+│                                                                                │        │ max    │
+│                                                                                │        │ 3.12   │
+│ Configuration loads cleanly                                                    │  PASS  │        │
+│ Ollama reachable at :11434                                                     │  PASS  │        │
+│ Brain model in Ollama (qwen2.5:14b)                                            │  PASS  │ Pull   │
+│                                                                                │        │ it:    │
+│                                                                                │        │ ollama │
+│                                                                                │        │ pull   │
+│                                                                                │        │ qwen2… │
+│ Embed model in Ollama (nomic-embed-text)                                       │  PASS  │ Pull   │
+│                                                                                │        │ it:    │
+│                                                                                │        │ ollama │
+│                                                                                │        │ pull   │
+│                                                                                │        │ nomic… │
+│ Vision model in Ollama (gemma4:e4b)                                            │  PASS  │ Pull   │
+│                                                                                │        │ it:    │
+│                                                                                │        │ ollama │
+│                                                                                │        │ pull   │
+│                                                                                │        │ gemma… │
+│ Ollama RAM budget (10.5 GB loaded / 8.7 GB avail)                              │  WARN  │ Loaded │
+│                                                                                │        │ models │
+│                                                                                │        │ take   │
+│                                                                                │        │ 120%   │
+│                                                                                │        │ of     │
+│                                                                                │        │ avail… │
+│                                                                                │        │ RAM (> │
+│                                                                                │        │ 80%).  │
+│                                                                                │        │ Risk   │
+│                                                                                │        │ of     │
+│                                                                                │        │ OOM.   │
+│ Vector backend in use (numpy)                                                  │  PASS  │        │
+│ DB migrations applied (12/12)                                                  │  PASS  │        │
+│ Secrets file permissions (0600)                                                │  PASS  │        │
+│ NVIDIA API key configured via NVIDIA_API_KEY (secrets.env)                     │  PASS  │        │
+│ Engine ollama (ok, 64ms)                                                       │  PASS  │        │
+│ Engine nvidia (ok, 3410ms)                                                     │  PASS  │        │
+│ Model gemma4:e4b on ollama                                                     │  PASS  │        │
+│ Model nomic-embed-text on ollama                                               │  PASS  │        │
+│ Model qwen2.5:14b on ollama                                                    │  PASS  │        │
+│ Model nvidia/nemotron-3.5-lightning-30b-a3b on nvidia                          │  PASS  │        │
+│ NVIDIA KeyPool (5 keys active, 0 cooling down)                                 │  PASS  │        │
+│ Cloud health state                                                             │  PASS  │ Active │
+│                                                                                │        │ (Read… │
+│ Port 7777 active (daemon running)                                              │  PASS  │        │
+│ notify-send in PATH                                                            │  PASS  │        │
+│ node and npm in PATH                                                           │  PASS  │        │
+│ Browser found (google-chrome-stable)                                           │  PASS  │        │
+│ systemd user unit noxd.service (enabled)                                       │  PASS  │        │
+│ Gate mode: token_only                                                          │  PASS  │        │
+│ UI build present (ui/dist/index.html)                                          │  PASS  │        │
+│ Provider topology: brain (local) / heavy (cloud)                               │  PASS  │        │
+│ Single-instance lock: free                                                     │  PASS  │        │
+│ Detected compositor: Hyprland (wayland)                                        │  PASS  │        │
+│ briefing scheduler running                                                     │  PASS  │ Daemon │
+│                                                                                │        │ sched… │
+│                                                                                │        │ active │
+│ next morning/evening run times                                                 │  PASS  │ Morni… │
+│                                                                                │        │ 04:00, │
+│                                                                                │        │ Eveni… │
+│                                                                                │        │ 18:00  │
+│                                                                                │        │ (Asia… │
+│ Briefing scheduler reliability: last 6 slots (3 succeeded, 1 failed, 2 missed) │  WARN  │ 3/6    │
+│                                                                                │        │ succe… │
+│                                                                                │        │ (1     │
+│                                                                                │        │ faile… │
+│                                                                                │        │ 2      │
+│                                                                                │        │ misse… │
+│                                                                                │        │ see    │
+│                                                                                │        │ 'nx    │
+│                                                                                │        │ brief… │
+│                                                                                │        │ audit… │
+│ noxd enabled                                                                   │  PASS  │        │
+│ linger                                                                         │  WARN  │ login… │
+│                                                                                │        │ linger │
+│                                                                                │        │ is     │
+│                                                                                │        │ disab… │
+│                                                                                │        │ daemon │
+│                                                                                │        │ starts │
+│                                                                                │        │ at     │
+│                                                                                │        │ login  │
+│                                                                                │        │ and    │
+│                                                                                │        │ boot   │
+│                                                                                │        │ catch… │
+│                                                                                │        │ covers │
+│                                                                                │        │ missed │
+│                                                                                │        │ slots. │
+│                                                                                │        │ Run    │
+│                                                                                │        │ 'logi… │
+│                                                                                │        │ enabl… │
+│                                                                                │        │ for    │
+│                                                                                │        │ unatt… │
+│                                                                                │        │ 04:00  │
+│                                                                                │        │ runs.  │
+│ Desktop app installed (/home/boss/.local/bin/nox-app)                          │  PASS  │        │
+│ Autostart configured (XDG autostart, Hyprland startup.lua)                     │  PASS  │        │
+│ Notification daemon (D-Bus active)                                             │  PASS  │ Action │
+│                                                                                │        │ butto… │
+│                                                                                │        │ suppo… │
+│ Database backups (10 available)                                                │  PASS  │ Lates… │
+│                                                                                │        │ nox_2… │
+└────────────────────────────────────────────────────────────────────────────────┴────────┴────────┘
+
+All required checks passed (4 warning(s)). NoX is ready.

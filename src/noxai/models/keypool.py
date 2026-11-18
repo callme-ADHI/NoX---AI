@@ -147,6 +147,12 @@ def allocate(snapshot: PoolSnapshot, request_job_id: str | None, priority: int) 
             candidates = sorted(healthy_keys, key=lambda k: (k.in_flight, k.ewma_latency_ms))
             return candidates[0].key_id if candidates else None
 
+        # If N >= 2, prefer keys not pinned to background jobs so background runs are not interrupted
+        pinned_keys = set(snapshot.pinned_assignments.values())
+        unpinned = [k for k in candidates if k.key_id not in pinned_keys]
+        if unpinned:
+            candidates = unpinned
+
         # Score candidates: score = (free token bucket) / (1 + in_flight) / (ewma_latency)
         candidates.sort(
             key=lambda k: k.tokens_available / (1 + k.in_flight) / max(1.0, k.ewma_latency_ms),

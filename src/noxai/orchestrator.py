@@ -139,6 +139,9 @@ class ChatTurnResult:
     trace: dict[str, Any]
     citations: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
+    served_by: str = ""
+    fallback_banner: bool = False
+    fallback_offered: bool = False
 
 
 def _build_cloud_system_prompt() -> Message:
@@ -412,27 +415,6 @@ async def orchestrate_chat_turn(
         elif has_sensitive_topic:
             target_role = "resident"
             fallback_reason = "SENSITIVE"
-        elif not has_nvidia_key or ch.state == CloudHealthState.NO_KEY:
-            target_role = "resident"
-            fallback_reason = "NO_KEY"
-        elif ch.state == CloudHealthState.INVALID_KEY:
-            target_role = "resident"
-            fallback_reason = "INVALID_KEY"
-        elif ch.state == CloudHealthState.RATE_LIMITED:
-            target_role = "resident"
-            fallback_reason = "RATE_LIMITED"
-        elif ch.state == CloudHealthState.OFFLINE:
-            target_role = "resident"
-            fallback_reason = "OFFLINE"
-        elif ch.state == CloudHealthState.DEGRADED:
-            if not ch.circuit_breaker.can_attempt():
-                target_role = "resident"
-                fallback_reason = "DEGRADED"
-            else:
-                target_role = "front"
-        elif not ch.is_active():
-            target_role = "resident"
-            fallback_reason = "DEGRADED"
     
         # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
         t_prompt_0 = time.perf_counter()
@@ -763,38 +745,68 @@ async def orchestrate_chat_turn(
     
         except Exception as exc:
             log.exception("Execution error during chat turn: %s", exc)
-            # Handle unexpected failure with safe local fallback if not already fallback
             if target_role == "front":
-                fallback_reason = "DEGRADED"
-                local_role = "resident"
-                local_chunks: list[str] = []
-                try:
-                    async for chunk in rtr.chat(
-                        role=local_role,
-                        messages=[_build_local_system_prompt(), user_msg],
-                        stream=True,
-                        on_notice=on_notice,
-                        on_model_used=_on_model_used_internal,
-                    ):
-                        if chunk.text:
-                            if first_token_time is None:
-                                first_token_time = time.perf_counter()
-                            local_chunks.append(chunk.text)
-                            if on_token:
-                                on_token(chunk.text)
-                            await bus.publish(
-                                make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                            )
-                    chunks = local_chunks
-                except Exception as fallback_exc:
-                    log.error("Fallback chat failed: %s", fallback_exc)
-                    err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+                policy = getattr(cfg.models, "fallback_policy", "ask") if cfg else "ask"
+                decision = evaluate_fallback_policy(
+                    policy=policy,
+                    reason="degraded",
+                    human_msg=str(exc),
+                )
+                if decision.action == "abort":
+                    err_msg = f"Cloud engine failed: {exc}. Fallback policy is 'never'."
                     chunks.append(err_msg)
                     if on_token:
                         on_token(err_msg)
                     await bus.publish(
                         make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
                     )
+                elif decision.action == "ask_user":
+                    chunks.append(decision.message)
+                    model_used_record["fallback_offered"] = True
+                    model_used_record["fallback_reason"] = decision.reason
+                    model_used_record["served_by"] = "system"
+                    if on_token:
+                        on_token(decision.message)
+                    await bus.publish(
+                        make_event("token", {"chunk": decision.message}, run_id=actual_run_id)
+                    )
+                else:  # execute_local
+                    send_engine_desktop_notification("NoX Engine Fallback", decision.message)
+                    fallback_reason = decision.reason
+                    local_role = "resident"
+                    local_chunks: list[str] = []
+                    banner = f"[Notice: Cloud model is down ({decision.reason}); answered via local fallback]\n\n"
+                    local_chunks.append(banner)
+                    if on_token:
+                        on_token(banner)
+                    try:
+                        async for chunk in rtr.chat(
+                            role=local_role,
+                            messages=[_build_local_system_prompt(), user_msg],
+                            stream=True,
+                            on_notice=on_notice,
+                            on_model_used=_on_model_used_internal,
+                        ):
+                            if chunk.text:
+                                if first_token_time is None:
+                                    first_token_time = time.perf_counter()
+                                local_chunks.append(chunk.text)
+                                if on_token:
+                                    on_token(chunk.text)
+                                await bus.publish(
+                                    make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                                )
+                        chunks = local_chunks
+                    except Exception as fallback_exc:
+                        log.error("Fallback chat failed: %s", fallback_exc)
+                        err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                        chunks.append(err_msg)
+                        if on_token:
+                            on_token(err_msg)
+                        await bus.publish(
+                            make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
+                        )
             else:
                 err_msg = f"I encountered an error while processing your request: {exc}"
                 chunks.append(err_msg)
@@ -826,9 +838,16 @@ async def orchestrate_chat_turn(
         actual_provider_name = str(model_used_record.get("provider", "unknown"))
         actual_is_local = bool(model_used_record.get("is_local", target_role in ("resident", "brain")))
         actual_fallback_reason = model_used_record.get("fallback_reason") or fallback_reason
-    
+        actual_served_by = str(
+            model_used_record.get(
+                "served_by", "ollama" if actual_is_local else actual_provider_name
+            )
+        )
+        actual_fallback_banner = bool(model_used_record.get("fallback_banner", False))
+        actual_fallback_offered = bool(model_used_record.get("fallback_offered", False))
+
         prompt_tokens_est = sum(len(m.get_text()) for m in messages_to_send) // 4
-    
+
         trace_data: dict[str, Any] = {
             "route": round(t_route, 2),
             "prompt_build": round(t_prompt, 2),
@@ -842,10 +861,13 @@ async def orchestrate_chat_turn(
             "role": model_used_record.get("role", target_role),
             "intent": intent_res.intent.value,
             "fallback_reason": actual_fallback_reason,
+            "served_by": actual_served_by,
+            "fallback_banner": actual_fallback_banner,
+            "fallback_offered": actual_fallback_offered,
         }
-    
+
         lane_info = "cloud" if not actual_is_local else "local_resident"
-    
+
         # Persist assistant response to DB
         async def _write_assistant_msg(conn: Any) -> None:
             await execute(
@@ -873,9 +895,9 @@ async def orchestrate_chat_turn(
                     json.dumps(trace_data),
                 ),
             )
-    
+
         await _safe_db_write(_write_assistant_msg)
-    
+
         # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
         if actual_conv_id:
             async def _bg_cms() -> None:
@@ -886,11 +908,11 @@ async def orchestrate_chat_turn(
                         await process_conversation_turn(actual_conv_id, bg_db, router=rtr)
                 except Exception as exc:
                     log.debug("Background CMS post-process error: %s", exc)
-    
+
             t_bg = asyncio.create_task(_bg_cms())
             _background_tasks.add(t_bg)
             t_bg.add_done_callback(_background_tasks.discard)
-    
+
         # Publish completion events
         await bus.publish(
             make_event("trace", trace_data, run_id=actual_run_id),
@@ -906,6 +928,9 @@ async def orchestrate_chat_turn(
                     "is_cloud": not actual_is_local,
                     "latency_ms": int(total_elapsed_ms),
                     "fallback_reason": actual_fallback_reason,
+                    "served_by": actual_served_by,
+                    "fallback_banner": actual_fallback_banner,
+                    "fallback_offered": actual_fallback_offered,
                     "trace": trace_data,
                 },
                 run_id=actual_run_id,
@@ -916,8 +941,7 @@ async def orchestrate_chat_turn(
             make_event("run_done", {"status": "done"}, run_id=actual_run_id),
             db=active_db,
         )
-    
-    
+
         return ChatTurnResult(
             run_id=actual_run_id,
             conversation_id=actual_conv_id,
@@ -930,6 +954,9 @@ async def orchestrate_chat_turn(
             trace=trace_data,
             citations=citations_collected,
             duration_seconds=total_elapsed,
+            served_by=actual_served_by,
+            fallback_banner=actual_fallback_banner,
+            fallback_offered=actual_fallback_offered,
         )
     finally:
         if db_ctx is not None:

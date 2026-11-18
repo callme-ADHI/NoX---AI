@@ -268,46 +268,101 @@ class ModelRouter:
             else messages
         )
 
-        # 3. Check proactive cloud health status
-        cloud_health = getattr(provider, "cloud_health", None)
-        if cloud_health is not None and not cloud_health.is_active():
-            notice = (
-                f"[Cloud notice] Cloud provider unavailable ({cloud_health.reason}) — "
-                "routing to local model."
-            )
-            if on_notice:
-                on_notice(notice)
-            log.info(notice)
-            local_role = "brain" if tools else "resident"
-            local_provider, local_model = self.resolve_role(local_role)
-            fb_reason = (
-                cloud_health.state.value.upper() if hasattr(cloud_health, "state") else "DEGRADED"
-            )
-            if on_model_used:
-                on_model_used(
-                    {
-                        "role": local_role,
-                        "provider": local_provider.name,
-                        "model": local_model,
-                        "is_local": True,
-                        "fallback_from": role,
-                        "fallback_reason": fb_reason,
-                    }
-                )
-            async for chunk in local_provider.chat(
-                model=local_model,
-                messages=messages,
-                tools=tools,
-                stream=stream,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                num_ctx=num_ctx,
-                keep_alive=keep_alive,
-            ):
-                yield chunk
-            return
+        # 3. Check proactive cloud health status under explicit fallback policy
+        is_mock_provider = getattr(provider, "is_fake", False) or type(provider).__name__ == "FakeProvider"
+        cloud_engine = None
+        if not is_mock_provider and not provider.is_local:
+            try:
+                from noxai.models.engine import get_engine
+                cloud_engine = get_engine("nvidia", config=self.config)
+            except Exception:
+                pass
 
-        # 4. Cloud execution path with automatic fallback
+        cloud_health = getattr(provider, "cloud_health", None) if not is_mock_provider else None
+        engine_down = bool(
+            cloud_engine is not None
+            and cloud_engine.last_health is not None
+            and cloud_engine.last_health.status != "ok"
+        )
+
+        if (cloud_health is not None and not cloud_health.is_active()) or engine_down:
+            from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+
+            policy = getattr(self.config.models, "fallback_policy", "ask")
+            if engine_down and cloud_engine and cloud_engine.last_health:
+                reason_code = cloud_engine.last_health.reason or "unknown"
+                human_msg = cloud_engine.last_health.message
+            else:
+                state_val = getattr(cloud_health.state, "value", str(cloud_health.state)).lower() if cloud_health else "degraded"
+                if state_val in ("no_key", "invalid_key"):
+                    reason_code = "auth"
+                elif state_val == "rate_limited":
+                    reason_code = "rate_limited"
+                elif state_val in ("offline", "network"):
+                    reason_code = "network"
+                else:
+                    reason_code = "degraded"
+                human_msg = cloud_health.reason if cloud_health else "Cloud provider unavailable"
+
+            decision = evaluate_fallback_policy(
+                policy=policy,
+                reason=reason_code,
+                human_msg=human_msg,
+            )
+            if decision.action == "abort":
+                raise ProviderUnavailable(decision.message)
+            elif decision.action == "ask_user":
+                if on_notice:
+                    on_notice(decision.message)
+                if on_model_used:
+                    on_model_used(
+                        {
+                            "role": role,
+                            "provider": "system",
+                            "model": "none",
+                            "is_local": False,
+                            "fallback_offered": True,
+                            "fallback_reason": decision.reason,
+                            "served_by": "system",
+                        }
+                    )
+                yield ChatChunk(delta_text=decision.message)
+                return
+            else:  # "execute_local"
+                send_engine_desktop_notification("NoX Engine Fallback", decision.message)
+                if on_notice:
+                    on_notice(f"[Notice] {decision.message}")
+                local_role = "brain" if tools else "resident"
+                local_provider, local_model = self.resolve_role(local_role)
+                if on_model_used:
+                    on_model_used(
+                        {
+                            "role": local_role,
+                            "provider": local_provider.name,
+                            "model": local_model,
+                            "is_local": True,
+                            "fallback_from": role,
+                            "fallback_reason": decision.reason,
+                            "served_by": "ollama",
+                            "fallback_banner": True,
+                        }
+                    )
+                banner = f"[Notice: Cloud model is down ({decision.reason}); answered via local fallback ({local_model})]\n\n"
+                yield ChatChunk(delta_text=banner)
+                async for chunk in local_provider.chat(
+                    model=local_model,
+                    messages=messages,
+                    tools=tools,
+                    stream=stream,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    num_ctx=num_ctx,
+                    keep_alive=keep_alive,
+                ):
+                    yield chunk
+                return
+
+        # 4. Cloud execution path with explicit fallback policy on exception
         try:
             if on_model_used:
                 on_model_used(
@@ -316,6 +371,7 @@ class ModelRouter:
                         "provider": provider.name,
                         "model": model,
                         "is_local": False,
+                        "served_by": provider.name,
                     }
                 )
 
@@ -332,60 +388,94 @@ class ModelRouter:
                 yield chunk
 
         except (ProviderUnavailable, RateLimitError, ProviderError, Exception) as exc:
+            from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+
             err_str = str(exc)
             status_code = getattr(exc, "status_code", None)
             if status_code is None:
                 if "401" in err_str:
                     status_code = 401
+                elif "404" in err_str:
+                    status_code = 404
+                elif "410" in err_str:
+                    status_code = 410
                 elif "429" in err_str:
                     status_code = 429
+
             if cloud_health is not None:
                 cloud_health.record_failure(exc, status_code=status_code)
 
             if status_code in (401, 403) or "401" in err_str:
-                reason_code = "INVALID_KEY"
+                reason_code = "auth"
+            elif status_code in (404, 410) or "410" in err_str or "404" in err_str:
+                reason_code = "model_gone"
             elif status_code == 429 or isinstance(exc, RateLimitError) or "429" in err_str:
-                reason_code = "RATE_LIMITED"
-            elif any(k in err_str.lower() for k in ("dns", "connect", "network", "offline")):
-                reason_code = "OFFLINE"
+                reason_code = "rate_limited"
+            elif any(k in err_str.lower() for k in ("dns", "connect", "network", "offline", "getaddrinfo")):
+                reason_code = "network"
+            elif "timeout" in err_str.lower():
+                reason_code = "timeout"
             else:
-                reason_code = "DEGRADED"
+                reason_code = "unknown"
 
-            local_role = "brain" if tools else "resident"
-            log.warning(
-                "Cloud role '%s' failed (%s). Falling back to local %s role.",
-                role,
-                exc,
-                local_role,
+            policy = getattr(self.config.models, "fallback_policy", "ask")
+            decision = evaluate_fallback_policy(
+                policy=policy,
+                reason=reason_code,
+                human_msg=err_str,
             )
-            fallback_msg = f"Cloud role '{role}' failed ({exc}). Falling back to local model."
-            if on_notice:
-                on_notice(fallback_msg)
 
-            fallback_provider, fallback_model = self.resolve_role(local_role)
-            if on_model_used:
-                on_model_used(
-                    {
-                        "role": local_role,
-                        "provider": fallback_provider.name,
-                        "model": fallback_model,
-                        "is_local": True,
-                        "fallback_from": role,
-                        "fallback_reason": reason_code,
-                    }
-                )
-
-            async for chunk in fallback_provider.chat(
-                model=fallback_model,
-                messages=messages,
-                tools=tools,
-                stream=stream,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                num_ctx=num_ctx,
-                keep_alive=keep_alive,
-            ):
-                yield chunk
+            if decision.action == "abort":
+                raise ProviderUnavailable(decision.message)
+            elif decision.action == "ask_user":
+                if on_notice:
+                    on_notice(decision.message)
+                if on_model_used:
+                    on_model_used(
+                        {
+                            "role": role,
+                            "provider": "system",
+                            "model": "none",
+                            "is_local": False,
+                            "fallback_offered": True,
+                            "fallback_reason": decision.reason,
+                            "served_by": "system",
+                        }
+                    )
+                yield ChatChunk(delta_text=decision.message)
+                return
+            else:  # "execute_local"
+                send_engine_desktop_notification("NoX Engine Fallback", decision.message)
+                if on_notice:
+                    on_notice(f"[Notice] {decision.message}")
+                local_role = "brain" if tools else "resident"
+                fallback_provider, fallback_model = self.resolve_role(local_role)
+                if on_model_used:
+                    on_model_used(
+                        {
+                            "role": local_role,
+                            "provider": fallback_provider.name,
+                            "model": fallback_model,
+                            "is_local": True,
+                            "fallback_from": role,
+                            "fallback_reason": decision.reason,
+                            "served_by": "ollama",
+                            "fallback_banner": True,
+                        }
+                    )
+                banner = f"[Notice: Cloud model is down ({decision.reason}); answered via local fallback ({fallback_model})]\n\n"
+                yield ChatChunk(delta_text=banner)
+                async for chunk in fallback_provider.chat(
+                    model=fallback_model,
+                    messages=messages,
+                    tools=tools,
+                    stream=stream,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    num_ctx=num_ctx,
+                    keep_alive=keep_alive,
+                ):
+                    yield chunk
 
     async def embed(
         self,

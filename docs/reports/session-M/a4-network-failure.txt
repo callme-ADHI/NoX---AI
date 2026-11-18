@@ -1,0 +1,12 @@
+Engine nvidia transitioned to down: Network connection failed: [Errno -2] Name or service not known.
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+Health Status: down
+Reason Code: network
+Message: Network connection failed: [Errno -2] Name or service not known.
+Latency: 127.5ms
+
+--- DOCTOR WITH NETWORK FAILURE ---
+Doctor Check: NVIDIA API key configured via NVIDIA_API_KEY (secrets.env) -> PASS: 
+Doctor Check: Engine nvidia (down: network) -> FAIL: Network connection failed: [Errno -2] Name or service not known.
+Doctor Check: Model nvidia/nemotron-3.5-lightning-30b-a3b on nvidia -> FAIL: engine down (network): Network connection failed: [Errno -2] Name or service not known.
+Doctor Check: NVIDIA KeyPool (5 keys active, 0 cooling down) -> PASS: 

@@ -156,9 +156,19 @@ class ModelsConfig(_StrictModel):
     ollama: OllamaModelConfig = OllamaModelConfig()
     nvidia: NvidiaModelConfig = NvidiaModelConfig()
     roles: dict[str, ModelRoleConfig] = {}
+    fallback_policy: str = "ask"  # "ask" | "auto_notify" | "never"
     # Note: roles validation is done in Settings.validate_models_roles so that
     # the default empty dict used by Settings' field default does not trigger
     # the validator during class body execution.
+
+    @field_validator("fallback_policy")
+    @classmethod
+    def fallback_policy_must_be_valid(cls, v: str) -> str:
+        valid = {"ask", "auto_notify", "never"}
+        if v not in valid:
+            raise ValueError(f"models.fallback_policy must be one of {sorted(valid)}, got '{v}'")
+        return v
+
 
 
 class AgentConfig(_StrictModel):
