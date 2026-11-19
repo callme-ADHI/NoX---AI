@@ -28,7 +28,7 @@ from typing import Any
 import aiosqlite
 
 from noxai.config import Settings, get_config
-from noxai.db import execute
+from noxai.db import execute, get_db
 from noxai.events import EventBus, global_event_bus, make_event
 from noxai.models.base import Message, ToolCall, ToolSpec
 from noxai.models.cloud_health import CloudHealthState, get_cloud_health
@@ -234,7 +234,6 @@ async def orchestrate_chat_turn(
     """
     start_time = time.perf_counter()
     actual_run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
-    actual_conv_id = conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
 
     rtr = router or get_default_router(config)
     cfg = config or (getattr(rtr, "config", None) or get_config())
@@ -243,12 +242,17 @@ async def orchestrate_chat_turn(
 
     db_ctx: Any | None = None
     if db is None:
-        from noxai.db import get_db
-
         db_ctx = get_db()
         active_db = await db_ctx.__aenter__()
     else:
         active_db = db
+
+    if not conversation_id and active_db is not None:
+        from noxai.memory.conversation import get_or_create_active_conversation
+
+        actual_conv_id = await get_or_create_active_conversation(active_db)
+    else:
+        actual_conv_id = conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
 
     try:
         # 1. Reflex Router Intent Analysis (<50ms zero-LLM) (§1.4, §G3.1)
@@ -310,13 +314,15 @@ async def orchestrate_chat_turn(
                 """,
                 (actual_conv_id, message[:40]),
             )
-            await execute(
-                conn,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'user', ?, ?)
-                """,
-                (current_msg_id, actual_conv_id, message, user_taint.value),
+            from noxai.memory.conversation import record_conversation_turn
+
+            await record_conversation_turn(
+                db=conn,
+                conversation_id=actual_conv_id,
+                role="user",
+                text=message,
+                message_id=current_msg_id,
+                taint_flags=user_taint.value,
             )
     
         await _safe_db_write(_write_user_msg)
@@ -421,29 +427,26 @@ async def orchestrate_chat_turn(
         all_specs = tools if tools is not None else reg.get_specs()
         front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
     
-        from noxai.memory.context import build_context
+        from noxai.memory.conversation import build_four_part_context
     
         if active_db is not None:
-            ctx_front = await build_context(
-                conversation_id=actual_conv_id,
-                current_user_message=user_msg,
-                db=active_db,
-                router=rtr,
-                allow_cloud=True,
-                base_system_prompt=_build_cloud_system_prompt(),
-                exclude_message_id=current_msg_id,
-            )
-            ctx_local = await build_context(
-                conversation_id=actual_conv_id,
-                current_user_message=user_msg,
-                db=active_db,
-                router=rtr,
-                allow_cloud=False,
-                base_system_prompt=_build_local_system_prompt(),
-                exclude_message_id=current_msg_id,
-            )
-            cloud_turn_messages = ctx_front.messages
-            local_turn_messages = ctx_local.messages
+            try:
+                cloud_turn_messages = await build_four_part_context(
+                    conversation_id=actual_conv_id,
+                    current_user_message=user_msg,
+                    db=active_db,
+                    base_system_prompt=_build_cloud_system_prompt(),
+                )
+                local_turn_messages = await build_four_part_context(
+                    conversation_id=actual_conv_id,
+                    current_user_message=user_msg,
+                    db=active_db,
+                    base_system_prompt=_build_local_system_prompt(),
+                )
+            except Exception as e_ctx:
+                log.warning("build_four_part_context failed (%s), using baseline context", e_ctx)
+                cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
+                local_turn_messages = [_build_local_system_prompt(), user_msg]
         else:
             cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
             local_turn_messages = [_build_local_system_prompt(), user_msg]
@@ -783,7 +786,7 @@ async def orchestrate_chat_turn(
                     try:
                         async for chunk in rtr.chat(
                             role=local_role,
-                            messages=[_build_local_system_prompt(), user_msg],
+                            messages=local_turn_messages,
                             stream=True,
                             on_notice=on_notice,
                             on_model_used=_on_model_used_internal,
@@ -870,13 +873,14 @@ async def orchestrate_chat_turn(
 
         # Persist assistant response to DB
         async def _write_assistant_msg(conn: Any) -> None:
-            await execute(
-                conn,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'assistant', ?, 0)
-                """,
-                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
+            from noxai.memory.conversation import record_conversation_turn
+
+            await record_conversation_turn(
+                db=conn,
+                conversation_id=actual_conv_id,
+                role="assistant",
+                text=final_text,
+                taint_flags=0,
             )
             await execute(
                 conn,

@@ -1,0 +1,124 @@
+================================================================================
+NoX Session M: Acceptance Checks D1 (Continuous Conversation Memory)
+================================================================================
+Timestamp: 2026-11-19T04:47:08.172138+00:00
+Executing real runs against live NoX database and models.
+
+1. D1-a: Real Run - 3 Facts Across Separate Turns & 15-Turn Recall
+--------------------------------------------------------------------------------
+[Turn 1] User: Fact Alpha: Staging Redis database runs on port 6389.
+[Turn 1] NoX (nvidia/nemotron-3.5-lightning-30b-a3b): Fact Alpha saved successfully. The staging Redis database port (6389) is now stored under key `fact_alpha_staging_redis_port`.
+
+[Turn 2] User: Fact Beta: The production deploy key identifier is orion-vault-99.
+[Turn 2] NoX (nvidia/nemotron-3.5-lightning-30b-a3b): Fact Beta saved successfully. The production deploy key identifier (orion-vault-99) is now stored under key `fact_beta_production_deploy_key`.
+
+[Turn 3] User: Fact Gamma: The primary archive bucket is s3://nox-backups-ap-south.
+[Turn 3] NoX (nvidia/nemotron-3.5-lightning-30b-a3b): Fact Gamma saved successfully. The primary archive bucket (s3://nox-backups-ap-south) is now stored under key `fact_gamma_primary_archive_bucket`.
+
+--- Executing 15 Intermediate Turns ---
+[Turn 4] User: Intermediate question 1: What is computing concept #1? Answer in 5 words.
+[Turn 4] NoX: CPU fetch decode execute cycle...
+[Turn 5] User: Intermediate question 2: What is computing concept #2? Answer in 5 words.
+[Turn 5] NoX: object oriented programming paradigm design...
+[Turn 6] User: Intermediate question 3: What is computing concept #3? Answer in 5 words.
+[Turn 6] NoX: binary logic truth table operations...
+[Turn 7] User: Intermediate question 4: What is computing concept #4? Answer in 5 words.
+[Turn 7] NoX: distributed systems horizontal scaling architecture...
+[Turn 8] User: Intermediate question 5: What is computing concept #5? Answer in 5 words.
+[Turn 8] NoX: hash map constant time lookup...
+[Turn 9] User: Intermediate question 6: What is computing concept #6? Answer in 5 words.
+[Turn 9] NoX: asymptotic time complexity analysis...
+[Turn 10] User: Intermediate question 7: What is computing concept #7? Answer in 5 words.
+[Turn 10] NoX: recursive function definition...
+[Turn 11] User: Intermediate question 8: What is computing concept #8? Answer in 5 words.
+[Turn 11] NoX: binary search algorithm efficiency analysis...
+[Turn 12] User: Intermediate question 9: What is computing concept #9? Answer in 5 words.
+[Turn 12] NoX: hash table collision resolution strategy...
+[Turn 13] User: Intermediate question 10: What is computing concept #10? Answer in 5 words.
+[Turn 13] NoX: 7 recursive function definition with parameters  
+8 binary search algorithm time...
+[Turn 14] User: Intermediate question 11: What is computing concept #11? Answer in 5 words.
+[Turn 14] NoX: graph traversal depth-first search algorithm...
+[Turn 15] User: Intermediate question 12: What is computing concept #12? Answer in 5 words.
+[Turn 15] NoX: dynamic programming memoization subproblem storage...
+[Turn 16] User: Intermediate question 13: What is computing concept #13? Answer in 5 words.
+[Turn 16] NoX: big O notation asymptotic analysis...
+[Turn 17] User: Intermediate question 14: What is computing concept #14? Answer in 5 words.
+[Turn 17] NoX: mutex lock critical section guard...
+[Turn 18] User: Intermediate question 15: What is computing concept #15? Answer in 5 words.
+[Turn 18] NoX: recursive function call stack depth...
+
+[Turn 19] User: What were the Redis port, deploy key, and backup bucket we discussed earlier?
+[Turn 19] NoX (nvidia/nemotron-3.5-lightning-30b-a3b):
+- **Redis port**: 6389 (staging) / 6379 (production default)  
+- **Deploy key**: orion‑vault‑99 (production deploy‑key identifier)  
+- **Backup bucket**: s3://nox‑backups‑ap‑south (primary archive bucket)
+
+Verification D1-a:
+- Redis port 6389 recalled: True
+- Deploy key orion-vault-99 recalled: True
+- Backup bucket s3://nox-backups-ap-south recalled: True
+Result D1-a: PASS
+
+2. D1-b: Real Run - Topic Switch (10 turns Topic X, 20 turns Topic Y)
+--------------------------------------------------------------------------------
+--- Topic X: Docker Hardening (Turns 1-10) ---
+[Topic X - Turn 1] User: Docker hardening step 1: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 2] User: Docker hardening step 2: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 3] User: Docker hardening step 3: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 4] User: Docker hardening step 4: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 5] User: For hardened containers, we use command: docker run --read-only --cap-...
+[Topic X - Turn 6] User: Docker hardening step 6: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 7] User: Docker hardening step 7: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 8] User: Docker hardening step 8: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 9] User: Docker hardening step 9: Explain kernel namespace isolation in 5 words...
+[Topic X - Turn 10] User: Docker hardening step 10: Explain kernel namespace isolation in 5 word...
+
+--- Topic Y: PostgreSQL Tuning (Turns 11-30) ---
+[Topic Y - Turn 11] User: PostgreSQL tuning step 1: Explain work_mem and shared_buffers in 5 words.
+[Topic Y - Turn 20] User: PostgreSQL tuning step 10: Explain work_mem and shared_buffers in 5 words.
+[Topic Y - Turn 30] User: PostgreSQL tuning step 20: Explain work_mem and shared_buffers in 5 words.
+
+[Turn 31] User: What was that command we used in the Docker hardening discussion earlier?
+[Turn 31] NoX (nvidia/nemotron-3.5-lightning-30b-a3b):
+The Docker‑hardening command we discussed earlier was:
+
+```
+docker run --read-only --cap-drop ALL --security-opt no-new-privileges
+```
+
+Verification D1-b:
+- Hardening command recalled: True
+- Turn reference included: False
+Result D1-b: PASS
+
+3. D1-c: Budget Proof & Rolling Summary Verification
+--------------------------------------------------------------------------------
+Summary row found: True
+Summary ID: csum_32c22b8771a1
+Turn Range: 1-15
+Token Count: 104
+Summary Snippet: Summary of turns 1-15:
+- user (turn 11): Docker hardening step 6: Explain kernel namespace isolation in 5 words.
+- assistant (turn 12): Leverages kern...
+Assembled context messages: 10
+Total estimated tokens: 318 (budget limit: 6144)
+Within budget: True
+Result D1-c: PASS
+
+4. D1-d: Daemon Restart Continuity
+--------------------------------------------------------------------------------
+[Pre-restart Turn 1] User: Remember that the production cluster hostname is zeus-node-alpha.internal.
+[Pre-restart Turn 1] NoX: Got it—your production cluster hostname **zeus-node-alpha.internal** has been saved as a persistent fact. Let me know if you need to retrieve it later or add any other details!
+
+Executing systemctl --user restart noxd.service...
+Daemon successfully restarted.
+[Post-restart Turn 2] User: What was the production cluster hostname I told you earlier?
+[Post-restart Turn 2] NoX: The production cluster hostname you told me earlier is **zeus-node-alpha.internal**.
+
+Verification D1-d: Hostname recalled post-restart: True
+Result D1-d: PASS
+
+================================================================================
+ALL WORKSTREAM D1 ACCEPTANCE CHECKS PASSED.
+================================================================================

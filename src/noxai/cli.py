@@ -369,7 +369,7 @@ def chat_cmd(
         True, "--allow-cloud/--no-cloud", help="Allow cloud model if eligible."
     ),
     cont: bool = typer.Option(
-        False, "--continue", "-c", help="Continue the most recent conversation."
+        True, "--continue/--new", "-c/-n", help="Continue the active conversation (default) or start new."
     ),
     conv_id: str | None = typer.Option(
         None, "--conv", help="Specific conversation ID to continue."
@@ -393,12 +393,12 @@ def chat_cmd(
         async with get_db() as db:
             conversation_id = conv_id
             if cont and not conversation_id:
-                last_conv = await fetch_one(
-                    db,
-                    "SELECT id FROM conversations ORDER BY updated_at DESC LIMIT 1",
-                )
-                if last_conv:
-                    conversation_id = str(last_conv["id"])
+                from noxai.memory.conversation import get_or_create_active_conversation
+
+                conversation_id = await get_or_create_active_conversation(db)
+            elif not cont and not conversation_id:
+                import uuid
+                conversation_id = f"conv_{uuid.uuid4().hex[:12]}"
 
             console.print(f"[bold cyan]You:[/] {message}\n")
             console.print("[bold green]NoX:[/] ", end="")
