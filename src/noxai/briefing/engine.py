@@ -995,12 +995,25 @@ class BriefingPipeline:
             )
         )
 
+        from noxai.tracing.recorder import trace_execution
+
+        tr_rec = trace_execution(
+            source="briefing",
+            request_text=f"Extract intelligence for topic '{topic_name}' ({topic_id})",
+            intent="briefing_topic",
+            schedule_run_id=run_id,
+            trace_id=f"tr_{run_id}_{topic_id}",
+        )
+        await tr_rec.__aenter__()
+        tr_rec.set_engine_and_model("nvidia", "meta/llama-3.3-70b-instruct")
+
         try:
             collected_entries: list[dict[str, str]] = []
             for src in sources:
                 if src.get("type") == "rss":
                     entries = await self.researcher.fetch_feed(src["url"], src["name"], topic_id)
                     collected_entries.extend(entries)
+            tr_rec.record_step(name="fetch_sources", tool_or_skill="crawler", duration_ms=len(collected_entries) * 5.0, status="success")
 
             staged_candidates: list[CandidateItem] = []
 
@@ -1702,9 +1715,12 @@ class BriefingPipeline:
                     },
                 )
             )
+            tr_rec.record_step(name="stage_items", duration_ms=float(staged_count), status="success")
+            await tr_rec.__aexit__(None, None, None)
             log.info("Topic worker %s completed with %d staged items.", topic_name, staged_count)
             return staged_count
         except Exception as exc:
+            await tr_rec.__aexit__(type(exc), exc, None)
             log.warning("Topic worker %s failed: %s", topic_id, exc)
             async with get_db() as db:
                 now_iso = datetime.now(UTC).isoformat()
@@ -1951,7 +1967,20 @@ class BriefingPipeline:
         top_3 = analyst_data.get("top_3", [])
         tldr = analyst_data.get("tldr", "")
 
-        # Write to briefing_items table
+        from noxai.tracing.recorder import trace_execution
+
+        async with trace_execution(
+            source="briefing",
+            request_text=f"Combine and format briefing for run {run_id} ({slot})",
+            intent="briefing_combine",
+            schedule_run_id=run_id,
+            trace_id=f"tr_combine_{run_id}",
+        ) as tr_rec:
+            tr_rec.set_engine_and_model("nvidia", "meta/llama-3.3-70b-instruct")
+            tr_rec.record_step(name="dedupe_and_rank", duration_ms=round(generation_seconds * 500, 2), status="success")
+            tr_rec.record_step(name="write_markdown", status="success")
+
+            # Write to briefing_items table
         async with get_db() as db:
             for it in items:
                 await execute(

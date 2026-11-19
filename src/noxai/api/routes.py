@@ -1557,6 +1557,33 @@ async def rate_briefing_detailed(briefing_id: str, fb: DetailedBriefingFeedback)
         reason_text=fb.reason_text,
         tags=fb.tags,
     )
+
+    # Workstream C: link topic dislike to trace and prompt_feedback
+    if fb.topic_id and fb.rating == "dislike":
+        try:
+            from noxai.tracing.recorder import record_trace_feedback
+
+            async with get_db() as db:
+                tr_row = await fetch_one(
+                    db,
+                    """
+                    SELECT id FROM traces
+                    WHERE (schedule_run_id = ? OR request_text LIKE ?)
+                    ORDER BY started_at DESC LIMIT 1
+                    """,
+                    (briefing_id, f"%{fb.topic_id}%"),
+                )
+                trace_id = tr_row["id"] if tr_row else f"tr_{briefing_id}_{fb.topic_id}"
+                await record_trace_feedback(
+                    trace_id=trace_id,
+                    rating="dislike",
+                    note=fb.reason_text,
+                    topic=fb.topic_id,
+                    db=db,
+                )
+        except Exception as exc:
+            log.warning("Failed to link briefing feedback to trace/prompt_feedback: %s", exc)
+
     return {"ok": True, "feedback_id": fb_id}
 
 
@@ -2520,4 +2547,101 @@ async def get_schedule_runs_endpoint(
         }
         for r in history
     ]
+
+
+# ---------------------------------------------------------------------------
+# Traces & Prompt Self-Rewriting (Workstream C)
+# ---------------------------------------------------------------------------
+
+
+class TraceFeedbackModel(BaseModel):
+    rating: str = Field(..., description="'like' or 'dislike'")
+    note: str | None = None
+    topic: str | None = None
+
+
+class PromptRollbackModel(BaseModel):
+    topic: str
+    version: int
+
+
+@api_router.get("/traces", dependencies=READ_DEPS)
+async def list_traces_endpoint(
+    limit: int = 20,
+    source: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """List recent execution traces with step telemetry."""
+    from noxai.tracing.recorder import list_traces
+
+    return await list_traces(limit=limit, source=source, status=status)
+
+
+@api_router.get("/traces/stats", dependencies=READ_DEPS)
+async def get_traces_stats_endpoint(days: int = 7) -> dict[str, Any]:
+    """Retrieve aggregated execution and fallback telemetry."""
+    from noxai.tracing.recorder import get_trace_stats
+
+    return await get_trace_stats(days=days)
+
+
+@api_router.get("/traces/{trace_id}", dependencies=READ_DEPS)
+async def get_trace_endpoint(trace_id: str) -> dict[str, Any]:
+    """Retrieve full details of an execution trace."""
+    from noxai.tracing.recorder import get_trace
+
+    tr = await get_trace(trace_id)
+    if not tr:
+        raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found.")
+    return tr
+
+
+@api_router.post("/traces/{trace_id}/feedback", dependencies=WRITE_DEPS)
+async def submit_trace_feedback_endpoint(
+    trace_id: str, body: TraceFeedbackModel
+) -> dict[str, Any]:
+    """Record user like/dislike feedback on an execution trace."""
+    from noxai.tracing.recorder import record_trace_feedback
+
+    pfb_id = await record_trace_feedback(
+        trace_id=trace_id,
+        rating=body.rating,
+        note=body.note,
+        topic=body.topic,
+    )
+    return {"ok": True, "feedback_id": pfb_id}
+
+
+@api_router.get("/prompt/history/{topic}", dependencies=READ_DEPS)
+async def get_prompt_history_endpoint(topic: str) -> list[dict[str, Any]]:
+    """Get version history for a briefing topic extraction prompt."""
+    from noxai.tracing.rewrite import get_topic_prompt_history
+
+    return await get_topic_prompt_history(topic)
+
+
+@api_router.post("/prompt/rollback", dependencies=WRITE_DEPS)
+async def rollback_prompt_endpoint(body: PromptRollbackModel) -> dict[str, Any]:
+    """Roll back active prompt for a topic to an earlier version."""
+    from noxai.tracing.rewrite import rollback_topic_prompt
+
+    try:
+        return await rollback_topic_prompt(body.topic, body.version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@api_router.post("/prompt/improve/{topic}", dependencies=WRITE_DEPS)
+async def improve_prompt_endpoint(topic: str) -> dict[str, Any]:
+    """Trigger AI improvement of a topic prompt based on unapplied feedback."""
+    from noxai.tracing.rewrite import improve_topic_prompt
+
+    try:
+        return await improve_topic_prompt(topic)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 

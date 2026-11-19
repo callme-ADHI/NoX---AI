@@ -898,6 +898,45 @@ async def orchestrate_chat_turn(
 
         await _safe_db_write(_write_assistant_msg)
 
+        # Persist to traces table (Workstream C)
+        try:
+            tr_id = f"tr_{actual_run_id.replace('run_', '')}"
+            steps_list = [
+                {"name": "intent_analysis", "duration_ms": round(t_route, 2), "status": "success"},
+                {"name": "prompt_assembly", "duration_ms": round(t_prompt, 2), "status": "success"},
+                {"name": "generation", "duration_ms": round(t_generation, 2), "status": "success"},
+            ]
+            async with get_db() as tr_db:
+                await execute(
+                    tr_db,
+                    """
+                    INSERT INTO traces (
+                        id, started_at, finished_at, source, schedule_run_id, request_text,
+                        intent, engine, model, steps, token_counts, final_status
+                    ) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                              'chat', ?, ?, ?, ?, ?, ?, ?, 'success')
+                    ON CONFLICT(id) DO UPDATE SET
+                        finished_at = excluded.finished_at,
+                        final_status = 'success',
+                        engine = excluded.engine,
+                        model = excluded.model,
+                        steps = excluded.steps
+                    """,
+                    (
+                        tr_id,
+                        actual_run_id,
+                        (message or "")[:4000],
+                        intent_res.intent.value,
+                        actual_provider_name,
+                        actual_model_name,
+                        json.dumps(steps_list),
+                        json.dumps({"prompt_tokens": prompt_tokens_est, "completion_tokens": 0, "total_tokens": prompt_tokens_est}),
+                    ),
+                )
+                await tr_db.commit()
+        except Exception as exc:
+            log.warning("Failed to record chat trace: %s", exc)
+
         # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
         if actual_conv_id:
             async def _bg_cms() -> None:

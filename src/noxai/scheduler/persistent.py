@@ -244,6 +244,7 @@ class PersistentScheduler:
         self.register_handler("briefing_evening", self._run_evening_briefing)
         self.register_handler("backup_daily", self._run_backup_job)
         self.register_handler("generic", self._run_generic_job)
+        self.register_handler("traces_cleanup", self._run_traces_cleanup)
         self.register_handler("ping", self._run_generic_job)
         self.register_handler("test", self._run_generic_job)
 
@@ -302,6 +303,12 @@ class PersistentScheduler:
         await asyncio.sleep(0.2)
         return {"status": "ok", "schedule": schedule.name, "run_id": run_id}
 
+    async def _run_traces_cleanup(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
+        from noxai.tracing.cleanup import cleanup_old_traces
+
+        log.info("Executing daily trace retention cleanup (run_id=%s)", run_id)
+        return await cleanup_old_traces()
+
     # -----------------------------------------------------------------------
     # Lifecycle & Loop
     # -----------------------------------------------------------------------
@@ -316,6 +323,12 @@ class PersistentScheduler:
 
         # 1. Crash recovery: recover orphaned/interrupted runs from previous daemon instance
         await self.recover_interrupted_runs()
+        try:
+            from noxai.tracing.recorder import recover_interrupted_traces
+
+            await recover_interrupted_traces()
+        except Exception as exc:
+            log.warning("Trace recovery warning on scheduler start: %s", exc)
 
         # 2. Boot catch-up check
         await self.evaluate_catchup()
@@ -622,49 +635,61 @@ class PersistentScheduler:
         finished_status = "success"
         error_msg: str | None = None
 
+        from noxai.tracing.recorder import trace_execution
+
         try:
-            if handler is None:
-                raise ValueError(f"No registered handler for target_action: '{schedule.target_action}'")
+            async with trace_execution(
+                source="schedule",
+                request_text=f"Scheduled execution of '{schedule.name}' (action={schedule.target_action})",
+                schedule_run_id=run_id,
+            ) as tr_rec:
+                try:
+                    if handler is None:
+                        raise ValueError(f"No registered handler for target_action: '{schedule.target_action}'")
 
-            # Execute with timeout
-            await asyncio.wait_for(handler(schedule, run_id, cancel_evt), timeout=timeout_seconds)
+                    # Execute with timeout
+                    await asyncio.wait_for(handler(schedule, run_id, cancel_evt), timeout=timeout_seconds)
+                    tr_rec.record_step(name=f"execute_{schedule.target_action}", status="success")
 
-        except TimeoutError:
-            finished_status = "failed"
-            error_msg = f"Run exceeded timeout of {timeout_seconds}s"
-            log.error("Schedule run %s for '%s' timed out", run_id, schedule.name)
-            send_schedule_notification(
-                f"NoX Schedule Timeout: {schedule.name}",
-                error_msg,
-                urgency="critical",
-            )
-        except asyncio.CancelledError:
-            finished_status = "cancelled"
-            error_msg = "Run cancelled cooperatively"
-            log.info("Schedule run %s for '%s' was cancelled", run_id, schedule.name)
-        except Exception as exc:
-            finished_status = "failed"
-            error_msg = str(exc)
-            log.error("Schedule run %s for '%s' failed: %s", run_id, schedule.name, exc, exc_info=True)
-            send_schedule_notification(
-                f"NoX Schedule Failed: {schedule.name}",
-                f"Error: {exc}",
-                urgency="critical",
-            )
-        else:
-            log.info("Schedule run %s for '%s' completed successfully", run_id, schedule.name)
-            if is_catchup:
-                send_schedule_notification(
-                    f"NoX Schedule Catch-up: {schedule.name}",
-                    f"Missed run completed successfully.",
-                    urgency="normal",
-                )
-            else:
-                send_schedule_notification(
-                    f"NoX Schedule: {schedule.name}",
-                    f"Completed successfully.",
-                    urgency="low",
-                )
+                except TimeoutError:
+                    tr_rec.record_step(name=f"execute_{schedule.target_action}", status="timeout")
+                    finished_status = "failed"
+                    error_msg = f"Run exceeded timeout of {timeout_seconds}s"
+                    log.error("Schedule run %s for '%s' timed out", run_id, schedule.name)
+                    send_schedule_notification(
+                        f"NoX Schedule Timeout: {schedule.name}",
+                        error_msg,
+                        urgency="critical",
+                    )
+                except asyncio.CancelledError:
+                    tr_rec.record_step(name=f"execute_{schedule.target_action}", status="cancelled")
+                    finished_status = "cancelled"
+                    error_msg = "Run cancelled cooperatively"
+                    log.info("Schedule run %s for '%s' was cancelled", run_id, schedule.name)
+                except Exception as exc:
+                    tr_rec.record_step(name=f"execute_{schedule.target_action}", status="failed")
+                    finished_status = "failed"
+                    error_msg = str(exc)
+                    log.error("Schedule run %s for '%s' failed: %s", run_id, schedule.name, exc, exc_info=True)
+                    send_schedule_notification(
+                        f"NoX Schedule Failed: {schedule.name}",
+                        f"Error: {exc}",
+                        urgency="critical",
+                    )
+                else:
+                    log.info("Schedule run %s for '%s' completed successfully", run_id, schedule.name)
+                    if is_catchup:
+                        send_schedule_notification(
+                            f"NoX Schedule Catch-up: {schedule.name}",
+                            f"Missed run completed successfully.",
+                            urgency="normal",
+                        )
+                    else:
+                        send_schedule_notification(
+                            f"NoX Schedule: {schedule.name}",
+                            f"Completed successfully.",
+                            urgency="low",
+                        )
         finally:
             heartbeat_stop.set()
             if not hb_task.done():

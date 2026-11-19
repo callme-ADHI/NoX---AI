@@ -1,0 +1,38 @@
+================================================================================
+NoX Session M: Acceptance Check C4 (Crash Recovery Mid-Run Proof)
+================================================================================
+Simulated daemon crash / abrupt restart mid-run while a trace is in 'running' state.
+
+1. Trace State Prior to Recovery
+--------------------------------------------------------------------------------
+ID: tr_c4_crash_proof
+Final Status: running
+Finished At: None
+Error Text: None
+
+2. Execution of recover_interrupted_traces() on Startup
+--------------------------------------------------------------------------------
+On daemon boot / scheduler init, recover_interrupted_traces() scans for open
+traces with final_status = 'running' and marks them 'interrupted'.
+
+3. Trace State Following Recovery
+--------------------------------------------------------------------------------
+ID: tr_c4_crash_proof
+Final Status: interrupted
+Finished At: 2026-11-19T03:29:23.390Z
+Error Text: Process interrupted unexpectedly
+
+4. CLI Output: nx traces show tr_c4_crash_proof
+--------------------------------------------------------------------------------
+Trace: tr_c4_crash_proof
+Source: chat  |  Status: interrupted
+Started: 2026-11-19T03:29:23.378821+00:00  |  Finished: 2026-11-19T03:29:23.390Z
+Engine: None  |  Model: None  |  Key Slot: None
+
+Request Text:
+Mid-run operation before daemon SIGKILL
+
+Error Details:
+Process interrupted unexpectedly
+
+Result: PASS

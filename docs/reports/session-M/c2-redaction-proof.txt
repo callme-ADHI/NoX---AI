@@ -1,0 +1,13 @@
+================================================================================
+NoX Session M: Acceptance Check C2 (Pre-Storage Redaction Proof)
+================================================================================
+=== Raw Trace Row from SQLite ===
+ID: tr_c2_redact_proof
+Request Text: Check keys nvapi-[REDACTED] and [REDACTED_GITHUB_TOKEN]
+Steps: [{"name": "secret_step", "tool_or_skill": "Authorization: Bearer [REDACTED]", "duration_ms": 12.5, "status": "success"}]
+Status: success
+
+✓ Verification 1: SELECT query confirms raw columns contain only redacted values.
+✓ Verification 2: 'strings ~/.local/share/nox/nox.db' found 0 occurrences of secret key patterns.
+
+Result: PASS

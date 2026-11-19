@@ -202,6 +202,12 @@ def create_app(
                     len(repaired_runs),
                 )
 
+            from noxai.tracing.recorder import recover_interrupted_traces
+
+            recovered_traces = await recover_interrupted_traces(db=db)
+            if recovered_traces:
+                log.info("Recovered %d interrupted traces on startup.", recovered_traces)
+
 
         # 6. Build model router
         if test_mode:
