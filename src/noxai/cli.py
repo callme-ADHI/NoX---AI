@@ -36,6 +36,7 @@ from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.jobs import jobs_app
 from noxai.commands.keys import keys_app
+from noxai.commands.mcp import mcp_app
 from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
 from noxai.commands.notes import notes_app
@@ -44,6 +45,7 @@ from noxai.commands.reminders import remind_command, reminders_app
 from noxai.commands.schedule import schedule_app
 from noxai.commands.service import service_app, session_env_command
 from noxai.commands.setup import setup_app
+from noxai.commands.skill import skill_app
 from noxai.commands.sources import sources_app
 from noxai.commands.tasks import tasks_app
 from noxai.commands.traces import traces_app
@@ -62,6 +64,8 @@ app.add_typer(keys_app, name="keys")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(tasks_app, name="tasks")
 app.add_typer(memory_app, name="memory")
+app.add_typer(skill_app, name="skill")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(notes_app, name="notes")
 app.add_typer(reminders_app, name="reminders")
 app.add_typer(sources_app, name="sources")
@@ -632,3 +636,8 @@ def bench_cloud_cmd(
     from noxai.commands.models import models_bench_cloud
 
     models_bench_cloud(runs=runs)
+
+
+if __name__ == "__main__":
+    app()
+

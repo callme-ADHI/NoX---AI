@@ -1,0 +1,25 @@
+=== NOX WORKSTREAM E4 ACCEPTANCE PROOF ===
+Timestamp: 2026-11-19T06:19:25Z
+
+--- 1. Pytest Assertion Output (PermissionError Refusal by Default) ---
+============================= test session starts ==============================
+platform linux -- Python 3.14.10, pytest-9.1.1, pluggy-1.7.0 -- /home/boss/Documents/Projects/NoX/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/boss/Documents/Projects/NoX
+configfile: pyproject.toml
+plugins: anyio-4.15.1, asyncio-1.4.0, cov-7.1.0, repeat-0.9.4, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 7 items / 6 deselected / 1 selected
+
+tests/test_skills_and_mcp.py::test_script_safety_refusal_by_default PASSED [100%]
+
+======================= 1 passed, 6 deselected in 1.39s ========================
+
+--- 2. CLI Safety Gate Toggle (`nx skill allow-scripts briefing-format --deny`) ---
+✓ Scripts for skill 'briefing-format' are now DENIED.
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)

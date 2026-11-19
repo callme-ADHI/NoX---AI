@@ -1,0 +1,100 @@
+=== NOX WORKSTREAM E3 ACCEPTANCE PROOF ===
+Timestamp: 2026-11-19T06:19:09Z
+
+--- 1. `nx skill install /tmp/test-skill-e3 --yes` ---
+Skill Installation Preview
+  • Name: test-skill-e3
+  • Description: Dynamic test skill for Workstream E3 staged install validation.
+  • Source Path: /tmp/test-skill-e3
+  • Files (1):
+    - SKILL.md
+
+Note: Newly installed skills start disabled by default.
+
+✓ Successfully installed skill 'test-skill-e3' (status: disabled).
+  Enable when ready with: nx skill enable test-skill-e3
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+
+--- 2. `nx skill list` (Shows installed skill DISABLED by default) ---
+NoX Reusable Skills Catalog                           
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃                 ┃         ┃         ┃   Scripts    ┃          ┃              ┃
+┃ Name            ┃ Version ┃ Enabled ┃   Allowed    ┃ Location ┃ Description  ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ briefing-format │  1.0.0  │   YES   │      no      │ repo     │ Formatting   │
+│                 │         │         │              │          │ rules and    │
+│                 │         │         │              │          │ section      │
+│                 │         │         │              │          │ structures   │
+│                 │         │         │              │          │ for NoX      │
+│                 │         │         │              │          │ executive    │
+│                 │         │         │              │          │ briefings    │
+│                 │         │         │              │          │ with         │
+│                 │         │         │              │          │ categor...   │
+│ notes-search    │  1.0.0  │   YES   │      no      │ repo     │ Instructions │
+│                 │         │         │              │          │ for          │
+│                 │         │         │              │          │ recalling    │
+│                 │         │         │              │          │ knowledge    │
+│                 │         │         │              │          │ from the     │
+│                 │         │         │              │          │ user's       │
+│                 │         │         │              │          │ Obsidian     │
+│                 │         │         │              │          │ vault and    │
+│                 │         │         │              │          │ Study no...  │
+│ test-skill-e3   │  1.0.0  │   NO    │      no      │ user     │ Dynamic test │
+│                 │         │         │              │          │ skill for    │
+│                 │         │         │              │          │ Workstream   │
+│                 │         │         │              │          │ E3 staged    │
+│                 │         │         │              │          │ install      │
+│                 │         │         │              │          │ validation.  │
+└─────────────────┴─────────┴─────────┴──────────────┴──────────┴──────────────┘
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+
+--- 3. `nx skill enable test-skill-e3` ---
+✓ Skill 'test-skill-e3' is now enabled.
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+
+--- 4. `nx skill list` (Shows test-skill-e3 ENABLED) ---
+NoX Reusable Skills Catalog                           
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃                 ┃         ┃         ┃   Scripts    ┃          ┃              ┃
+┃ Name            ┃ Version ┃ Enabled ┃   Allowed    ┃ Location ┃ Description  ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ briefing-format │  1.0.0  │   YES   │      no      │ repo     │ Formatting   │
+│                 │         │         │              │          │ rules and    │
+│                 │         │         │              │          │ section      │
+│                 │         │         │              │          │ structures   │
+│                 │         │         │              │          │ for NoX      │
+│                 │         │         │              │          │ executive    │
+│                 │         │         │              │          │ briefings    │
+│                 │         │         │              │          │ with         │
+│                 │         │         │              │          │ categor...   │
+│ notes-search    │  1.0.0  │   YES   │      no      │ repo     │ Instructions │
+│                 │         │         │              │          │ for          │
+│                 │         │         │              │          │ recalling    │
+│                 │         │         │              │          │ knowledge    │
+│                 │         │         │              │          │ from the     │
+│                 │         │         │              │          │ user's       │
+│                 │         │         │              │          │ Obsidian     │
+│                 │         │         │              │          │ vault and    │
+│                 │         │         │              │          │ Study no...  │
+│ test-skill-e3   │  1.0.0  │   YES   │      no      │ user     │ Dynamic test │
+│                 │         │         │              │          │ skill for    │
+│                 │         │         │              │          │ Workstream   │
+│                 │         │         │              │          │ E3 staged    │
+│                 │         │         │              │          │ install      │
+│                 │         │         │              │          │ validation.  │
+└─────────────────┴─────────┴─────────┴──────────────┴──────────┴──────────────┘
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+
+--- 5. `nx skill remove test-skill-e3` ---
+✓ Removed skill 'test-skill-e3'.
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)

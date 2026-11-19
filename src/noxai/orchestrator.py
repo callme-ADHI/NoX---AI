@@ -144,7 +144,10 @@ class ChatTurnResult:
     fallback_offered: bool = False
 
 
-def _build_cloud_system_prompt() -> Message:
+def _build_cloud_system_prompt(
+    active_skill_body: str | None = None,
+    skill_catalog_summary: str | None = None,
+) -> Message:
     """Construct a slim, privacy-safe system prompt for the cloud front desk (§G3.7).
 
     Guarantees:
@@ -178,13 +181,22 @@ def _build_cloud_system_prompt() -> Message:
         "Never output raw <tool_call> or <function=...> XML tags in your conversational text.\n"
         "Provide direct, structured, and insightful answers."
     )
+    if active_skill_body:
+        prompt_text += f"\n\n[ACTIVE SKILL INSTRUCTIONS]\n{active_skill_body}"
+    elif skill_catalog_summary:
+        prompt_text += f"\n\n{skill_catalog_summary}"
+
     return Message(
         role="system",
         content=Content(text=prompt_text, data_class=DataClass.PUBLIC, taint=TaintFlag.NONE),
     )
 
 
-def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Message:
+def _build_local_system_prompt(
+    recalled_memories: list[str] | None = None,
+    active_skill_body: str | None = None,
+    skill_catalog_summary: str | None = None,
+) -> Message:
     """Construct the system prompt for local execution."""
     prompt_text = (
         "You are NoX, an advanced, highly capable personal AI assistant running locally.\n"
@@ -200,6 +212,11 @@ def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Me
     )
     if recalled_memories:
         prompt_text += "\n\nRecalled Context:\n" + "\n".join(recalled_memories)
+    if active_skill_body:
+        prompt_text += f"\n\n[ACTIVE SKILL INSTRUCTIONS]\n{active_skill_body}"
+    elif skill_catalog_summary:
+        prompt_text += f"\n\n{skill_catalog_summary}"
+
     return Message(
         role="system",
         content=Content(
@@ -422,34 +439,86 @@ async def orchestrate_chat_turn(
             target_role = "resident"
             fallback_reason = "SENSITIVE"
     
+        # 3b. Skills Discovery & Progressive Loading (Workstream E)
+        from noxai.skills.catalog import get_skills_catalog
+
+        skills_cat = get_skills_catalog()
+        if active_db is not None:
+            await skills_cat.sync_state(active_db)
+        else:
+            skills_cat.discover_skills()
+
+        matched_skill = None
+        skill_load_step: dict[str, Any] | None = None
+        t_skill_0 = time.perf_counter()
+
+        enabled_skills = [s for s in skills_cat.list_skills() if s.enabled]
+        msg_lower = message.lower()
+        for sk in enabled_skills:
+            if sk.name == "notes-search" and any(
+                k in msg_lower for k in ("note", "notes", "vault", "what did i write", "recall from")
+            ):
+                matched_skill = sk
+                break
+            elif sk.name == "briefing-format" and any(
+                k in msg_lower for k in ("briefing", "daily briefing", "format briefing")
+            ):
+                matched_skill = sk
+                break
+            elif sk.name.replace("-", " ") in msg_lower or sk.name in msg_lower:
+                matched_skill = sk
+                break
+
+        active_skill_body: str | None = None
+        if matched_skill:
+            active_skill_body = skills_cat.load_skill_body(matched_skill.name)
+            dur_ms = round((time.perf_counter() - t_skill_0) * 1000.0, 2)
+            skill_load_step = {
+                "name": "load_skill",
+                "tool_or_skill": f"skill:{matched_skill.name}",
+                "duration_ms": max(dur_ms, 0.1),
+                "status": "success",
+            }
+
+        skill_catalog_summary = skills_cat.get_prompt_catalog() if not matched_skill else None
+
         # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
         t_prompt_0 = time.perf_counter()
         all_specs = tools if tools is not None else reg.get_specs()
         front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
-    
+
         from noxai.memory.conversation import build_four_part_context
-    
+
+        base_cloud_prompt = _build_cloud_system_prompt(
+            active_skill_body=active_skill_body,
+            skill_catalog_summary=skill_catalog_summary,
+        )
+        base_local_prompt = _build_local_system_prompt(
+            active_skill_body=active_skill_body,
+            skill_catalog_summary=skill_catalog_summary,
+        )
+
         if active_db is not None:
             try:
                 cloud_turn_messages = await build_four_part_context(
                     conversation_id=actual_conv_id,
                     current_user_message=user_msg,
                     db=active_db,
-                    base_system_prompt=_build_cloud_system_prompt(),
+                    base_system_prompt=base_cloud_prompt,
                 )
                 local_turn_messages = await build_four_part_context(
                     conversation_id=actual_conv_id,
                     current_user_message=user_msg,
                     db=active_db,
-                    base_system_prompt=_build_local_system_prompt(),
+                    base_system_prompt=base_local_prompt,
                 )
             except Exception as e_ctx:
                 log.warning("build_four_part_context failed (%s), using baseline context", e_ctx)
-                cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
-                local_turn_messages = [_build_local_system_prompt(), user_msg]
+                cloud_turn_messages = [base_cloud_prompt, user_msg]
+                local_turn_messages = [base_local_prompt, user_msg]
         else:
-            cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
-            local_turn_messages = [_build_local_system_prompt(), user_msg]
+            cloud_turn_messages = [base_cloud_prompt, user_msg]
+            local_turn_messages = [base_local_prompt, user_msg]
     
         if target_role == "front":
             selected_tools = front_desk_specs
@@ -523,6 +592,7 @@ async def orchestrate_chat_turn(
         first_token_time: float | None = None
         t_stream_0 = time.perf_counter()
         citations_collected: list[str] = []
+        executed_tool_steps: list[dict[str, Any]] = []
     
         try:
             max_tool_steps = 3
@@ -705,6 +775,12 @@ async def orchestrate_chat_turn(
                                 urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
                                 citations_collected.extend(urls)
                             t_call_dur = int((time.perf_counter() - t0_call) * 1000)
+                            executed_tool_steps.append({
+                                "name": "tool_call",
+                                "tool_or_skill": f"tool:{call.name}",
+                                "duration_ms": max(t_call_dur, 1),
+                                "status": "success" if tool_res.ok else "error",
+                            })
                             await bus.publish(
                                 make_event(
                                     "tool_result",
@@ -905,11 +981,15 @@ async def orchestrate_chat_turn(
         # Persist to traces table (Workstream C)
         try:
             tr_id = f"tr_{actual_run_id.replace('run_', '')}"
-            steps_list = [
+            steps_list: list[dict[str, Any]] = [
                 {"name": "intent_analysis", "duration_ms": round(t_route, 2), "status": "success"},
-                {"name": "prompt_assembly", "duration_ms": round(t_prompt, 2), "status": "success"},
-                {"name": "generation", "duration_ms": round(t_generation, 2), "status": "success"},
             ]
+            if skill_load_step:
+                steps_list.append(skill_load_step)
+            steps_list.append({"name": "prompt_assembly", "duration_ms": round(t_prompt, 2), "status": "success"})
+            for ts in executed_tool_steps:
+                steps_list.append(ts)
+            steps_list.append({"name": "generation", "duration_ms": round(t_generation, 2), "status": "success"})
             async with get_db() as tr_db:
                 await execute(
                     tr_db,

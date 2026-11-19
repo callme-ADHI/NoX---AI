@@ -1,0 +1,76 @@
+=== NOX WORKSTREAM E1 ACCEPTANCE PROOF ===
+Timestamp: 2026-11-19T06:19:06Z
+
+--- 1. `nx skill list` OUTPUT ---
+NoX Reusable Skills Catalog                           
+┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃                 ┃         ┃         ┃   Scripts    ┃          ┃              ┃
+┃ Name            ┃ Version ┃ Enabled ┃   Allowed    ┃ Location ┃ Description  ┃
+┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ briefing-format │  1.0.0  │   YES   │      no      │ repo     │ Formatting   │
+│                 │         │         │              │          │ rules and    │
+│                 │         │         │              │          │ section      │
+│                 │         │         │              │          │ structures   │
+│                 │         │         │              │          │ for NoX      │
+│                 │         │         │              │          │ executive    │
+│                 │         │         │              │          │ briefings    │
+│                 │         │         │              │          │ with         │
+│                 │         │         │              │          │ categor...   │
+│ notes-search    │  1.0.0  │   YES   │      no      │ repo     │ Instructions │
+│                 │         │         │              │          │ for          │
+│                 │         │         │              │          │ recalling    │
+│                 │         │         │              │          │ knowledge    │
+│                 │         │         │              │          │ from the     │
+│                 │         │         │              │          │ user's       │
+│                 │         │         │              │          │ Obsidian     │
+│                 │         │         │              │          │ vault and    │
+│                 │         │         │              │          │ Study no...  │
+└─────────────────┴─────────┴─────────┴──────────────┴──────────┴──────────────┘
+
+STDERR:
+vector_backend=numpy sqlite-vec not available; using numpy brute-force cosine similarity (fine under ~50k vectors)
+
+--- 2. CHAT REQUEST MATCHING notes-search ---
+Run ID: run_f634a1910b8d
+Query: 'What did I write in my notes about dignity of workers?'
+Model: nvidia/nemotron-3.5-lightning-30b-a3b (Served by: nvidia)
+Response Snippet:
+In your notes at **`/home/boss/Documents/Obsidian Vault/sahayak minutes.md`** you wrote:
+
+> **dont call the worker worker, give them dignity**...
+
+--- 3. PERSISTED TRACE ROW & LOAD_SKILL STEP ---
+Trace ID: tr_f634a1910b8d
+Source: chat
+Final Status: success
+All Steps:
+[
+  {
+    "name": "intent_analysis",
+    "duration_ms": 0.5,
+    "status": "success"
+  },
+  {
+    "name": "load_skill",
+    "tool_or_skill": "skill:notes-search",
+    "duration_ms": 0.1,
+    "status": "success"
+  },
+  {
+    "name": "prompt_assembly",
+    "duration_ms": 59.05,
+    "status": "success"
+  },
+  {
+    "name": "generation",
+    "duration_ms": 183.49,
+    "status": "success"
+  }
+]
+
+Load Skill Step Match: {
+  "name": "load_skill",
+  "tool_or_skill": "skill:notes-search",
+  "duration_ms": 0.1,
+  "status": "success"
+}
