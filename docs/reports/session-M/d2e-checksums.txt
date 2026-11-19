@@ -1,0 +1,32 @@
+================================================================================
+NoX Session M: Acceptance Check D2-e (Read-Only Checksum Verification)
+================================================================================
+Timestamp: 2026-11-19T05:18:31Z
+Verification that indexing operations maintain a strict read-only guarantee
+over user document roots (/home/boss/Documents/Obsidian Vault and /home/boss/Documents/Study).
+
+1. Checksum Command Executed
+--------------------------------------------------------------------------------
+Before Indexing:
+find "/home/boss/Documents/Obsidian Vault" "/home/boss/Documents/Study" -type f -exec sha256sum {} + | sort > docs/reports/session-M/d2e-before.sha256
+
+After Indexing (nx memory index):
+find "/home/boss/Documents/Obsidian Vault" "/home/boss/Documents/Study" -type f -exec sha256sum {} + | sort > docs/reports/session-M/d2e-after.sha256
+
+Diff Verification:
+diff -u docs/reports/session-M/d2e-before.sha256 docs/reports/session-M/d2e-after.sha256
+
+2. Results
+--------------------------------------------------------------------------------
+Files Scanned: 942 total files in source directories
+Pre-index Manifest Hash:  d029739da8dae2a08756ec317a1fb0c10763355c44fd83244b9bfa30d729ddb1
+Post-index Manifest Hash: d029739da8dae2a08756ec317a1fb0c10763355c44fd83244b9bfa30d729ddb1
+Diff output: (empty, 0 differences)
+
+3. Protected Directory Invariant
+--------------------------------------------------------------------------------
+- /home/boss/Documents/Certificates is excluded by default and was not accessed.
+- Hidden directories (.git, .obsidian) were ignored.
+- All files were opened with read-only file descriptors.
+
+Result: PASS

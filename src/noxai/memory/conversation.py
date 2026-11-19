@@ -530,6 +530,42 @@ async def build_four_part_context(
                     remaining_budget -= snip_tok
 
     # -------------------------------------------------------------------------
+    # Part 4b: Retrieved notes / documents if query refers to notes or vault
+    # -------------------------------------------------------------------------
+    note_recall_phrases = (
+        "in my notes",
+        "in my vault",
+        "in the vault",
+        "from my notes",
+        "in my study",
+        "what did i write about",
+        "what did i write in",
+        "what did i note",
+        "my obsidian",
+        "in notes",
+    )
+    has_note_phrase = any(phrase in user_query.lower() for phrase in note_recall_phrases)
+    retrieved_doc_chunks: list[str] = []
+    if has_note_phrase and remaining_budget > 150:
+        try:
+            from noxai.memory.docs import search_documents
+
+            doc_matches = await search_documents(query=user_query, k=4, db=db)
+            if doc_matches:
+                for dm in doc_matches:
+                    heading_info = f", Heading: {dm.heading_path}" if dm.heading_path else ""
+                    dm_str = (
+                        f"Source File: {dm.path} (Lines {dm.line_start}-{dm.line_end}{heading_info}):\n"
+                        f"{dm.text}"
+                    )
+                    dm_tok = estimate_tokens(dm_str)
+                    if dm_tok <= remaining_budget:
+                        retrieved_doc_chunks.append(dm_str)
+                        remaining_budget -= dm_tok
+        except Exception as exc:
+            log.warning("Document note retrieval failed: %s", exc)
+
+    # -------------------------------------------------------------------------
     # Combine into Final Messages List
     # -------------------------------------------------------------------------
     system_sections = [part1_text]
@@ -537,6 +573,14 @@ async def build_four_part_context(
         system_sections.append(part2_text)
     if retrieved_snippets:
         system_sections.append("[RELEVANT HISTORICAL TURNS]\n" + "\n".join(retrieved_snippets))
+    if retrieved_doc_chunks:
+        doc_header = (
+            "[RELEVANT USER NOTES & DOCUMENTS]\n"
+            "The following excerpts were retrieved from the user's local notes and files. "
+            "Answer the user's request directly using these excerpts and ALWAYS cite the exact source file path in your reply.\n\n"
+            + "\n\n---\n\n".join(retrieved_doc_chunks)
+        )
+        system_sections.append(doc_header)
 
     combined_system_text = "\n\n".join(system_sections)
     final_messages = [

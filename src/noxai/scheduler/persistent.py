@@ -245,6 +245,7 @@ class PersistentScheduler:
         self.register_handler("backup_daily", self._run_backup_job)
         self.register_handler("generic", self._run_generic_job)
         self.register_handler("traces_cleanup", self._run_traces_cleanup)
+        self.register_handler("memory_index", self._run_memory_index)
         self.register_handler("ping", self._run_generic_job)
         self.register_handler("test", self._run_generic_job)
 
@@ -308,6 +309,13 @@ class PersistentScheduler:
 
         log.info("Executing daily trace retention cleanup (run_id=%s)", run_id)
         return await cleanup_old_traces()
+
+    async def _run_memory_index(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
+        from noxai.memory.docs import index_documents
+
+        log.info("Executing scheduled document memory indexing (run_id=%s)", run_id)
+        stats = await index_documents()
+        return stats.to_dict()
 
     # -----------------------------------------------------------------------
     # Lifecycle & Loop

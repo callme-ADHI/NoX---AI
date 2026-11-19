@@ -182,6 +182,13 @@ class AgentConfig(_StrictModel):
     tool_timeout_seconds: int = 60
 
 
+class MemoryEmbeddingsConfig(_StrictModel):
+    """Optional embedding configuration for document memory."""
+
+    enabled: bool = False
+    model: str = "nomic-embed-text"
+
+
 class MemoryConfig(_StrictModel):
     """Memory system parameters."""
 
@@ -191,6 +198,15 @@ class MemoryConfig(_StrictModel):
     token_budget: int = 1200
     half_life_days: float = 30.0
     archive_after_days: int = 90
+
+    roots: list[str] = [
+        "~/Documents/Obsidian Vault",
+        "~/Documents/Study",
+    ]
+    ignored_roots: list[str] = [
+        "~/Documents/Certificates",
+    ]
+    embeddings: MemoryEmbeddingsConfig = MemoryEmbeddingsConfig()
 
 
 class SafetyConfig(_StrictModel):

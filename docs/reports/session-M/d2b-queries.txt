@@ -1,0 +1,57 @@
+================================================================================
+NoX Session M: Acceptance Check D2-b (3 Real Notes Queries)
+================================================================================
+Timestamp: 2026-11-19T05:26:07.074766+00:00
+
+Query 1: 'dont call the worker worker' (Target File: sahayak minutes.md)
+------------------------------------------------------------
+  Rank 1: /home/boss/Documents/Obsidian Vault/sahayak minutes.md (score: -15.07, L1-35) [TARGET MATCH]
+  Heading: Root
+  Snippet: ...file size( fixed)  <b>dont</b> <b>call</b> the <b>worker</b> <b>worker</b>, give them dignity  ------------------------------------    ->...
+
+  Rank 2: /home/boss/Documents/Obsidian Vault/Journal/24-06-2026 - shitty day.md (score: -10.91, L2-4)
+  Heading: Root
+  Snippet: ...she  just <b>called</b> me emotionally immature. she is not things how i was and  how i am. that broke me. i <b>dont</b> want to......
+
+  Rank 3: /home/boss/Documents/Obsidian Vault/Projects/sub-Projects/Jobkaro/front end/P_Admin/Dashboard.md (score: -10.51, L123-142)
+  Heading: 2. Workers Page > Sections > Suspended Workers
+  Snippet: ### Suspended <b>Workers</b>  <b>Workers</b> temporarily restricted due to complaints or violations.  Fields:  - <b>Worker</b> Name      - S...
+
+Verification: Found 'sahayak minutes.md' at Rank 1 (Target <= 3): True
+
+
+Query 2: 'panchayath member or persident' (Target File: MOM.md)
+------------------------------------------------------------
+  Rank 1: /home/boss/Documents/Obsidian Vault/MOM.md (score: -17.53, L1-13) [TARGET MATCH]
+  Heading: Root
+  Snippet: ...either <b>panchayath</b> <b>member</b> or <b>persident</b> can only approve the verifications( no validations for them). no access for th...
+
+  Rank 2: /home/boss/Documents/Obsidian Vault/Projects/sub-Projects/Jobkaro/front end/P_Admin/Job and analytics.md (score: -9.39, L251-262)
+  Heading: 11. Security Rules (Future Backend)
+  Snippet: ...Security Rules (Future Backend)  The workers page must only load workers belonging to the admin's <b>Panchayath</b>.  Example query logic...
+
+  Rank 3: /home/boss/Documents/Obsidian Vault/Projects/sub-Projects/Jobkaro/front end/P_Admin/Workers.md (score: -9.39, L275-286)
+  Heading: 11. Security Rules (Future Backend)
+  Snippet: ...Security Rules (Future Backend)  The workers page must only load workers belonging to the admin's <b>Panchayath</b>.  Example query logic...
+
+Verification: Found 'MOM.md' at Rank 1 (Target <= 3): True
+
+
+Query 3: 'LSB IMAGE STEGANOGRAPHY MENU' (Target File: LSBSteganography.java)
+------------------------------------------------------------
+  Rank 1: /home/boss/Documents/Study/Academics/S5/AC/java/LSBSteganography.java (score: -22.81, L1-25) [TARGET MATCH]
+  Heading: Root
+  Snippet: ...n===== <b>LSB</b> <b>IMAGE</b> <b>STEGANOGRAPHY</b> <b>MENU</b> =====");             System.out.println("1. Encrypt (Hide message in <b>i...
+
+  Rank 2: /home/boss/Documents/Obsidian Vault/Academics/S5/AC/1/road map.md (score: -18.54, L93-113)
+  Heading: Applied Cryptography — Module 1 Roadmap > 3. The Toolkit (portfolio-ready, built as you go)
+  Snippet: ...rail_fence.py │   └── columnar_transposition.py ├── <b>steganography</b>/ │   └── <b>lsb</b>_<b>image</b>_stego.py ├── number_theory/ │  ...
+
+  Rank 3: /home/boss/Documents/Obsidian Vault/Academics/S5/AC/1/road map.md (score: -17.56, L49-56)
+  Heading: Applied Cryptography — Module 1 Roadmap > 1. Full Topic Tree > 1.3 Steganography
+  Snippet: ### 1.3 <b>Steganography</b>  - Principles — hides the _existence_ of a message (vs cryptography, which hides the _content_) - Types — text,...
+
+Verification: Found 'LSBSteganography.java' at Rank 1 (Target <= 3): True
+
+
+Result: PASS
