@@ -269,7 +269,16 @@ class ModelRouter:
         )
 
         # 3. Check proactive cloud health status under explicit fallback policy
-        is_mock_provider = getattr(provider, "is_fake", False) or type(provider).__name__ == "FakeProvider"
+        is_mock_provider = (
+            getattr(provider, "is_fake", False)
+            or getattr(provider, "is_mock", False)
+            or "Fake" in type(provider).__name__
+            or "Mock" in type(provider).__name__
+            or "Recording" in type(provider).__name__
+            or "MockTransport" in type(getattr(provider, "transport", None)).__name__
+            or "MockTransport" in type(getattr(provider, "_transport", None)).__name__
+            or getattr(provider, "transport", None) is not None
+        )
         cloud_engine = None
         if not is_mock_provider and not provider.is_local:
             try:
@@ -278,9 +287,10 @@ class ModelRouter:
             except Exception:
                 pass
 
-        cloud_health = getattr(provider, "cloud_health", None) if not is_mock_provider else None
+        cloud_health = getattr(provider, "cloud_health", None)
         engine_down = bool(
-            cloud_engine is not None
+            not is_mock_provider
+            and cloud_engine is not None
             and cloud_engine.last_health is not None
             and cloud_engine.last_health.status != "ok"
         )

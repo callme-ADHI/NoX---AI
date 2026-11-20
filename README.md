@@ -150,28 +150,105 @@ NoX continuously monitors premier global opportunities and applies strict verifi
 * **Crash & SIGKILL Recovery**: If the daemon is forcibly killed or the host reboots mid-task, stale heartbeats are detected upon restart and cleanly resumed or transitioned to `interrupted`.
 * **Dynamic Tree Plans**: Visualizes complex, multi-step subtasks with interactive node graphs in the web dashboard.
 
+### 6. Continuous Conversation Memory (4-Part Context)
+NoX eliminates conversational amnesia across all chat routes (CLI, Web UI, REST, WebSocket, fast path, agent loops):
+* **4-Part Context Pipeline**:
+  1. *System Instructions & Pinned Facts*: Inviolable system prompt and explicit user facts.
+  2. *Rolling Compressed Summary*: When conversation history grows beyond 60% of budget, older turns are distilled into a structured background summary preserving entities, file paths, commands, and decisions.
+  3. *Recent Verbatim Turns*: Sliding window of the most recent turns (8 turns default) kept verbatim.
+  4. *Retrieved Past Snippets*: BM25 keyword search over past turns for recall queries (e.g. *"earlier we talked about..."*).
+* **Topic Continuity**: Retains context across topic switches, pulling previous topic summaries and snippets back into prompt context when returning to an earlier thread.
+
+### 7. Document Memory & Vault Search (FTS5 BM25)
+* **High-Speed Notes Search**: Built directly on SQLite FTS5 BM25 keyword indexing with heading-path attribution.
+* **Strict Read-Only Guarantee**: The indexer opens files in read-only mode and never writes into or modifies user directories.
+* **Configurable Roots**: Indexes `~/Documents/Obsidian Vault` and `~/Documents/Study` by default while strictly excluding `~/Documents/Certificates`, hidden folders, `.obsidian`, `.git`, and files over 2 MB.
+* **Automatic Citation**: Relevant note excerpts are injected into context when the user asks about their notes, and answers cite exact source file paths.
+
+### 8. Skills Catalog & Script Security (agentskills.io)
+* **Open Skills Standard**: Discovers reusable skills from `skills/` (shipped) and `~/.local/share/nox/skills/` following the [agentskills.io](https://agentskills.io) format (`SKILL.md` with YAML frontmatter).
+* **Shipped Skills**:
+  * `briefing-format`: Formatting rules and structured layouts for NoX intelligence briefings.
+  * `notes-search`: Note retrieval guidance and source citation protocols.
+* **Progressive Loading**: Only skill names and descriptions are exposed in system prompts; the full skill body is loaded dynamically upon intent match.
+* **Script Safety Guard**: Skills are untrusted text by default and cannot execute code. Executable scripts are blocked unless explicitly authorized via `skills.allow_scripts` and confirmed by the user.
+* **Staged Installation**: `nx skill install <path>` stages the skill, displays the `SKILL.md` for interactive inspection, and starts disabled by default.
+
+### 9. Model Context Protocol (MCP) Client
+* **Stdio Transport**: Connects to external MCP tool servers over standard I/O using JSON-RPC 2.0.
+* **Safety First**: MCP servers start disabled by default; tool calls enforce a 30-second timeout, per-server tool allowlists, and full step-level audit logging.
+* **Dynamic Tool Registry**: Exposed MCP tools are automatically registered in NoX's native tool registry and can be invoked during chat or agent loops.
+
+### 10. Persistent Scheduler & Catch-Up Recovery
+* **Timezone-Aware Daemon Engine**: Evaluates schedules in `Asia/Kolkata` with SQLite persistence across reboots.
+* **Built-in Automated Tasks**:
+  * `briefing_morning` (04:00 daily): Morning intelligence briefing.
+  * `briefing_evening` (18:00 daily): Evening intelligence briefing.
+  * `memory_index` (Every 30 min): Incremental indexing of document roots.
+  * `traces_cleanup` (Daily at 03:00): Enforces 90-day retention and 100k row caps on telemetry traces.
+  * `backup_daily` (Daily at 02:00): Online SQLite WAL database backup with rotation.
+* **Single-Flight Execution**: Guarded by `scheduler_runs` ACID locking; missed intervals while the machine was asleep or powered down trigger single-run catch-up recovery.
+
+### 11. Explicit Fallback Policy & Reason Codes
+NoX rejects silent fallback from cloud to local models. The behavior is governed by `models.fallback_policy`:
+* `ask` (Default): Does not execute local fallback silently; notifies the user that the cloud is unavailable, provides the typed reason code, and offers to switch.
+* `auto_notify`: Transparently falls back to the resident Ollama model while displaying a prominent notice banner and recording the reason in metadata.
+* `never`: Strictly aborts cloud requests if the cloud provider is unhealthy or degraded.
+* **Standard Reason Codes**: `auth` (invalid/missing API key), `network` (timeout, DNS failure, connection reset), `rate_limited` (HTTP 429), `quota` (credit exhaustion), `service_down` (HTTP 5xx), and `format` (malformed API response).
+
+### 12. Execution Tracing & Prompt Evolution
+* **Step-Level Telemetry**: Every chat turn, briefing task, and scheduled job logs detailed timing, tool calls, and model metadata to the `traces` table.
+* **Secret Redaction**: API keys (`nvapi-...`, `sk-...`), GitHub tokens, Authorization headers, and credit card numbers are cryptographically scrubbed before database insertion.
+* **Prompt Feedback & Rewrites**: When a briefing topic receives negative feedback, NoX analyzes the feedback note, uses cloud intelligence to draft an improved prompt, validates the draft, updates the active version, and supports instant rollbacks (`nx prompt rollback`).
+
 ---
 
 ## 💻 CLI Commands (`nx`)
 
 NoX includes a command-line interface with shell completions, rich tables, and scriptable JSON output:
 
-| Command | Description | Example |
-|---|---|---|
-| `nx run` | Start the daemon in foreground | `nx run` |
-| `nx status` | Display daemon status and health diagnostics | `nx status` |
-| `nx doctor` | Comprehensive environment audit (26+ checks) | `nx doctor` |
-| `nx chat <msg>` | Fast terminal chat session with local/cloud lane | `nx chat "Explain quantum decoherence"` |
-| `nx briefing status` | Show scheduler clock, next slot, and run history | `nx briefing status` |
-| `nx briefing run` | Trigger on-demand briefing pipeline run | `nx briefing run --wait --force` |
-| `nx briefing list` | List recent briefing runs and generation times | `nx briefing list -n 5` |
-| `nx cloud status` | Show cloud health, circuit breaker & RPM budget | `nx cloud status` |
-| `nx cloud on\|off` | Enable or disable NVIDIA Cloud burst lane | `nx cloud on` |
-| `nx notes open` | Open the Notes Vault in Obsidian or default editor | `nx notes open` |
-| `nx keys status` | Inspect live 5-key NVIDIA KeyPool allocator | `nx keys status` |
-| `nx memory search` | Query memory facts and semantic vector episodes | `nx memory search "internship"` |
-
----
+| Category | Command | Description | Example |
+|---|---|---|---|
+| **System** | `nx run` | Start the daemon in foreground | `nx run` |
+| | `nx status` | Display daemon status and health diagnostics | `nx status` |
+| | `nx doctor` | Comprehensive environment audit (26+ checks) | `nx doctor` |
+| | `nx open` | Open the NoX Web UI in default browser | `nx open` |
+| **Chat & AI** | `nx chat <msg>` | Fast terminal chat session with local/cloud lane | `nx chat "Explain quantum decoherence"` |
+| | `nx cloud status` | Show cloud health, circuit breaker & RPM budget | `nx cloud status` |
+| | `nx cloud on\|off` | Enable or disable NVIDIA Cloud burst lane | `nx cloud on` |
+| | `nx keys status` | Inspect live 5-key NVIDIA KeyPool allocator | `nx keys status` |
+| **Scheduler** | `nx schedule list` | List all registered persistent schedules and next runs | `nx schedule list` |
+| | `nx schedule run <id>` | Trigger immediate execution of a scheduled job | `nx schedule run memory_index` |
+| | `nx schedule catchup` | Run missed schedule catch-up recovery | `nx schedule catchup` |
+| | `nx schedule add` | Add a new recurring cron or interval schedule | `nx schedule add my_task "0 12 * * *"` |
+| | `nx schedule remove <id>`| Remove a scheduled job | `nx schedule remove my_task` |
+| **Memory** | `nx memory search "<q>"`| BM25 search over conversation and document memories | `nx memory search "docker flags"` |
+| | `nx memory index` | Run incremental indexing over document roots | `nx memory index` |
+| | `nx memory stats` | Show document count, chunk count, and index size | `nx memory stats` |
+| | `nx memory forget <path>`| Remove a document and its chunks from memory index | `nx memory forget notes/scratch.md` |
+| | `nx memory roots list` | List active indexed document roots | `nx memory roots list` |
+| | `nx memory roots add <p>`| Add a new read-only directory to document roots | `nx memory roots add ~/Documents/Wiki` |
+| | `nx memory roots remove` | Remove a directory from document roots | `nx memory roots remove ~/Documents/Wiki` |
+| **Skills** | `nx skill list` | List all discovered skills and their enabled state | `nx skill list` |
+| | `nx skill show <name>` | Display `SKILL.md` instructions and metadata | `nx skill show notes-search` |
+| | `nx skill enable <name>` | Enable a skill for progressive prompt loading | `nx skill enable briefing-format` |
+| | `nx skill disable <name>`| Disable an active skill | `nx skill disable briefing-format` |
+| | `nx skill install <path>`| Stage, review, and install a skill folder | `nx skill install ~/my-skill` |
+| | `nx skill remove <name>` | Remove a user-installed skill | `nx skill remove my-skill` |
+| | `nx skill allow-scripts` | Authorize script execution for a trusted skill | `nx skill allow-scripts my-skill` |
+| **MCP** | `nx mcp list` | List configured Model Context Protocol servers | `nx mcp list` |
+| | `nx mcp show <name>` | Display server configuration and exposed tools | `nx mcp show filesystem` |
+| | `nx mcp add <name> <cmd>`| Register a new stdio MCP server | `nx mcp add fs "npx -y @modelcontextprotocol/server-filesystem /tmp"` |
+| | `nx mcp enable\|disable` | Enable or disable an MCP server | `nx mcp enable fs` |
+| | `nx mcp test <name>` | Perform JSON-RPC 2.0 handshake and list tools | `nx mcp test fs` |
+| **Traces** | `nx traces list` | List the most recent execution traces | `nx traces list --last 20` |
+| | `nx traces show <id>` | Show detailed execution steps and timing for a trace | `nx traces show tr_abcdef123456` |
+| | `nx traces stats` | Display execution counts, durations, and fallback rate | `nx traces stats --days 7` |
+| **Briefing** | `nx briefing status` | Show briefing scheduler clock and history | `nx briefing status` |
+| | `nx briefing run` | Trigger on-demand briefing pipeline run | `nx briefing run --wait --force` |
+| | `nx briefing list` | List recent briefing runs and generation times | `nx briefing list -n 5` |
+| | `nx prompt history <t>` | View prompt version history for a briefing topic | `nx prompt history tech_releases` |
+| | `nx prompt rollback <t>`| Roll back a topic prompt to a prior version | `nx prompt rollback tech_releases 1` |
 
 ## 🚀 Quickstart
 

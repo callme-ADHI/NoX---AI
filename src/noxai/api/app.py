@@ -374,9 +374,7 @@ def create_app(
 
         # 11. Initialize session token
         log.info("11. Initializing daemon session token...")
-        token = load_session_token()
-        if not token:
-            token = generate_session_token()
+        token = generate_session_token()
         app.state.session_token = token
         log.info("Session token initialized: %s...", token[:8])
 

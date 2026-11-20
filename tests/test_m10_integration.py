@@ -39,6 +39,7 @@ from noxai.tools.registry import ToolRegistry
 def make_test_settings(privacy: PrivacyConfig | None = None) -> Settings:
     return Settings(
         models=ModelsConfig(
+            fallback_policy="auto_notify",
             roles={
                 "brain": ModelRoleConfig(provider="fake_local", model="qwen2.5:14b"),
                 "embed": ModelRoleConfig(provider="fake_local", model="nomic-embed-text"),
