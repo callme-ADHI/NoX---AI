@@ -160,3 +160,95 @@ Recorded Transport Evidence:
 DELETION_PROOF: /tmp/openjarvis successfully removed
 Status: directory does not exist.
 ```
+
+---
+
+## Phase 3: Security & Privacy Foundation Evidence
+
+### 1. Guardrails Module [VERIFIED-LIVE / VERIFIED-TEST]
+- **InputScanner**: Detects prompt injections (`ignore previous instructions`, `DAN`, `developer mode`, `system prompt override`), hidden instruction markers (`<!-- ... -->`, `<system>...</system>`), zero-width Unicode (`\u200b`, `\ufeff`), and bidirectional overrides (`\u202e`). Sanitizes text cleanly.
+- **OutputScanner**: Detects leaked secrets, private keys, AWS access keys, GitHub tokens, Slack tokens, NVIDIA API keys, Gemini keys, OpenAI keys, Anthropic keys, and generic tokens. Automatically redacts with typed placeholders (`[SECRET_AWS_ACCESS_KEY_REDACTED]`, `[SECRET_GITHUB_TOKEN_REDACTED]`).
+- **PIIRedactor**: Indian PII patterns:
+  - Aadhaar 12-digit numbers with Verhoeff checksum algorithm validation.
+  - PAN card numbers (`[A-Z]{5}[0-9]{4}[A-Z]`).
+  - Bank account numbers & IFSC codes (`[A-Z]{4}0[A-Z0-9]{6}`).
+  - UPI IDs (`@okhdfcbank`, `@paytm`, `@ybl`, etc.).
+  - Payment card numbers with Luhn checksum algorithm validation.
+  - OTP codes (4-8 digits near "OTP" / "verification code").
+  - Indian phone numbers (`+91` / 10 digits).
+  - Email addresses.
+  - Reversible in-memory placeholder mapping (`[AADHAAR_REDACTED_1]`, `[PAN_REDACTED_1]`, etc.) with perfect round-trip restoration.
+- **RecordingTransport Verification**: Zero leaked PII tokens transmitted to cloud providers; verified that outbound wire requests carry only placeholders, and responses are restored locally.
+
+### 2. Tamper-Evident, Hash-Chained Audit Log [VERIFIED-LIVE]
+- Migration `016_security_foundation.sql`: Table `audit_events` (id, ts, actor, action, target, decision, summary_redacted, prev_hash, hash).
+- Cryptographic hash chaining: `SHA-256(prev_hash | id | ts | actor | action | target | decision | summary_redacted)` anchored to genesis `0000000000000000000000000000000000000000000000000000000000000000`.
+- Verified live command output:
+```text
+$ nx audit verify
+✔ Audit log verified: 3 events chained without tampering
+
+$ nx audit events --lines 3
+Tamper-Evident Audit Events (last 3)
+ID  Timestamp             Actor    Action          Target             Decision  Summary
+3   2026-11-21T05:52:...  cli      panic_resumed   system             executed  Emergency kill switch resumed normal operations
+2   2026-11-21T05:52:...  cli      panic_engaged   system             executed  Emergency kill switch engaged: Testing Phase 3 kill switch
+1   2026-11-21T05:52:...  kill_sw  approvals_rev.. pending_approvals  revoked   Revoked 0 pending approvals
+```
+- Tamper detection verified: Altering any row's summary or `prev_hash` causes `nx audit verify` to report exact failing event ID.
+
+### 3. Secret Store Abstraction [VERIFIED-LIVE]
+- File store: `~/.local/share/nox/connectors/secrets.json` enforced with strict `0600` permissions (parent directory `0700`).
+- System keyring support with graceful fallback.
+- Names-only listing (`nx secrets list`), zero-leak guarantee (values never logged).
+- Live verification:
+```text
+$ nx secrets set test_key --value "my-super-secret-key"
+✔ Secret 'test_key' stored successfully.
+
+$ nx secrets list
+Stored Secrets (1)
+Secret Name: test_key  Status: configured
+
+$ nx secrets get test_key
+Secret 'test_key' is configured: my-...ey (use --show to reveal)
+
+$ nx secrets delete test_key
+✔ Secret 'test_key' deleted.
+```
+
+### 4. Permission Manifests & Runtime Enforcement [VERIFIED-TEST]
+- Declarative `PermissionManifest` (id, name, manifest_type, read_resources, write_resources, execute_commands, network_hosts, allow_cloud_egress, allow_shell).
+- Default-deny model: actions not explicitly declared are rejected with `PermissionDeniedError` and logged to `audit_events`.
+
+### 5. Approvals Center [VERIFIED-LIVE / VERIFIED-TEST]
+- Table `pending_approvals` (id, action_type, payload_json, preview, scope, confirmation_code, status, expires_at, created_at, resolved_at, resolved_by).
+- Scoped single-use approvals: payload verification ensures that execution payload matches approved payload byte-for-byte; subsequent execution attempts fail (consumed status).
+- Confirmation code support for chat channels.
+- CLI commands: `nx approvals list`, `nx approvals approve <id> [--code <code>]`, `nx approvals deny <id>`.
+
+### 6. Emergency Kill Switch [VERIFIED-LIVE]
+- Commands: `nx panic`, `nx panic --status`, `nx panic --resume`.
+- Immediately revokes all pending approvals, sets panic flag in `security_state`, logs audit event.
+- Live CLI verification:
+```text
+$ nx panic --reason "Testing Phase 3 kill switch"
+EMERGENCY KILL SWITCH ENGAGED by cli: Testing Phase 3 kill switch
+- Connectors background sync suspended
+- Social channel polling stopped
+- Continuous agents paused
+- All pending approvals revoked
+- Tamper-evident audit event recorded
+
+$ nx panic --status
+KILL SWITCH IS ACTIVE
+Engaged at: 2026-11-21T05:52:...
+Actor: cli
+Reason: Testing Phase 3 kill switch
+
+$ nx panic --resume
+✔ Emergency kill switch resumed. System operating normally.
+```
+
+### 7. Test Suite Outcome [VERIFIED-TEST]
+- `tests/test_security_foundation.py`: 23 passed in 2.35s.

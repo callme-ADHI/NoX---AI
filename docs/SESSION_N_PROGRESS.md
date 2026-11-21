@@ -35,13 +35,13 @@
 - [x] 3. Clean up `/tmp` clone with guarded rm and record deletion proof.
 
 ### Phase 3: Security and Privacy Foundation
-- [ ] 1. Guardrails module: input scanner (injection, hidden markers, invisible Unicode), output scanner (secrets, tokens, keys), PII redactor (Indian Aadhaar, PAN, IFSC/bank, UPI, cards, OTP, phone, emails). Reversible locally via in-memory placeholder map.
-- [ ] 2. Audit log: append-only `audit_events` with SHA-256 hash chain and `nx audit verify`.
-- [ ] 3. Secret store abstraction: libsecret keyring with fallback to 0600 file under `~/.local/share/nox/connectors/`.
-- [ ] 4. Permission manifests: declarations for skills, agents, connectors (deny by default).
-- [ ] 5. Approvals center: pending write actions with preview, expiry, single-use scoped approval from UI/CLI/chat.
-- [ ] 6. Kill switch: `nx panic` and UI button (disables connectors/channels/continuous agents, revokes pending approvals, logs audit event), `nx panic --resume`.
-- [ ] 7. Tests: scanner tables, redactor round trips, audit chain tampering, permission denial, approval scope, kill switch, planner/summariser privacy with recording transport.
+- [x] 1. Guardrails module: input scanner (injection, hidden markers, invisible Unicode), output scanner (secrets, tokens, keys), PII redactor (Indian Aadhaar, PAN, IFSC/bank, UPI, cards, OTP, phone, emails). Reversible locally via in-memory placeholder map.
+- [x] 2. Audit log: append-only `audit_events` with SHA-256 hash chain and `nx audit verify`.
+- [x] 3. Secret store abstraction: libsecret keyring with fallback to 0600 file under `~/.local/share/nox/connectors/`.
+- [x] 4. Permission manifests: declarations for skills, agents, connectors (deny by default).
+- [x] 5. Approvals center: pending write actions with preview, expiry, single-use scoped approval from UI/CLI/chat.
+- [x] 6. Kill switch: `nx panic` and UI button (disables connectors/channels/continuous agents, revokes pending approvals, logs audit event), `nx panic --resume`.
+- [x] 7. Tests: scanner tables, redactor round trips, audit chain tampering, permission denial, approval scope, kill switch, planner/summariser privacy with recording transport.
 
 ### Phase 4: Connector Framework, Mail, Calendar
 - [ ] 1. Connector framework: typed health, retry/rate-limit, graceful degradation, non-blocking daemon startup, supervised sync task.

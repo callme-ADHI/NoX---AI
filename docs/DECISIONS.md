@@ -84,3 +84,34 @@ This document records all architectural decisions, trade-offs, and clarification
 - **Context**: Users need delete controls for jobs, tasks, and briefings with safety against accidental deletion.
 - **Decision**: Soft delete via `deleted_at` timestamp. Running items are cooperatively cancelled first through TaskSupervisor (within 5s). Deleted items are hidden from default views and can be restored within 24h (`/restore` API or CLI, or 10s toast in UI). Deleting a briefing safely cleans up unmodified generated vault notes while preserving user-edited notes and opportunity entries.
 - **Consequences**: Immediate, safe responsiveness without permanent accidental data loss.
+
+---
+
+## Session N Decisions
+
+### ADR-N1: Cryptographic Hash Chaining for Tamper-Evident Audit Logging
+- **Context**: Actions taken by autonomous agents, connectors, and external channels require proof against post-hoc tampering or stealth row deletion in SQLite.
+- **Decision**: Table `audit_events` with SHA-256 hash chaining:
+  `hash = SHA256(prev_hash | id | ts | actor | action | target | decision | summary_redacted)`.
+  Genesis entry uses 64 zeros. `nx audit verify` walks the chain from ID 1 to N, confirming cryptographic linkage.
+- **Consequences**: Any row alteration, deletion, or injection is immediately flagged with exact row ID.
+
+### ADR-N2: In-Memory Reversible Placeholder Redaction for Indian PII & Secrets
+- **Context**: Sensitive Indian PII (Aadhaar, PAN, UPI, IFSC, Cards, OTP) must never be sent unredacted to external cloud providers, but local assistant workflows need full context.
+- **Decision**: `PIIRedactor` uses Verhoeff checksum algorithm for Aadhaar validation, Luhn algorithm for cards, and strict regexes for PAN, UPI, IFSC, and OTP. Replaces with placeholders (`[AADHAAR_REDACTED_1]`, etc.) while maintaining an in-memory dictionary scoped strictly to the lifecycle of the single request. `restore()` replaces placeholders with originals in local responses.
+- **Consequences**: Zero PII leaks over the wire (verified via `RecordingTransport`), with seamless local readability.
+
+### ADR-N3: Approvals Center with Exact-Payload Verification & Single-Use State
+- **Context**: Sensitive write actions (send mail, create issue, run script) require explicit authorization, but malicious agents could alter the payload between approval and execution.
+- **Decision**: `ApprovalsCenter` stores canonical JSON payload and checks byte-for-byte equality at `verify_and_consume()`. Successful execution transitions status immediately to `consumed` (preventing replay attacks). Confirmation codes enable out-of-band approval from chat channels.
+- **Consequences**: High-risk actions cannot be hijacked or replayed.
+
+### ADR-N4: Protected File-Based Secret Store with System Keyring Fallback
+- **Context**: Dependency on external secret daemons can cause failures in headless environments or minimal Arch Linux installs.
+- **Decision**: `SecretStore` detects working system keyring (libsecret/keyring); if unavailable or headless, falls back to `~/.local/share/nox/connectors/secrets.json` enforced with strict `0600` permissions (and parent directory `0700`). Values are never logged or revealed in `nx secrets list`.
+- **Consequences**: Robust secret persistence with zero external binary runtime dependencies.
+
+### ADR-N5: Emergency Kill Switch Architecture (`nx panic`)
+- **Context**: User needs an immediate, non-interactive mechanism to stop all background autonomous tasks and revoke authorizations.
+- **Decision**: `KillSwitch.engage()` sets atomic flag `panic_engaged = 1` in `security_state`, immediately revokes all pending approvals in `pending_approvals` and `approvals`, pauses active loops, and writes an audit event. `KillSwitch.resume()` clears the state.
+- **Consequences**: Immediate single-command quarantine of autonomous operations.
