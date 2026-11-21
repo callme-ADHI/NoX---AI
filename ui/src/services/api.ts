@@ -69,6 +69,10 @@ async function request<T>(
     } catch {
       // ignore
     }
+    if (response.status === 401 && typeof window !== 'undefined') {
+      sessionStorage.removeItem('nox_token');
+      localStorage.removeItem('nox_token');
+    }
     throw new Error(`API ${response.status}: ${errDetail}`);
   }
 

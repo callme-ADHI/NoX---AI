@@ -150,10 +150,12 @@ export const App: React.FC = () => {
           <div className="bg-danger/20 border-b border-danger/40 px-4 py-1.5 flex items-center justify-between text-xs text-danger select-none z-30">
             <div className="flex items-center gap-2">
               <WifiOff className="w-3.5 h-3.5 animate-pulse" />
-              <span>Connecting to NoX Daemon... Events will sync upon reconnection.</span>
+              <span>Connecting to NoX Daemon... If restarted, run <code>nx open</code> in terminal or reload.</span>
             </div>
             <button
-              onClick={() => wsService.connect()}
+              onClick={() => {
+                wsService.connect();
+              }}
               className="flex items-center gap-1 font-semibold hover:underline"
             >
               <RefreshCw className="w-3 h-3" />
