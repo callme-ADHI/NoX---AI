@@ -29,6 +29,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from noxai.commands.agents import agents_app
 from noxai.commands.approvals import approvals_app
 from noxai.commands.audit import audit_app
 from noxai.commands.backup import backup_app
@@ -47,6 +48,7 @@ from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
 from noxai.commands.notes import notes_app
 from noxai.commands.panic import panic_app
+from noxai.commands.presets import preset_app
 from noxai.commands.prompt import prompt_app
 from noxai.commands.reminders import remind_command, reminders_app
 from noxai.commands.schedule import schedule_app
@@ -94,6 +96,8 @@ app.add_typer(mail_app, name="mail")
 app.add_typer(channel_app, name="channel")
 app.add_typer(feeds_app, name="feeds")
 app.add_typer(gh_app, name="gh")
+app.add_typer(agents_app, name="agents")
+app.add_typer(preset_app, name="preset")
 app.command(name="disconnect")(disconnect_command)
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")

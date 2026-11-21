@@ -463,5 +463,106 @@ No workflow files found under /home/boss/Documents/Projects/NoX/.github/workflow
   - `test_watch_actions_success_and_failure`: PASSED
   - `test_guarded_write_rerun_and_comment`: PASSED
 
+---
+
+## Phase 7: Agents Framework, Presets, Learning Loop, and Telemetry Evidence
+
+### 1. Database Migration 020 [VERIFIED-LIVE]
+- Migration `020_agents_framework.sql` applied cleanly to live database.
+- Online backup created before migration: `~/.local/share/nox/backups/nox_20261121_065558_376a26.db` (13,889,536 bytes).
+- Created tables:
+  - `agents`: `id`, `name`, `mode`, `cron_expression`, `enabled`, `config_json`, `prompt_template`, `budget_tokens`, `budget_cost_usd`, `status`, `last_run_at`, `last_error`, `created_at`, `updated_at`.
+  - `agent_runs`: `id`, `agent_id`, `trigger`, `status`, `input_prompt`, `output_result`, `tokens_used`, `cost_usd`, `duration_ms`, `error_msg`, `created_at`, `finished_at`.
+  - `skill_installations`: `id`, `name`, `source_url`, `install_path`, `integrity_hash`, `status`, `security_findings_json`, `created_at`.
+  - `prompt_optimizations`: `id`, `target_type`, `target_name`, `baseline_prompt`, `candidate_prompt`, `score_delta`, `regression_count`, `status`, `created_at`.
+
+### 2. Multi-Mode Agent Framework & 8 Core Builtin Agents [VERIFIED-LIVE]
+- Implemented `AgentSpec` data model and seeded 8 built-in agent specifications (`src/noxai/agents/spec.py`):
+  1. `deep_research`: on-demand, multi-step investigation, web/paper/notes search, 80k token budget.
+  2. `morning_digest`: scheduled (07:00 daily), email/calendar/CI triage, 40k token budget.
+  3. `inbox_triage`: scheduled (every 30m), urgency/phishing detection, reply drafting, 30k token budget.
+  4. `github_ci_watch`: continuous watchdog, failure triage, error frame isolation, 60k token budget.
+  5. `scheduled_monitor`: scheduled (hourly), system health, WAL status, audit chain verification.
+  6. `code_assistant`: on-demand, codebase analysis, workflow review, bug triage, 50k token budget.
+  7. `notes_assistant`: on-demand, vault curation, semantic link suggestion, 30k token budget.
+  8. `simple_chat`: on-demand, lightweight direct interaction, privacy-preserving, 20k token budget.
+- Implemented `AgentRunner` (`src/noxai/agents/runner.py`):
+  - On-demand single execution with proactive token/cost budget checks.
+  - Continuous supervisor background tasks with start/stop lifecycle and graceful termination.
+  - KillSwitch enforcement: immediate blocking under active panic mode.
+  - Automatic audit event logging for all executions.
+
+### 3. Operational Presets Engine [VERIFIED-LIVE]
+- Implemented `src/noxai/agents/presets.py` with 7 operational profiles:
+  - `morning-digest`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`, `inbox-triage`, `github-ops`.
+  - Atomically enables targeted agents, configures required connectors, and records active preset in `security_state`.
+
+### 4. Untrusted Skill Security Scanner & Staged Installation [VERIFIED-TEST]
+- Implemented `SkillSecurityScanner` and `install_untrusted_skill` (`src/noxai/skills/security.py`):
+  - Python AST inspection: flags forbidden builtins (`eval`, `exec`, `compile`, `__import__`) and high-risk modules (`ctypes`, `pty`).
+  - Shell script inspection: flags destructive commands (`rm -rf /`, `mkfs`, `dd if=`), curl-to-bash pipes, and sensitive path access (`~/.ssh`, `~/.gnupg`, `/etc/shadow`, `nox.db`).
+  - Staged installation: fetches or clones into staging area, runs security scan, rejects critical findings by default, and installs into user skills in disabled state (`status = 'disabled'`).
+
+### 5. Learning Loop & Telemetry Tracker [VERIFIED-TEST]
+- Implemented `PromptOptimizer` (`src/noxai/agents/optimizer.py`):
+  - Offline benchmark evaluation scoring candidate prompts on clarity, completeness, and safety constraints.
+  - Candidate promotion when score improves.
+  - Invariant safety rule: auto-reverts to baseline prompt and logs audit event when 3 consecutive regressions occur.
+- Implemented `TelemetryTracker` (`src/noxai/agents/optimizer.py`):
+  - Aggregates runtime traces into total tokens, P50/P90 latency, route distribution (local vs cloud), and estimated cost.
+  - Wired into `nx traces stats` CLI command.
+
+### 6. CLI Commands [VERIFIED-LIVE]
+```text
+$ nx agents list
+                           Autonomous Agents Registry                            
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
+┃ Agent             ┃ Mode       ┃ Schedule        ┃ Enabled ┃ Tokens ┃ Cost   ┃ Stat… ┃ Last Run ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
+│ code_assistant    │ on_demand  │                 │ yes     │ 50,000 │ $1.00  │ idle  │ never    │
+│ deep_research     │ on_demand  │                 │ yes     │ 80,000 │ $1.50  │ idle  │ never    │
+│ github_ci_watch   │ continuous │                 │ yes     │ 60,000 │ $1.00  │ idle  │ never    │
+│ inbox_triage      │ scheduled  │ */30 * * * *    │ yes     │ 30,000 │ $0.40  │ idle  │ never    │
+│ morning_digest    │ scheduled  │ 0 7 * * *       │ yes     │ 40,000 │ $0.50  │ idle  │ never    │
+│ notes_assistant   │ on_demand  │                 │ yes     │ 30,000 │ $0.30  │ idle  │ never    │
+│ scheduled_monitor │ scheduled  │ 0 * * * *       │ yes     │ 20,000 │ $0.20  │ idle  │ never    │
+│ simple_chat       │ on_demand  │                 │ yes     │ 20,000 │ $0.20  │ idle  │ never    │
+└───────────────────┴────────────┴─────────────────┴─────────┴────────┴────────┴───────┴──────────┘
+
+$ nx preset list
+                            Available System Presets                             
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Preset            ┃ Active ┃ Target Agents              ┃ Connectors ┃ Descripti… ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ morning-digest    │ no     │ morning_digest             │ gmail, im… │ Complete … │
+│ deep-research     │ no     │ deep_research, notes_assi… │ feeds      │ Focus on … │
+│ code-assistant    │ no     │ code_assistant             │ github     │ Developme… │
+│ scheduled-monitor │ no     │ scheduled_monitor          │ none       │ System he… │
+│ chat-simple       │ no     │ simple_chat                │ none       │ Lightweig… │
+│ inbox-triage      │ no     │ inbox_triage               │ gmail, im… │ Inbox-fir… │
+│ github-ops        │ no     │ github_ci_watch, code_ass… │ github     │ Continuou… │
+└───────────────────┴────────┴────────────────────────────┴━━━━━━━━━━━━┴━━━━━━━━━━━━┘
+```
+
+### 7. Test Suite Execution (`tests/test_agents_framework.py`) [VERIFIED-TEST]
+- All 9 tests passed in 1.21s:
+  - `test_migration_020_and_builtin_agents`: PASSED
+  - `test_agent_runner_on_demand_and_budget`: PASSED
+  - `test_agent_runner_killswitch_enforcement`: PASSED
+  - `test_agent_continuous_lifecycle`: PASSED
+  - `test_presets_management`: PASSED
+  - `test_skill_security_scanner`: PASSED
+  - `test_install_untrusted_skill_workflow`: PASSED
+  - `test_prompt_optimizer_auto_revert`: PASSED
+  - `test_telemetry_tracker_aggregation`: PASSED
+
+- Full Session N Suite (56/56 passing in 7.72s):
+  - `test_security_foundation.py`: 23/23 PASSED
+  - `test_mail_connectors.py`: 9/9 PASSED
+  - `test_channels_and_feeds.py`: 7/7 PASSED
+  - `test_github_intelligence.py`: 8/8 PASSED
+  - `test_agents_framework.py`: 9/9 PASSED
+
+
 
 

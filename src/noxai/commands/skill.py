@@ -145,58 +145,56 @@ def skill_allow_scripts(
 
 @skill_app.command(name="install")
 def skill_install(
-    path: str = typer.Argument(..., help="Directory path to skill package to install."),
+    path: str = typer.Argument(..., help="Directory path or git repository URL of skill package."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Confirm installation without interactive prompt."),
+    force: bool = typer.Option(False, "--force", help="Allow installation even with critical security warnings."),
 ) -> None:
-    """Install a skill package into user skills directory (starts disabled)."""
-    p = Path(path).expanduser().resolve()
-    if not p.is_dir():
-        console.print(f"[red]✗[/] Directory not found: {p}")
-        raise typer.Exit(1)
+    """Install an external skill package (AST scanned, starts disabled by default)."""
+    from noxai.skills.security import SkillSecurityScanner, install_untrusted_skill
 
-    catalog = get_skills_catalog()
-
-    # Pre-validation & Preview
-    from noxai.skills.parser import validate_skill_folder
-
-    try:
-        preview = validate_skill_folder(p)
-    except Exception as exc:
-        console.print(f"[red]✗[/] Skill validation failed: {exc}")
-        raise typer.Exit(1)
-
-    console.print(f"\n[bold cyan]Skill Installation Preview[/]")
-    console.print(f"  • Name: [bold]{preview.name}[/]")
-    console.print(f"  • Description: {preview.description}")
-    console.print(f"  • Source Path: {p}")
-    files = list(p.rglob("*"))
-    console.print(f"  • Files ({len(files)}):")
-    for f in files[:8]:
-        rel = f.relative_to(p)
-        console.print(f"    - {rel}")
-    if len(files) > 8:
-        console.print(f"    ... and {len(files) - 8} more files")
-
-    console.print("\n[bold yellow]Note:[/] Newly installed skills start [bold red]disabled[/] by default.\n")
+    is_remote = path.startswith(("http://", "https://", "git@"))
+    if not is_remote:
+        p = Path(path).expanduser().resolve()
+        if not p.is_dir():
+            console.print(f"[red]✗[/] Directory not found: {p}")
+            raise typer.Exit(1)
+        findings = SkillSecurityScanner.scan_skill_directory(p)
+        if findings:
+            console.print(f"\n[bold yellow]Security Findings ({len(findings)}):[/]")
+            for f in findings:
+                sev = f.get("severity", "info")
+                color = "red" if sev == "critical" else "yellow" if sev == "warning" else "dim"
+                console.print(f"  [{color}]• [{sev.upper()}][/{color}] {f['file']}:{f['line']} - {f['message']}")
 
     if not yes:
-        confirm = typer.confirm("Do you want to install this skill?", default=False)
+        confirm = typer.confirm("Do you want to proceed with installing this skill?", default=False)
         if not confirm:
             console.print("[dim]Installation aborted.[/dim]")
             return
 
-    try:
-        installed = catalog.install_skill_from_path(p)
-        async def _save():
-            await run_migrations()
+    async def _install() -> None:
+        await run_migrations()
+        try:
+            res = await install_untrusted_skill(path, allow_critical=force)
+            catalog = get_skills_catalog()
             async with get_db() as db:
                 await catalog.sync_state(db)
-        asyncio.run(_save())
-        console.print(f"[bold green]✓[/] Successfully installed skill '[bold]{installed.name}[/]' (status: disabled).")
-        console.print(f"  Enable when ready with: [cyan]nx skill enable {installed.name}[/]")
-    except Exception as exc:
-        console.print(f"[red]✗[/] Failed installing skill: {exc}")
-        raise typer.Exit(1)
+
+            console.print(
+                f"\n[bold green]✓[/] Successfully installed skill '[bold]{res['name']}[/]' (status: disabled)."
+            )
+            console.print(f"  Installation ID: [dim]{res['id']}[/dim]")
+            console.print(f"  Security Findings: {res['findings_count']}")
+            console.print(f"  Enable when ready with: [cyan]nx skill enable {res['name']}[/]\n")
+        except PermissionError as pe:
+            console.print(f"\n[bold red]✗ Security Scan Rejected Installation:[/] {pe}")
+            console.print("  Use [yellow]--force[/] to override if you trust this code.\n")
+            raise typer.Exit(1)
+        except Exception as exc:
+            console.print(f"[red]✗[/] Failed installing skill: {exc}")
+            raise typer.Exit(1)
+
+    asyncio.run(_install())
 
 
 @skill_app.command(name="remove")

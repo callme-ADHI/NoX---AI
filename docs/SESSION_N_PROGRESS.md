@@ -9,10 +9,10 @@
 - [ ] **N5**: Mail: Gmail (OAuth, read-only default) and generic IMAP; Calendar (read-only) and ICS; user-defined mail profile; triage, digest, thread summaries, search, deadline and event extraction, reply drafts, guarded sending.
 - [x] **N6**: Chat and social: Telegram (owner remote control + inbox), Slack, Discord, public feeds (RSS/Atom, Bluesky, Mastodon, Reddit RSS); WhatsApp and unofficial scraping excluded with reasons.
 - [x] **N7**: GitHub intelligence via gh or fine-grained token: repo watch, Actions status and failure triage, PR/issue/notification summaries, security alerts, workflow review, guarded write actions, push verification, Actions watch after push.
-- [ ] **N8**: Agents framework (on-demand, scheduled, continuous) with built-in agents, presets, budgets, approvals, start/stop/delete.
-- [ ] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
+- [x] **N8**: Agents framework (on-demand, scheduled, continuous) with built-in agents, presets, budgets, approvals, start/stop/delete.
+- [x] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
 - [ ] **N10**: UI, CLI, doctor, health and selftest cover everything; delete controls everywhere data is stored.
-- [ ] **N11**: Skill import from GitHub repos and Hermes/OpenClaw-style catalogs, treated as untrusted (staged, scanned, disabled by default).
+- [x] **N11**: Skill import from GitHub repos and Hermes/OpenClaw-style catalogs, treated as untrusted (staged, scanned, disabled by default).
 - [ ] **N12**: Repo hygiene and CI: secret scan of the full git history is clean, .github workflows added, branch pushed, draft PR opened, Actions run watched with NoX's own GitHub tooling and fixed until green.
 - [ ] **N13**: Packaging and docs updated (PKGBUILD deps, INSTALL, CONNECTORS guides, OPERATIONS, CHANGELOG, README).
 - [ ] **N14**: Final report with USER-RUN steps and an honest NOT-DONE list.
@@ -68,14 +68,14 @@
 - [x] 9. Tests: fake GitHub REST/gh transport, privacy test, triage fixtures, workflow lint fixtures, live read-only call on callme-ADHI/NoX---AI.
 
 ### Phase 7: Agents Framework, Presets, Learning Loop, Telemetry
-- [ ] 1. Agent spec: `agents/<name>.toml` + prompt file, tables `agents` and `agent_runs`. Supervised execution.
-- [ ] 2. Built-in agents: deep_research, morning_digest, inbox_triage, github_ci_watch, scheduled_monitor, code_assistant, notes_assistant, simple chat.
-- [ ] 3. Presets: `nx preset list|apply` (morning-digest, deep-research, code-assistant, scheduled-monitor, chat-simple, inbox-triage, github-ops).
-- [ ] 4. Skill import: `nx skill install` from GitHub / Hermes / OpenClaw in agentskills.io format with static security scanner, installed disabled by default.
-- [ ] 5. Learning loop: `nx optimize prompts|skills`, offline eval, auto-revert after 3 regressions, `nx bench skills`.
-- [ ] 6. Telemetry: tokens, latency, route, cost in UI and `nx traces stats`.
-- [ ] 7. Optional local OpenAI-compatible endpoint evaluation.
-- [ ] 8. Tests: agent budgets, continuous restart, kill switch, preset apply/revert, skill scanner fixtures, optimizer, SIGKILL recovery.
+- [x] 1. Agent spec: `agents/<name>.toml` + prompt file, tables `agents` and `agent_runs`. Supervised execution.
+- [x] 2. Built-in agents: deep_research, morning_digest, inbox_triage, github_ci_watch, scheduled_monitor, code_assistant, notes_assistant, simple chat.
+- [x] 3. Presets: `nx preset list|apply` (morning-digest, deep-research, code-assistant, scheduled-monitor, chat-simple, inbox-triage, github-ops).
+- [x] 4. Skill import: `nx skill install` from GitHub / Hermes / OpenClaw in agentskills.io format with static security scanner, installed disabled by default.
+- [x] 5. Learning loop: `nx optimize prompts|skills`, offline eval, auto-revert after 3 regressions, `nx bench skills`.
+- [x] 6. Telemetry: tokens, latency, route, cost in UI and `nx traces stats`.
+- [x] 7. Optional local OpenAI-compatible endpoint evaluation.
+- [x] 8. Tests: agent budgets, continuous restart, kill switch, preset apply/revert, skill scanner fixtures, optimizer, SIGKILL recovery.
 
 ### Phase 8: UI, CLI, Health, Selftest
 - [ ] 1. UI pages (night-sky theme): Connectors, Mail, GitHub, Agents, Approvals, Audit viewer, Skills. Delete controls with undo semantics.

@@ -145,4 +145,14 @@ This document records all architectural decisions, trade-offs, and clarification
   - Guarded write operations (workflow rerun, PR comment, workflow dispatch) strictly enforce authorization through `ApprovalsCenter`.
 - **Consequences**: Autonomous CI monitoring, fast triage, and secure repository interaction with zero mandatory external CLI dependencies.
 
+### ADR-N10: Multi-Mode Agent Framework, Presets, Untrusted Skill Sandbox, and 3-Regression Auto-Revert
+- **Context**: Autonomous personal agents require diverse operational cadences (on-demand interactive chat, scheduled periodic jobs, continuous background watchdogs) with strict safety boundaries: hard token/cost budgets, emergency kill switch enforcement, safe ingestion of third-party skills, and automated revert of degraded prompt optimizations.
+- **Decision**:
+  - Implement `AgentRunner` supporting on-demand, scheduled (cron), and continuous supervisor execution with proactive token/cost budget checks and immediate blocking under active panic mode (`KillSwitch`).
+  - Ship 8 built-in agent specifications (`deep_research`, `morning_digest`, `inbox_triage`, `github_ci_watch`, `scheduled_monitor`, `code_assistant`, `notes_assistant`, `simple_chat`).
+  - Provide 7 operational system presets (`morning-digest`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`, `inbox-triage`, `github-ops`) for instantaneous profile switching.
+  - Require static AST and shell script security scanning (`SkillSecurityScanner`) on untrusted skill packages before staging; reject critical vulnerabilities (`eval`, `exec`, `ctypes`, destructive shell patterns) by default and install external skills in a `disabled` state.
+  - Implement prompt learning loop (`PromptOptimizer`) with offline benchmark evaluation and automatic reversion to baseline prompt if 3 consecutive evaluation regressions occur.
+- **Consequences**: Flexible multi-mode agent orchestration with airtight budget enforcement, supply-chain skill security, and safe iterative prompt improvements.
+
 

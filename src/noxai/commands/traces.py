@@ -7,13 +7,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Any
 
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-import typer
 
 from noxai.tracing.recorder import get_trace, get_trace_stats, list_traces
 
@@ -138,15 +136,24 @@ def show_trace_cmd(
 def stats_traces_cmd(
     days: int = typer.Option(7, "--days", "-d", help="Number of preceding days to aggregate"),
 ) -> None:
-    """Show aggregate performance, failure, and fallback statistics."""
-    stats = asyncio.run(get_trace_stats(days=days))
+    """Show aggregate performance, failure, fallback, and telemetry statistics."""
+    from noxai.agents.optimizer import TelemetryTracker
 
-    table = Table(title=f"Trace Statistics (Last {days} Days)", header_style="bold green")
+    stats = asyncio.run(get_trace_stats(days=days))
+    telemetry = asyncio.run(TelemetryTracker.get_metrics(hours=days * 24))
+
+    table = Table(
+        title=f"Trace & Telemetry Statistics (Last {days} Days)",
+        header_style="bold green",
+    )
     table.add_column("Metric", style="bold")
     table.add_column("Value")
 
     table.add_row("Total Traces", str(stats.get("total_traces", 0)))
     table.add_row("Median Duration", f"{stats.get('median_duration_ms', 0)} ms")
+    table.add_row("P90 Latency", f"{telemetry.get('p90_latency_ms', 0)} ms")
+    table.add_row("Total Tokens", str(telemetry.get("total_tokens", 0)))
+    table.add_row("Estimated Cost (USD)", f"${telemetry.get('estimated_cost_usd', 0.0):.4f}")
     table.add_row("Fallback Invocations", str(stats.get("fallback_count", 0)))
 
     by_src = stats.get("by_source", {})
@@ -157,4 +164,9 @@ def stats_traces_cmd(
     st_str = ", ".join(f"{k}: {v}" for k, v in by_st.items()) if by_st else "none"
     table.add_row("By Status", st_str)
 
+    routes = telemetry.get("route_distribution", {})
+    routes_str = ", ".join(f"{k}: {v}" for k, v in routes.items()) if routes else "none"
+    table.add_row("Route Distribution", routes_str)
+
     console.print(table)
+
