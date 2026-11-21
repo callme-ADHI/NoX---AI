@@ -30,7 +30,8 @@ from typing import Any, Sequence
 import aiosqlite
 
 from noxai.db import execute, fetch_all, fetch_one, get_db
-from noxai.models.base import Content, Message, TaintFlag
+from noxai.models.base import Message
+from noxai.taint import Content, DataClass, TaintFlag
 
 log = logging.getLogger(__name__)
 
@@ -226,7 +227,7 @@ async def search_messages_bm25(
         if conversation_id and not cross_conversation:
             sql = """
                 SELECT m.id, m.conversation_id, m.role, m.content, coalesce(m.text, m.content) as text, m.turn_index, m.topic_label,
-                       bm25(fts_messages) as rank
+                       coalesce(m.taint_flags, 0) as taint_flags, bm25(fts_messages) as rank
                 FROM fts_messages f
                 JOIN messages m ON f.rowid = m.rowid
                 WHERE fts_messages MATCH ?
@@ -239,7 +240,7 @@ async def search_messages_bm25(
         else:
             sql = """
                 SELECT m.id, m.conversation_id, m.role, m.content, coalesce(m.text, m.content) as text, m.turn_index, m.topic_label,
-                       bm25(fts_messages) as rank
+                       coalesce(m.taint_flags, 0) as taint_flags, bm25(fts_messages) as rank
                 FROM fts_messages f
                 JOIN messages m ON f.rowid = m.rowid
                 WHERE fts_messages MATCH ?
@@ -256,6 +257,7 @@ async def search_messages_bm25(
                 "text": str(r["content"]),
                 "turn_index": int(r["turn_index"] or 0),
                 "topic_label": str(r["topic_label"] or ""),
+                "taint_flags": int(r["taint_flags"] or 0),
                 "score": float(r["rank"]),
             })
     except Exception as exc:
@@ -528,6 +530,8 @@ async def build_four_part_context(
                 if snip_tok <= remaining_budget:
                     retrieved_snippets.append(snip_str)
                     remaining_budget -= snip_tok
+                    if snip.get("taint_flags", 0) & TaintFlag.PRIVATE.value:
+                        sys_taint |= TaintFlag.PRIVATE
 
     # -------------------------------------------------------------------------
     # Part 4b: Retrieved notes / documents if query refers to notes or vault
@@ -574,6 +578,7 @@ async def build_four_part_context(
     if retrieved_snippets:
         system_sections.append("[RELEVANT HISTORICAL TURNS]\n" + "\n".join(retrieved_snippets))
     if retrieved_doc_chunks:
+        sys_taint |= TaintFlag.PRIVATE
         doc_header = (
             "[RELEVANT USER NOTES & DOCUMENTS]\n"
             "The following excerpts were retrieved from the user's local notes and files. "
@@ -583,8 +588,16 @@ async def build_four_part_context(
         system_sections.append(doc_header)
 
     combined_system_text = "\n\n".join(system_sections)
+    is_private_context = bool(sys_taint & TaintFlag.PRIVATE)
     final_messages = [
-        Message(role="system", content=Content(text=combined_system_text, taint=sys_taint)),
+        Message(
+            role="system",
+            content=Content(
+                text=combined_system_text,
+                taint=sys_taint,
+                data_class=DataClass.LOCAL_ONLY if is_private_context else DataClass.CHAT,
+            ),
+        ),
         *verbatim_messages,
         current_user_message,
     ]

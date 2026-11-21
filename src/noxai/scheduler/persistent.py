@@ -262,11 +262,30 @@ class PersistentScheduler:
     # -----------------------------------------------------------------------
 
     async def _run_morning_briefing(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
+        now_dt = self.clock.now()
+        date_str = now_dt.strftime("%Y-%m-%d")
+        async with get_db() as db:
+            existing = await fetch_one(
+                db,
+                """
+                SELECT id, state FROM briefing_runs
+                WHERE date = ? AND slot = 'morning' AND state IN ('running', 'queued', 'succeeded', 'partial')
+                LIMIT 1
+                """,
+                (date_str,),
+            )
+            if existing:
+                log.info(
+                    "Morning briefing for %s already served/running in briefing_runs (%s, id=%s); skipping persistent schedule duplicate.",
+                    date_str,
+                    existing["state"],
+                    existing["id"],
+                )
+                return {"status": "skipped", "reason": "already_served", "run_id": existing["id"]}
+
         from noxai.briefing.engine import BriefingPipeline
 
         pipeline = BriefingPipeline(config=self.config)
-        now_dt = self.clock.now()
-        date_str = now_dt.strftime("%Y-%m-%d")
         return await pipeline.execute_run(
             slot="morning",
             date_str=date_str,
@@ -275,11 +294,30 @@ class PersistentScheduler:
         )
 
     async def _run_evening_briefing(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
+        now_dt = self.clock.now()
+        date_str = now_dt.strftime("%Y-%m-%d")
+        async with get_db() as db:
+            existing = await fetch_one(
+                db,
+                """
+                SELECT id, state FROM briefing_runs
+                WHERE date = ? AND slot = 'evening' AND state IN ('running', 'queued', 'succeeded', 'partial')
+                LIMIT 1
+                """,
+                (date_str,),
+            )
+            if existing:
+                log.info(
+                    "Evening briefing for %s already served/running in briefing_runs (%s, id=%s); skipping persistent schedule duplicate.",
+                    date_str,
+                    existing["state"],
+                    existing["id"],
+                )
+                return {"status": "skipped", "reason": "already_served", "run_id": existing["id"]}
+
         from noxai.briefing.engine import BriefingPipeline
 
         pipeline = BriefingPipeline(config=self.config)
-        now_dt = self.clock.now()
-        date_str = now_dt.strftime("%Y-%m-%d")
         return await pipeline.execute_run(
             slot="evening",
             date_str=date_str,
@@ -288,10 +326,22 @@ class PersistentScheduler:
         )
 
     async def _run_backup_job(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
+        from noxai.jobs.catchup import is_job_due
         from noxai.jobs.executor import execute_planned_job
 
         cfg_dict = json.loads(schedule.config_json) if schedule.config_json else {}
         job_id = cfg_dict.get("job_id", "job_06725cb80054")
+        now_dt = self.clock.now()
+        async with get_db() as db:
+            due, due_slot = await is_job_due(job_id=job_id, db=db, now_dt=now_dt)
+            if not due:
+                log.info(
+                    "Backup job %s already executed for slot %s; skipping duplicate run in persistent scheduler.",
+                    job_id,
+                    due_slot,
+                )
+                return {"status": "skipped", "reason": "already_executed", "due_slot": due_slot}
+
         return await execute_planned_job(
             job_id=job_id,
             run_id=run_id,

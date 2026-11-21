@@ -550,10 +550,10 @@ async def orchestrate_chat_turn(
     
             if not egress_decision.allowed:
                 # Privacy policy v2 blocked cloud transmission
-                target_role = "resident"
                 fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
                 messages_to_send = local_turn_messages
                 selected_tools = all_specs
+                target_role = "brain" if selected_tools else "resident"
             else:
                 messages_to_send = (
                     egress_decision.sanitized_messages
