@@ -10,6 +10,7 @@ Provides unified connectors for external services:
 from noxai.connectors.base import BaseConnector, ConnectorRegistry
 from noxai.connectors.calendar import CalendarConnector
 from noxai.connectors.feeds import FeedsConnector
+from noxai.connectors.github import GitHubConnector
 from noxai.connectors.gmail import GmailConnector
 from noxai.connectors.imap import IMAPConnector
 from noxai.connectors.mail_profile import (
@@ -25,6 +26,7 @@ __all__ = [
     "ConnectorRegistry",
     "DigestGenerator",
     "FeedsConnector",
+    "GitHubConnector",
     "GmailConnector",
     "IMAPConnector",
     "MailClassifier",

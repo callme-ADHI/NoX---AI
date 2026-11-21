@@ -136,3 +136,13 @@ This document records all architectural decisions, trade-offs, and clarification
   - Social network scraping (X/Twitter, LinkedIn, Instagram) is explicitly excluded due to aggressive anti-bot countermeasures (Cloudflare/fingerprinting) and prompt-injection attack surfaces.
 - **Consequences**: Secure, ban-free remote control and external intelligence gathering with strict egress privacy.
 
+### ADR-N9: GitHub & Actions Intelligence Architecture, Heuristic Log Triage, and Static Workflow Linting
+- **Context**: Autonomous development workflows require monitoring CI failures and reviewing pull requests without manual web browsing, but headless server environments frequently lack the `gh` binary or full web authentication.
+- **Decision**:
+  - Implement dual-engine execution: use `gh` CLI subprocess execution if present on PATH, with seamless fallback to GitHub REST API via `httpx` using fine-grained `GITHUB_TOKEN` stored securely in `SecretStore`.
+  - Automated failure triage runs `gh run view --log-failed` (or REST failed job logs), isolates the terminal error frame, and classifies into `test_failure`, `lint_or_type_error`, `dependency_error`, `build_failure`, `auth_error`, or `timeout` with suggested remediations.
+  - Implement static workflow linter inspecting `.github/workflows/*.yml` for explicit permissions, avoiding `write-all`, requiring action pinning (SHA/immutable refs), and preventing script injection in `run:` steps.
+  - Guarded write operations (workflow rerun, PR comment, workflow dispatch) strictly enforce authorization through `ApprovalsCenter`.
+- **Consequences**: Autonomous CI monitoring, fast triage, and secure repository interaction with zero mandatory external CLI dependencies.
+
+

@@ -389,4 +389,79 @@ No social items found. Run `nx feeds sync` or add feeds.
   - `test_discord_channel_ingest_and_guarded_send`: PASSED
   - `test_feeds_connector_sync_and_digest`: PASSED
 
+---
+
+## Phase 6: GitHub & Actions Intelligence Evidence
+
+### 1. Database Schema Migration 019 [VERIFIED-TEST]
+- Applied `src/noxai/migrations/019_github_intelligence.sql` with automatic SQLite online backup (`nox_20261121_064608_e6773b.db`).
+- Created tables:
+  - `github_watched_repos`: `repo_name`, `is_private`, `watch_actions`, `watch_prs`, `watch_issues`, `last_check_at`, `created_at`.
+  - `github_actions_runs`: `id`, `repo_name`, `workflow_name`, `head_branch`, `head_sha`, `status`, `conclusion`, `html_url`, `run_started_at`, `failure_step`, `triage_summary`, `created_at`, `updated_at`.
+  - `github_items`: `id`, `repo_name`, `item_type`, `number`, `title`, `author`, `state`, `html_url`, `summary`, `created_at`, `updated_at`.
+- Created indexes on repo_name, conclusion, started_at, item_type, state.
+
+### 2. GitHub Connector & Dual-Engine Architecture [VERIFIED-TEST]
+- Implemented `GitHubConnector` (`src/noxai/connectors/github.py`):
+  - Primary: `gh` CLI subprocess runner.
+  - Fallback: Direct GitHub REST API via `httpx` using fine-grained `GITHUB_TOKEN` from `SecretStore` or environment.
+  - Graceful degradation: operates in public read-only mode if unauthenticated without crashing daemon.
+  - Dependency-injectable `gh_runner` and `httpx.AsyncBaseTransport` for 100% deterministic, offline testability.
+
+### 3. Actions Failure Triage & Root Cause Heuristics [VERIFIED-TEST]
+- Method `triage_failed_run(repo, run_id)`:
+  - Inspects `gh run view --log-failed` or REST failed job logs.
+  - Extracts failing step name and terminal error frames (e.g. `AssertionError`, `E501 Line too long`, `ModuleNotFoundError`, timeout).
+  - Categorizes failure into: `test_failure`, `lint_or_type_error`, `dependency_error`, `build_failure`, `auth_error`, or `timeout`.
+  - Generates plain-English summary, root cause explanation, and actionable remediation instructions.
+  - Persists triage reports to `github_actions_runs`.
+
+### 4. Static Workflow Security & Hygiene Linter [VERIFIED-TEST]
+- Method `lint_workflow_file(content_or_path)` and `lint_repo_workflows(repo_dir)`:
+  - Explicit permissions check: flags workflows lacking top-level or job-level `permissions:`.
+  - Least privilege: flags overly broad `permissions: write-all`.
+  - Action pinning: flags mutable branch references (`@main`, `@master`) instead of commit SHAs or release tags.
+  - Script injection defense: flags inline GitHub expression expansion (`${{ github.event... }}`) inside `run:` commands.
+
+### 5. Guarded Operations & Real-time Watch [VERIFIED-TEST]
+- Method `watch_actions(repo, run_id)`:
+  - Real-time polling with progress callback until run completion.
+  - Automatically triggers `triage_failed_run()` if conclusion is `failure`.
+- Method `guarded_write(action, payload, approval_id)`:
+  - Supports `rerun_run`, `dispatch_workflow`, and `create_comment`.
+  - Requires single-use approval token verification and consumption via `ApprovalsCenter`.
+
+### 6. Skills (agentskills.io format) [VERIFIED-LIVE]
+- Created `skills/github-actions-triage/SKILL.md` (diagnostics protocol, failure categories, remediation steps).
+- Created `skills/pr-review-summary/SKILL.md` (PR status, review rollup, CI status checks).
+
+### 7. CLI Commands [VERIFIED-LIVE]
+```text
+$ nx gh add callme-ADHI/NoX---AI
+✓ Added callme-ADHI/NoX---AI to watched repositories.
+
+$ nx gh repos
+                         Watched GitHub Repositories                         
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ Repository           ┃ Private ┃ Actions Watch ┃ PRs Watch ┃ Last Checked ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ callme-ADHI/NoX---AI │ no      │ yes           │ yes       │              │
+└──────────────────────┴─────────┴───────────────┴───────────┴──────────────┘
+
+$ nx gh lint
+No workflow files found under /home/boss/Documents/Projects/NoX/.github/workflows.
+```
+
+### 8. Test Suite Execution (`tests/test_github_intelligence.py`) [VERIFIED-TEST]
+- All 8 tests passed in 1.04s:
+  - `test_migration_019_tables`: PASSED
+  - `test_watched_repos_crud`: PASSED
+  - `test_github_auth_and_health_states`: PASSED
+  - `test_get_workflow_runs_and_prs`: PASSED
+  - `test_triage_failed_run_heuristics`: PASSED
+  - `test_workflow_linter_checks`: PASSED
+  - `test_watch_actions_success_and_failure`: PASSED
+  - `test_guarded_write_rerun_and_comment`: PASSED
+
+
 

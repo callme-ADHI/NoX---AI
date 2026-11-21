@@ -38,6 +38,7 @@ from noxai.commands.channel import channel_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.connect import connect_app, disconnect_command
 from noxai.commands.feeds import feeds_app
+from noxai.commands.gh import gh_app
 from noxai.commands.jobs import jobs_app
 from noxai.commands.keys import keys_app
 from noxai.commands.mail import mail_app
@@ -92,6 +93,7 @@ app.add_typer(connect_app, name="connect")
 app.add_typer(mail_app, name="mail")
 app.add_typer(channel_app, name="channel")
 app.add_typer(feeds_app, name="feeds")
+app.add_typer(gh_app, name="gh")
 app.command(name="disconnect")(disconnect_command)
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")

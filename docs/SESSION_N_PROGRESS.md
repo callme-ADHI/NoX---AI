@@ -8,7 +8,7 @@
 - [ ] **N4**: Connector framework with typed health, retry, rate-limit handling and graceful degradation; daemon start never blocked by a connector.
 - [ ] **N5**: Mail: Gmail (OAuth, read-only default) and generic IMAP; Calendar (read-only) and ICS; user-defined mail profile; triage, digest, thread summaries, search, deadline and event extraction, reply drafts, guarded sending.
 - [x] **N6**: Chat and social: Telegram (owner remote control + inbox), Slack, Discord, public feeds (RSS/Atom, Bluesky, Mastodon, Reddit RSS); WhatsApp and unofficial scraping excluded with reasons.
-- [ ] **N7**: GitHub intelligence via gh or fine-grained token: repo watch, Actions status and failure triage, PR/issue/notification summaries, security alerts, workflow review, guarded write actions, push verification, Actions watch after push.
+- [x] **N7**: GitHub intelligence via gh or fine-grained token: repo watch, Actions status and failure triage, PR/issue/notification summaries, security alerts, workflow review, guarded write actions, push verification, Actions watch after push.
 - [ ] **N8**: Agents framework (on-demand, scheduled, continuous) with built-in agents, presets, budgets, approvals, start/stop/delete.
 - [ ] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
 - [ ] **N10**: UI, CLI, doctor, health and selftest cover everything; delete controls everywhere data is stored.
@@ -57,15 +57,15 @@
 - [x] 5. Tests: protocol-level fakes, pairing, allow-list, spoofed sender, private-output blocking, reconnect.
 
 ### Phase 6: GitHub and Actions Intelligence
-- [ ] 1. Auth via `gh` CLI subprocess calls; fallback fine-grained GITHUB_TOKEN in secret store.
-- [ ] 2. Watchlist: repos to watch with public/private privacy classification.
-- [ ] 3. Actions status & triage: workflow conclusions, failing step extraction, plain-language triage, flaky-test detection, failure notifications.
-- [ ] 4. Inbox summaries: review requests, mentions, PR summaries, Dependabot/security alerts.
-- [ ] 5. Workflow review: workflow linting, unpinned actions, injection check, proposed diff patch.
-- [ ] 6. Guarded writes: re-run failed jobs, dispatch workflow, draft comment/PR.
-- [ ] 7. Push verification and watch (`nx gh watch`).
-- [ ] 8. Skills: `github-actions-triage` and `pr-review-summary` (agentskills.io format).
-- [ ] 9. Tests: fake GitHub REST/gh transport, privacy test, triage fixtures, workflow lint fixtures, live read-only call on callme-ADHI/NoX---AI.
+- [x] 1. Auth via `gh` CLI subprocess calls; fallback fine-grained GITHUB_TOKEN in secret store.
+- [x] 2. Watchlist: repos to watch with public/private privacy classification.
+- [x] 3. Actions status & triage: workflow conclusions, failing step extraction, plain-language triage, flaky-test detection, failure notifications.
+- [x] 4. Inbox summaries: review requests, mentions, PR summaries, Dependabot/security alerts.
+- [x] 5. Workflow review: workflow linting, unpinned actions, injection check, proposed diff patch.
+- [x] 6. Guarded writes: re-run failed jobs, dispatch workflow, draft comment/PR.
+- [x] 7. Push verification and watch (`nx gh watch`).
+- [x] 8. Skills: `github-actions-triage` and `pr-review-summary` (agentskills.io format).
+- [x] 9. Tests: fake GitHub REST/gh transport, privacy test, triage fixtures, workflow lint fixtures, live read-only call on callme-ADHI/NoX---AI.
 
 ### Phase 7: Agents Framework, Presets, Learning Loop, Telemetry
 - [ ] 1. Agent spec: `agents/<name>.toml` + prompt file, tables `agents` and `agent_runs`. Supervised execution.
