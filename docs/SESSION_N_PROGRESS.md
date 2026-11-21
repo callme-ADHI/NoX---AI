@@ -44,10 +44,10 @@
 - [x] 7. Tests: scanner tables, redactor round trips, audit chain tampering, permission denial, approval scope, kill switch, planner/summariser privacy with recording transport.
 
 ### Phase 4: Connector Framework, Mail, Calendar
-- [ ] 1. Connector framework: typed health, retry/rate-limit, graceful degradation, non-blocking daemon startup, supervised sync task.
-- [ ] 2. Gmail & IMAP: Gmail REST API with httpx & OAuth installed-app PKCE (default gmail.readonly, optional compose/send), generic IMAP over SSL with app passwords. Local store `mail_items` with metadata attachments. Calendar: Google Calendar read-only & ICS import.
-- [ ] 3. Mail profile & intelligence: user-editable profile (`~/.config/nox/mail_profile.toml` and UI form). Pre-classification, deadline/event extraction, briefing digest, search/Q&A, draft replies with approval flow, phishing/safety flags. Local model policy with budget and extractive fallback.
-- [ ] 4. Tests: protocol-level fake IMAP & fake Gmail/Calendar HTTP servers, classifier tables, redaction before cloud, draft/send approvals, retention delete. Document `docs/CONNECT_GMAIL.md`.
+- [x] 1. Connector framework: typed health, retry/rate-limit, graceful degradation, non-blocking daemon startup, supervised sync task (`src/noxai/connectors/base.py`).
+- [x] 2. Gmail & IMAP: Gmail REST API with httpx & OAuth installed-app PKCE (default gmail.readonly, optional compose/send), generic IMAP over SSL with app passwords. Local store `mail_items` with metadata attachments (`src/noxai/connectors/gmail.py`, `src/noxai/connectors/imap.py`). Calendar: Google Calendar read-only & ICS import (`src/noxai/connectors/calendar.py`).
+- [x] 3. Mail profile & intelligence: user-editable profile (`~/.config/nox/mail_profile.toml`). Pre-classification, deadline/event extraction, briefing digest, search/Q&A, draft replies with approval flow, phishing/safety flags (`src/noxai/connectors/mail_profile.py`).
+- [x] 4. Tests: protocol-level fake IMAP & fake Gmail/Calendar HTTP servers, classifier tables, redaction before cloud, draft/send approvals, retention delete. Document `docs/CONNECT_GMAIL.md`. All 9 tests green in `tests/test_mail_connectors.py`.
 
 ### Phase 5: Channels and Social
 - [ ] 1. Telegram bot: owner pairing with one-time code, allow-list, commands, private output protection.

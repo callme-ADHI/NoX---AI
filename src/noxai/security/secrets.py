@@ -120,6 +120,7 @@ class SecretStore:
     @classmethod
     def delete(cls, name: str) -> bool:
         """Delete a secret by name."""
+        found = False
         if _has_working_keyring():
             try:
                 import keyring

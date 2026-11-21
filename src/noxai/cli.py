@@ -35,8 +35,10 @@ from noxai.commands.backup import backup_app
 from noxai.commands.briefing_cmd import briefing_app
 from noxai.commands.briefings import briefings_app
 from noxai.commands.cloud import cloud_app
+from noxai.commands.connect import connect_app, disconnect_command
 from noxai.commands.jobs import jobs_app
 from noxai.commands.keys import keys_app
+from noxai.commands.mail import mail_app
 from noxai.commands.mcp import mcp_app
 from noxai.commands.memory import memory_app
 from noxai.commands.models import models_app, models_bench_local
@@ -84,6 +86,9 @@ app.add_typer(prompt_app, name="prompt")
 app.add_typer(approvals_app, name="approvals")
 app.add_typer(secrets_app, name="secrets")
 app.add_typer(panic_app, name="panic")
+app.add_typer(connect_app, name="connect")
+app.add_typer(mail_app, name="mail")
+app.command(name="disconnect")(disconnect_command)
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
 bench_app.command(name="local")(models_bench_local)
@@ -94,17 +99,21 @@ eval_app = typer.Typer(name="eval", help="Evaluation commands.")
 
 @eval_app.command(name="conversation")
 def eval_conversation(
-    live: bool = typer.Option(False, "--live", help="Run 8 live scenarios against real models (cloud and local)"),
+    live: bool = typer.Option(
+        False, "--live", help="Run 8 live scenarios against real models (cloud and local)"
+    ),
     route: str = typer.Option("both", "--route", help="Model route: cloud, local, or both"),
 ) -> None:
-    """Run the Conversation Memory System (CMS) evaluation (12 unit scenarios, or 8 live scenarios with --live)."""
+    """Run CMS evaluation (12 unit scenarios, or 8 live scenarios with --live)."""
     import asyncio
 
     if live:
         from noxai.evals.conversation_eval import run_live_conversation_eval
+
         success = asyncio.run(run_live_conversation_eval(route=route))
     else:
         from noxai.evals.conversation_eval import run_conversation_eval
+
         success = asyncio.run(run_conversation_eval())
 
     if not success:
@@ -379,7 +388,10 @@ def chat_cmd(
         True, "--allow-cloud/--no-cloud", help="Allow cloud model if eligible."
     ),
     cont: bool = typer.Option(
-        True, "--continue/--new", "-c/-n", help="Continue the active conversation (default) or start new."
+        True,
+        "--continue/--new",
+        "-c/-n",
+        help="Continue the active conversation (default) or start new.",
     ),
     conv_id: str | None = typer.Option(
         None, "--conv", help="Specific conversation ID to continue."
@@ -390,7 +402,7 @@ def chat_cmd(
     import asyncio
 
     from noxai.config import get_config
-    from noxai.db import fetch_one, get_db, run_migrations
+    from noxai.db import get_db, run_migrations
     from noxai.events import global_event_bus
     from noxai.models.router import ModelRouter
     from noxai.orchestrator import orchestrate_chat_turn
@@ -408,6 +420,7 @@ def chat_cmd(
                 conversation_id = await get_or_create_active_conversation(db)
             elif not cont and not conversation_id:
                 import uuid
+
                 conversation_id = f"conv_{uuid.uuid4().hex[:12]}"
 
             console.print(f"[bold cyan]You:[/] {message}\n")
@@ -433,13 +446,17 @@ def chat_cmd(
             fallback_offered = getattr(result, "fallback_offered", False)
             model_name = getattr(result, "model_name", "")
             if served_by == "ollama" and fallback_reason:
-                console.print(
-                    f"[yellow][Notice: Cloud model is down ({fallback_reason}); answered via local fallback ({model_name})][/]\n"
+                msg = (
+                    f"[yellow][Notice: Cloud model is down ({fallback_reason}); "
+                    f"answered via local fallback ({model_name})][/]\n"
                 )
+                console.print(msg)
             elif fallback_offered:
-                console.print(
-                    f"[yellow][Notice: Cloud engine unavailable ({fallback_reason}); fallback offered to local model][/]\n"
+                msg = (
+                    f"[yellow][Notice: Cloud engine unavailable ({fallback_reason}); "
+                    "fallback offered to local model][/]\n"
                 )
+                console.print(msg)
 
             if result.citations:
                 console.print("\n[bold dim]Sources / Citations:[/]")
@@ -646,4 +663,3 @@ def bench_cloud_cmd(
 
 if __name__ == "__main__":
     app()
-

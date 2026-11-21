@@ -252,3 +252,83 @@ $ nx panic --resume
 
 ### 7. Test Suite Outcome [VERIFIED-TEST]
 - `tests/test_security_foundation.py`: 23 passed in 2.35s.
+
+---
+
+## Phase 4: Connector Framework, Mail, Calendar Evidence
+
+### 1. Database Schema Migration 017 [VERIFIED-TEST]
+- Applied `src/noxai/migrations/017_connectors_and_mail.sql` with automatic SQLite online backup.
+- Verified on fresh database, copied database, and live database.
+- Created tables:
+  - `connectors`: typed health, config, rate limiting, and privacy class (`local_only` default).
+  - `mail_items`: stores sanitized emails (text capped at 20KB) with category and extracted fields.
+  - `mail_attachments`: tracks attachment metadata and extracted text (capped at 1MB).
+  - `calendar_events`: stores synced events from Google Calendar and ICS sources.
+
+### 2. Base Connector & Registry [VERIFIED-TEST]
+- Abstract `BaseConnector` enforces `auth()`, `health()`, `sync()`, `fetch()`, `search()`, `guarded_write()`.
+- Built-in `RateLimiter` and exponential backoff retry.
+- Non-blocking daemon background synchronization across all active connectors (`ConnectorRegistry.sync_all_active()`).
+
+### 3. Gmail Connector (OAuth 2.0 PKCE) [VERIFIED-TEST]
+- REST API implementation via `httpx` with PKCE verifier/challenge generation.
+- Default read-only scope (`https://www.googleapis.com/auth/gmail.readonly`).
+- Tokens securely stored in `SecretStore`.
+- Zero raw PII leakage: incoming emails are scrubbed with `PIIRedactor` and capped at 20KB before database storage.
+- Documented in `docs/CONNECT_GMAIL.md`.
+
+### 4. Generic IMAP over SSL Connector [VERIFIED-TEST]
+- Secure SSL IMAP connection (port 993 default) using Python standard library `imaplib.IMAP4_SSL`.
+- MIME parsing handles multipart, plain text, and HTML tag stripping.
+- Sanitizes PII before storage in `mail_items`.
+
+### 5. Calendar Connector & ICS Parsing [VERIFIED-TEST]
+- Supports Google Calendar API and RFC5545 iCalendar (`.ics`) local files or remote URLs.
+- Extracts `DTSTART`, `DTEND`, `SUMMARY`, `DESCRIPTION`, `LOCATION`, and `UID`.
+- `fetch_upcoming(days=7)` queries upcoming schedule.
+
+### 6. Mail Profile, Intelligence & Phishing Detection [VERIFIED-TEST / VERIFIED-LIVE]
+- Configuration: `~/.config/nox/mail_profile.toml`.
+- Rule-based categorization: `College`, `Opportunities`, `Hackathons/CTF`, `GitHub/CI`, `Payments/Banking` (strictly `local_only`), `Newsletters`, `Personal`, `Noise`.
+- `PhishingDetector`: identifies brand spoofing (display name vs sender domain), Punycode homoglyphs (`xn--`), and urgency threat triggers.
+- Action items & deadline extraction using regex patterns.
+- `DigestGenerator`: compiles rich morning and evening digests combining emails and calendar events.
+
+### 7. Guarded Writes with ApprovalsCenter [VERIFIED-TEST]
+- Drafting emails creates local drafts or remote Gmail drafts.
+- Sending emails (`action="send"`) strictly enforces human authorization:
+  - Without approval: creates a pending approval in `ApprovalsCenter`.
+  - With approved token: verifies exact payload match, consumes token (single-use), and logs to `audit_events`.
+
+### 8. CLI Commands [VERIFIED-LIVE]
+```text
+$ nx connect list
+Configured Connectors
+No connectors configured yet. Run `nx connect gmail` or `nx connect imap`.
+
+$ nx mail digest --period morning
+╭───────────────────────────────────────────────╮
+│ NoX Daily Digest (Morning) — 2026-11-21T06:20 │
+╰───────────────────────────────────────────────╯
+No scheduled calendar events for the next 48h.
+
+$ nx connect calendar --ics-path /dev/null
+✓ Calendar source configured and verified.
+
+$ nx disconnect calendar
+✓ Connector 'calendar' disconnected and disabled.
+```
+
+### 9. Test Suite Execution (`tests/test_mail_connectors.py`) [VERIFIED-TEST]
+- All 9 tests passed in 1.20s:
+  - `test_migration_017_tables`: PASSED
+  - `test_base_connector_and_registry`: PASSED
+  - `test_gmail_connector_mocked_sync_and_pii_redaction`: PASSED
+  - `test_gmail_guarded_write_approvals`: PASSED
+  - `test_imap_connector_with_mock_client`: PASSED
+  - `test_calendar_connector_and_ics_parsing`: PASSED
+  - `test_phishing_detector`: PASSED
+  - `test_mail_classifier_categories_and_extraction`: PASSED
+  - `test_digest_generator`: PASSED
+

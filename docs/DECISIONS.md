@@ -115,3 +115,13 @@ This document records all architectural decisions, trade-offs, and clarification
 - **Context**: User needs an immediate, non-interactive mechanism to stop all background autonomous tasks and revoke authorizations.
 - **Decision**: `KillSwitch.engage()` sets atomic flag `panic_engaged = 1` in `security_state`, immediately revokes all pending approvals in `pending_approvals` and `approvals`, pauses active loops, and writes an audit event. `KillSwitch.resume()` clears the state.
 - **Consequences**: Immediate single-command quarantine of autonomous operations.
+
+### ADR-N6: Base Connector Abstraction with Non-Blocking Daemon Sync & Typed Health
+- **Context**: Integrations with external services (Gmail, IMAP, Calendar, Telegram, Slack, GitHub) must never block daemon startup or cause unhandled exceptions when remote services are offline or rate-limiting.
+- **Decision**: Abstract `BaseConnector` defines lifecycle methods (`auth`, `health`, `sync`, `fetch`, `search`, `guarded_write`), token-bucket rate limiting, and exponential backoff retry. Connector failures update database status to `degraded` or `error` without crashing daemon processes.
+- **Consequences**: Connectors are resilient to external outages and operate asynchronously in background sync tasks.
+
+### ADR-N7: Email Privacy Invariant, PII Sanitization, and Guarded Sending Flow
+- **Context**: Personal emails, calendar events, and banking messages must be safeguarded from accidental cloud egress, and automated agents must never independently send emails.
+- **Decision**: Table `mail_items` defaults to `privacy_class = 'local_only'`. All incoming message text is scrubbed through `PIIRedactor` and capped at 20KB before persistence in SQLite. Draft generation is permitted, but actual message transmission (`action="send"`) strictly requires verification and single-use consumption of an approval token from `ApprovalsCenter`.
+- **Consequences**: Prevents unapproved email transmission and accidental leak of financial or personal PII.
