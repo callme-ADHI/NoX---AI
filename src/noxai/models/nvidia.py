@@ -108,7 +108,7 @@ class NvidiaProvider(Provider):
         base_url: str = "https://integrate.api.nvidia.com/v1",
         requests_per_minute: int = 30,
         max_retries: int = 4,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
         cloud_health: CloudHealth | None = None,
         budget: RequestBudget | None = None,
@@ -257,12 +257,14 @@ class NvidiaProvider(Provider):
             await self.rate_limiter.acquire()
 
             if use_unified_pool:
+                current_key_id: str | None = None
                 try:
                     async with self.key_pool.lease(
                         job_id=getattr(self, "_current_job_id", None),
                         priority=0 if is_interactive else 2,
                         mode=AllocationMode.INTERACTIVE if is_interactive else AllocationMode.PINNED,
                     ) as lease:
+                        current_key_id = lease.key_id
                         headers = self._headers(lease.api_key)
                         req = client.build_request(
                             "POST",
@@ -337,6 +339,13 @@ class NvidiaProvider(Provider):
                             self.cloud_health.record_failure(
                                 error=f"Server error {resp.status_code}", status_code=resp.status_code
                             )
+                            if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
+                                log.info(
+                                    "NVIDIA %s hit %d; immediate failover",
+                                    lease.key_id,
+                                    resp.status_code,
+                                )
+                                continue
                             if attempt > self.max_retries:
                                 raise ProviderUnavailable(
                                     f"NVIDIA API server error ({resp.status_code}) after {self.max_retries} retries."
@@ -360,10 +369,22 @@ class NvidiaProvider(Provider):
                         return resp
 
                 except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                    err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                    if current_key_id is not None:
+                        status = 504 if isinstance(exc, httpx.TimeoutException) else 503
+                        await self.key_pool.report_outcome(
+                            current_key_id, status_code=status, error_msg=err_msg
+                        )
                     self.cloud_health.record_failure(error=exc)
+                    if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
+                        log.info(
+                            "NVIDIA %s encountered %s; failover to another key",
+                            current_key_id or "unknown",
+                            err_msg,
+                        )
                     if attempt > self.max_retries:
                         raise ProviderUnavailable(
-                            f"NVIDIA API request failed after {self.max_retries} retries: {exc}"
+                            f"NVIDIA API request failed after {self.max_retries} retries: {err_msg}"
                         ) from exc
                     jitter = random.uniform(0.1, 0.3)
                     await asyncio.sleep(backoff + jitter)
@@ -485,10 +506,12 @@ class NvidiaProvider(Provider):
                 return resp
 
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                self.key_pool.mark_error(active_key_entry.api_key, cooldown_seconds=30.0)
                 self.cloud_health.record_failure(error=exc)
                 if attempt > self.max_retries:
                     raise ProviderUnavailable(
-                        f"NVIDIA API request failed after {self.max_retries} retries: {exc}"
+                        f"NVIDIA API request failed after {self.max_retries} retries: {err_msg}"
                     ) from exc
                 jitter = random.uniform(0.1, 0.3)  # noqa: S311
                 await asyncio.sleep(backoff + jitter)

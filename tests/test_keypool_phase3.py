@@ -342,3 +342,58 @@ async def test_nvidia_provider_mock_server_401_failover(tmp_path, monkeypatch):
     assert pool._keys["k2"].total_requests == 1
 
 
+@pytest.mark.asyncio
+async def test_nvidia_provider_timeout_failover(tmp_path, monkeypatch):
+    """Verify NvidiaProvider handles ReadTimeout with key outcome reporting and failover."""
+    monkeypatch.setattr("noxai.db.DB_PATH", tmp_path / "test_timeout_failover.db")
+    monkeypatch.setattr("noxai.db.DATA_DIR", tmp_path)
+    from noxai.db import init_db
+    await init_db()
+
+    cfg = get_config()
+
+    def mock_handler(req: httpx.Request) -> httpx.Response:
+        auth = req.headers.get("Authorization", "")
+        if "nvapi-slow-key" in auth:
+            raise httpx.ReadTimeout("Request read timed out")
+        elif "nvapi-fast-key" in auth:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-timeout-failover",
+                    "object": "chat.completion",
+                    "created": 1234567,
+                    "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "Recovered on fast key."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
+                },
+            )
+        return httpx.Response(500)
+
+    transport = httpx.MockTransport(mock_handler)
+    pool = KeyPool(config=cfg, keys=["nvapi-slow-key", "nvapi-fast-key"], transport=transport)
+
+    from noxai.models.base import Message
+    from noxai.models.nvidia import NvidiaProvider
+
+    prov = NvidiaProvider(key_pool=pool, transport=transport)
+
+    messages = [Message(role="user", content="Hello test")]
+    chunks = []
+    async for chunk in prov.chat(model="nvidia/nemotron-3.5-lightning-30b-a3b", messages=messages, stream=False):
+        chunks.append(chunk.delta_text)
+
+    full_resp = "".join(chunks)
+    assert "Recovered on fast key." in full_resp
+    assert pool._keys["k1"].status == KeyStatus.COOLDOWN
+    assert pool._keys["k1"].consecutive_errors >= 1
+    assert pool._keys["k2"].total_requests == 1
+
+
+

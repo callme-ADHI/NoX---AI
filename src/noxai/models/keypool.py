@@ -294,9 +294,14 @@ class KeyPool:
 
     def _get_or_create_client(self, key_id: str) -> httpx.AsyncClient:
         if key_id not in self._http_clients or self._http_clients[key_id].is_closed:
+            timeout_sec = (
+                getattr(self.config.models.nvidia, "timeout", 120.0)
+                if hasattr(self.config, "models") and hasattr(self.config.models, "nvidia")
+                else 120.0
+            )
             self._http_clients[key_id] = httpx.AsyncClient(
                 base_url=self.base_url,
-                timeout=60.0,
+                timeout=httpx.Timeout(timeout_sec, connect=10.0),
                 transport=self.transport,
             )
         return self._http_clients[key_id]
@@ -427,6 +432,24 @@ class KeyPool:
                         )
                     except Exception as ev_exc:
                         log.debug("Failed to publish model_error event: %s", ev_exc)
+            elif status_code >= 500:
+                k.total_errors += 1
+                k.consecutive_errors += 1
+                cooldown_dur = min(
+                    self.config.keypool.cooldown_max_s,
+                    self.config.keypool.cooldown_base_s * (2 ** max(0, k.consecutive_errors - 1))
+                    + random.uniform(0.5, 2.0),  # noqa: S311
+                )
+                k.cooldown_until = now + cooldown_dur
+                k.status = KeyStatus.COOLDOWN
+                k.last_error = error_msg or f"HTTP {status_code}"
+                log.warning(
+                    "Key %s hit %d; entering cooldown for %.1fs: %s",
+                    k.key_id,
+                    status_code,
+                    cooldown_dur,
+                    k.last_error,
+                )
             else:
                 k.total_errors += 1
                 k.consecutive_errors += 1

@@ -148,6 +148,7 @@ class NvidiaModelConfig(_StrictModel):
     base_url: str = "https://integrate.api.nvidia.com/v1"
     requests_per_minute: int = 30
     max_retries: int = 4
+    timeout: float = 120.0
 
 
 class ModelsConfig(_StrictModel):

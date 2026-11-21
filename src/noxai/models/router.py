@@ -62,6 +62,7 @@ class ModelRouter:
                     base_url=config.models.nvidia.base_url,
                     requests_per_minute=config.models.nvidia.requests_per_minute,
                     max_retries=config.models.nvidia.max_retries,
+                    timeout=getattr(config.models.nvidia, "timeout", 120.0),
                     cloud_health=ch,
                 ),
             }
