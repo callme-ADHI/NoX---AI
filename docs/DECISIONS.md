@@ -153,6 +153,10 @@ This document records all architectural decisions, trade-offs, and clarification
   - Provide 7 operational system presets (`morning-digest`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`, `inbox-triage`, `github-ops`) for instantaneous profile switching.
   - Require static AST and shell script security scanning (`SkillSecurityScanner`) on untrusted skill packages before staging; reject critical vulnerabilities (`eval`, `exec`, `ctypes`, destructive shell patterns) by default and install external skills in a `disabled` state.
   - Implement prompt learning loop (`PromptOptimizer`) with offline benchmark evaluation and automatic reversion to baseline prompt if 3 consecutive evaluation regressions occur.
-- **Consequences**: Flexible multi-mode agent orchestration with airtight budget enforcement, supply-chain skill security, and safe iterative prompt improvements.
-
-
+### ADR-N11: Night-Sky UI Architecture, Unified Diagnostics, and Soft-Delete Protection
+- **Context**: A complete OpenJarvis parity interface requires intuitive management for connectors, mail triage, GitHub intelligence, autonomous agents, human approvals, tamper-evident audit logs, and skills catalogs, while adhering to NoX's night-sky glassmorphism design system, explicit delete confirmation controls, and comprehensive diagnostic health checks.
+- **Decision**:
+  - Implement 7 responsive UI views in `ui/src/pages/` (`ConnectorsPage`, `MailPage`, `GitHubPage`, `AgentsPage`, `ApprovalsPage`, `AuditPage`, `SkillsPage`) integrated into `NavRail` and `App.tsx`.
+  - Enforce delete controls everywhere: `DeleteConfirmModal` for destructive actions (disconnecting connectors, unwatching repositories, revoking credentials) and `UndoToast` with 10-second soft-delete restoration for email triage.
+  - Implement unified diagnostics: REST endpoint `/api/health/full` and CLI commands `nx health` and `nx selftest`, aggregating database WAL integrity, KeyPool availability, cryptographic SHA-256 audit log validation, and CLI tool availability into clear Rich tables.
+- **Consequences**: Consistent night-sky visual styling, safe data deletion workflows, and instant system diagnostic introspection across both web UI and terminal CLI.

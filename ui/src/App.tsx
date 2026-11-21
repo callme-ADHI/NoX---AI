@@ -4,6 +4,13 @@ import { NavRail, TabType } from './components/NavRail';
 import { CommandPalette } from './components/CommandPalette';
 import { ChatPage } from './pages/ChatPage';
 import { BriefingsPage } from './pages/BriefingsPage';
+import { ConnectorsPage } from './pages/ConnectorsPage';
+import { MailPage } from './pages/MailPage';
+import { GitHubPage } from './pages/GitHubPage';
+import { AgentsPage } from './pages/AgentsPage';
+import { ApprovalsPage } from './pages/ApprovalsPage';
+import { AuditPage } from './pages/AuditPage';
+import { SkillsPage } from './pages/SkillsPage';
 import { JobsPage } from './pages/JobsPage';
 import { TasksPage } from './pages/TasksPage';
 import { KeysPage } from './pages/KeysPage';
@@ -115,6 +122,20 @@ export const App: React.FC = () => {
         return <ChatPage />;
       case 'briefings':
         return <BriefingsPage />;
+      case 'mail':
+        return <MailPage />;
+      case 'connectors':
+        return <ConnectorsPage />;
+      case 'github':
+        return <GitHubPage />;
+      case 'agents':
+        return <AgentsPage />;
+      case 'approvals':
+        return <ApprovalsPage />;
+      case 'audit':
+        return <AuditPage />;
+      case 'skills':
+        return <SkillsPage />;
       case 'jobs':
         return <JobsPage />;
       case 'tasks':

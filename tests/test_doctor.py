@@ -114,9 +114,11 @@ def test_check_db_migrations(tmp_path: Path) -> None:
     c = doctor.check_db_migrations(db_path)
     assert c.status == "FAIL"
 
-    # schema_migrations has all migrations (e.g. 10)
+    # schema_migrations has all migrations
     conn = sqlite3.connect(str(db_path))
-    for i in range(2, 20):
+    migrations_dir = Path(__file__).parent.parent / "src" / "noxai" / "migrations"
+    total_files = len(list(migrations_dir.glob("[0-9][0-9][0-9]_*.sql")))
+    for i in range(2, total_files + 1):
         conn.execute("INSERT INTO schema_migrations VALUES (?, ?)", (i, f"00{i}_test.sql"))
     conn.commit()
     conn.close()

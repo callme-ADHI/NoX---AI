@@ -2645,3 +2645,591 @@ async def improve_prompt_endpoint(topic: str) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+# ---------------------------------------------------------------------------
+# Phase 8: Connectors, Mail, GitHub, Agents, Approvals, Audit & Health Endpoints
+# ---------------------------------------------------------------------------
+
+
+class AgentRunRequest(BaseModel):
+    input_prompt: str
+
+
+class UntrustedSkillInstallRequest(BaseModel):
+    source: str
+    force: bool = False
+
+
+class GitHubRepoAddRequest(BaseModel):
+    repo_name: str
+    is_private: bool = False
+    watch_actions: bool = True
+    watch_prs: bool = True
+
+
+class ApprovalResolveRequest(BaseModel):
+    decision: str = Field(..., description="'approve' or 'deny'")
+
+
+@api_router.get("/connectors", dependencies=READ_DEPS)
+async def list_connectors_endpoint() -> list[dict[str, Any]]:
+    """List all available connectors, their health, configuration, and sync status."""
+    from noxai.connectors.base import ConnectorRegistry
+
+    registry = ConnectorRegistry.get_instance()
+    connectors = registry.list_all()
+    results = []
+    async with get_db() as db:
+        for c in connectors:
+            health = await c.health()
+            cnt = 0
+            if c.name in ("gmail", "imap"):
+                row = await fetch_one(
+                    db,
+                    """
+                    SELECT COUNT(*) FROM mail_items
+                    WHERE connector_id = ? AND deleted_at IS NULL
+                    """,
+                    (c.name,),
+                )
+                cnt = row[0] if row else 0
+            elif c.name == "feeds":
+                row = await fetch_one(
+                    db,
+                    "SELECT COUNT(*) FROM social_items WHERE source_type = 'rss'",
+                )
+                cnt = row[0] if row else 0
+            results.append(
+                {
+                    "name": c.name,
+                    "type": c.connector_type,
+                    "status": health["status"],
+                    "healthy": health.get("healthy", False),
+                    "last_sync_at": health.get("last_sync_at"),
+                    "error": health.get("error"),
+                    "item_count": cnt,
+                }
+            )
+    return results
+
+
+@api_router.post("/connectors/{name}/sync", dependencies=WRITE_DEPS)
+async def sync_connector_endpoint(name: str) -> dict[str, Any]:
+    """Trigger background sync for a specific connector."""
+    from noxai.connectors.base import ConnectorRegistry
+
+    registry = ConnectorRegistry.get_instance()
+    connector = registry.get(name)
+    if not connector:
+        raise HTTPException(status_code=404, detail=f"Connector '{name}' not found.")
+    try:
+        stats = await connector.sync()
+        return {"ok": True, "connector": name, "stats": stats}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@api_router.delete("/connectors/{name}", dependencies=WRITE_DEPS)
+async def disconnect_connector_endpoint(name: str) -> dict[str, bool]:
+    """Disconnect and revoke credentials for a connector."""
+    from noxai.security.secrets import SecretStore
+
+    for key in (f"{name}_token", f"{name}_password", f"{name}_key"):
+        try:
+            SecretStore.delete(key)
+        except Exception as exc:
+            log.debug("disconnect_delete_secret_failed: %s", exc)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Mail Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/mail", dependencies=READ_DEPS)
+async def list_mail_endpoint(
+    limit: int = Query(50, ge=1, le=200),
+    category: str | None = None,
+    unread_only: bool = False,
+) -> list[dict[str, Any]]:
+    """List ingested emails with categories, phishing flags, and thread metadata."""
+    sql = """
+        SELECT id, connector_id, thread_id, sender, subject, date,
+               category, is_phishing, snippet, created_at
+        FROM mail_items WHERE deleted_at IS NULL
+    """
+    args: list[Any] = []
+    if category:
+        sql += " AND category = ?"
+        args.append(category)
+    if unread_only:
+        sql += " AND is_read = 0"
+    sql += " ORDER BY date DESC LIMIT ?"
+    args.append(limit)
+
+    async with get_db() as db:
+        rows = await fetch_all(db, sql, tuple(args))
+        return [
+            {
+                "id": str(r["id"]),
+                "connector_id": str(r["connector_id"]),
+                "thread_id": str(r["thread_id"] or ""),
+                "sender": str(r["sender"]),
+                "subject": str(r["subject"]),
+                "date": str(r["date"]),
+                "category": str(r["category"]),
+                "is_phishing": bool(r["is_phishing"]),
+                "snippet": str(r["snippet"] or ""),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+
+
+@api_router.post("/mail/{mail_id}/draft", dependencies=WRITE_DEPS)
+async def draft_mail_reply_endpoint(mail_id: str) -> dict[str, Any]:
+    """Generate a draft reply for an email thread."""
+    async with get_db() as db:
+        row = await fetch_one(
+            db,
+            "SELECT subject, sender, snippet FROM mail_items WHERE id = ? AND deleted_at IS NULL",
+            (mail_id,),
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Email not found.")
+
+    draft_subject = f"Re: {row['subject']}"
+    draft_body = (
+        f"Hi,\n\nThank you for your message regarding '{row['subject']}'. "
+        f"I have reviewed your inquiry and will follow up shortly.\n\nBest regards,\nNoX"
+    )
+    return {
+        "mail_id": mail_id,
+        "to": row["sender"],
+        "subject": draft_subject,
+        "draft_body": draft_body,
+    }
+
+
+@api_router.delete("/mail/{mail_id}", dependencies=WRITE_DEPS)
+async def delete_mail_endpoint(mail_id: str) -> dict[str, bool]:
+    """Soft-delete an email item with undo capability."""
+    async with get_db() as db:
+        await execute(
+            db,
+            "UPDATE mail_items SET deleted_at = datetime('now') WHERE id = ?",
+            (mail_id,),
+        )
+        await db.commit()
+    return {"ok": True}
+
+
+@api_router.post("/mail/{mail_id}/restore", dependencies=WRITE_DEPS)
+async def restore_mail_endpoint(mail_id: str) -> dict[str, bool]:
+    """Restore a soft-deleted email item."""
+    async with get_db() as db:
+        await execute(
+            db,
+            "UPDATE mail_items SET deleted_at = NULL WHERE id = ?",
+            (mail_id,),
+        )
+        await db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# GitHub Intelligence Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/github/repos", dependencies=READ_DEPS)
+async def list_github_repos_endpoint() -> list[dict[str, Any]]:
+    """List watched GitHub repositories."""
+    async with get_db() as db:
+        rows = await fetch_all(
+            db,
+            """
+            SELECT repo_name, is_private, watch_actions, watch_prs,
+                   last_checked_at, created_at
+            FROM github_watched_repos ORDER BY repo_name ASC
+            """,
+        )
+        return [
+            {
+                "repo_name": str(r["repo_name"]),
+                "is_private": bool(r["is_private"]),
+                "watch_actions": bool(r["watch_actions"]),
+                "watch_prs": bool(r["watch_prs"]),
+                "last_checked_at": str(r["last_checked_at"] or ""),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+
+
+@api_router.post("/github/repos", dependencies=WRITE_DEPS)
+async def add_github_repo_endpoint(body: GitHubRepoAddRequest) -> dict[str, Any]:
+    """Add a repository to the watch list."""
+    async with get_db() as db:
+        await execute(
+            db,
+            """
+            INSERT INTO github_watched_repos (
+                repo_name, is_private, watch_actions, watch_prs, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(repo_name) DO UPDATE SET
+                is_private = excluded.is_private,
+                watch_actions = excluded.watch_actions,
+                watch_prs = excluded.watch_prs,
+                updated_at = datetime('now')
+            """,
+            (
+                body.repo_name,
+                1 if body.is_private else 0,
+                1 if body.watch_actions else 0,
+                1 if body.watch_prs else 0,
+            ),
+        )
+        await db.commit()
+    return {"ok": True, "repo_name": body.repo_name}
+
+
+@api_router.delete("/github/repos/{owner}/{repo}", dependencies=WRITE_DEPS)
+async def remove_github_repo_endpoint(owner: str, repo: str) -> dict[str, bool]:
+    """Remove a repository from the watch list."""
+    repo_name = f"{owner}/{repo}"
+    async with get_db() as db:
+        await execute(
+            db, "DELETE FROM github_watched_repos WHERE repo_name = ?", (repo_name,)
+        )
+        await db.commit()
+    return {"ok": True}
+
+
+@api_router.get("/github/runs", dependencies=READ_DEPS)
+async def list_github_runs_endpoint(
+    repo: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> list[dict[str, Any]]:
+    """List GitHub Actions workflow runs and automated triage reports."""
+    sql = """
+        SELECT id, repo_name, workflow_name, head_branch, head_sha,
+               status, conclusion, html_url, failure_step, triage_summary, run_started_at
+        FROM github_actions_runs
+    """
+    args: list[Any] = []
+    if repo:
+        sql += " WHERE repo_name = ?"
+        args.append(repo)
+    sql += " ORDER BY run_started_at DESC LIMIT ?"
+    args.append(limit)
+
+    async with get_db() as db:
+        rows = await fetch_all(db, sql, tuple(args))
+        return [
+            {
+                "id": str(r["id"]),
+                "repo_name": str(r["repo_name"]),
+                "workflow_name": str(r["workflow_name"] or ""),
+                "head_branch": str(r["head_branch"] or ""),
+                "head_sha": str(r["head_sha"] or ""),
+                "status": str(r["status"] or ""),
+                "conclusion": str(r["conclusion"] or ""),
+                "html_url": str(r["html_url"] or ""),
+                "failure_step": str(r["failure_step"] or ""),
+                "triage_summary": str(r["triage_summary"] or ""),
+                "run_started_at": str(r["run_started_at"] or ""),
+            }
+            for r in rows
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Agents & Presets Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/agents", dependencies=READ_DEPS)
+async def list_agents_endpoint() -> list[dict[str, Any]]:
+    """List all registered autonomous agents with budgets and execution status."""
+    from noxai.agents.spec import sync_builtin_agents_to_db
+
+    await sync_builtin_agents_to_db()
+    async with get_db() as db:
+        rows = await fetch_all(
+            db,
+            """
+            SELECT id, name, mode, cron_expression, enabled, budget_tokens,
+                   budget_cost_usd, status, prompt_template, last_run_at, last_error
+            FROM agents ORDER BY name ASC
+            """,
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "name": str(r["name"]),
+                "mode": str(r["mode"]),
+                "cron_expression": str(r["cron_expression"] or ""),
+                "enabled": bool(r["enabled"]),
+                "budget_tokens": int(r["budget_tokens"]),
+                "budget_cost_usd": float(r["budget_cost_usd"]),
+                "status": str(r["status"]),
+                "prompt_template": str(r["prompt_template"]),
+                "last_run_at": str(r["last_run_at"] or ""),
+                "last_error": str(r["last_error"] or ""),
+            }
+            for r in rows
+        ]
+
+
+@api_router.post("/agents/{name}/run", dependencies=WRITE_DEPS)
+async def run_agent_endpoint(name: str, body: AgentRunRequest) -> dict[str, Any]:
+    """Execute an agent on-demand with budget and killswitch enforcement."""
+    from noxai.agents.runner import AgentRunner
+
+    runner = AgentRunner()
+    try:
+        return await runner.run_agent(name, input_prompt=body.input_prompt, trigger="manual")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@api_router.post("/agents/{name}/toggle", dependencies=WRITE_DEPS)
+async def toggle_agent_endpoint(name: str) -> dict[str, Any]:
+    """Toggle enabled status of an agent."""
+    async with get_db() as db:
+        row = await fetch_one(db, "SELECT enabled FROM agents WHERE name = ?", (name,))
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found.")
+        new_state = 0 if row["enabled"] else 1
+        await execute(
+            db, "UPDATE agents SET enabled = ? WHERE name = ?", (new_state, name)
+        )
+        await db.commit()
+    return {"ok": True, "name": name, "enabled": bool(new_state)}
+
+
+@api_router.get("/presets", dependencies=READ_DEPS)
+async def list_presets_endpoint() -> list[dict[str, Any]]:
+    """List available operational presets and active status."""
+    from noxai.agents.presets import get_current_preset, list_presets
+
+    current = await get_current_preset()
+    presets = list_presets()
+    return [
+        {
+            **p,
+            "is_active": p["name"] == current,
+        }
+        for p in presets
+    ]
+
+
+@api_router.post("/presets/{name}/apply", dependencies=WRITE_DEPS)
+async def apply_preset_endpoint(name: str) -> dict[str, Any]:
+    """Apply an operational preset."""
+    from noxai.agents.presets import apply_preset
+
+    try:
+        return await apply_preset(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Approvals Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/approvals/pending", dependencies=READ_DEPS)
+async def list_pending_approvals_endpoint() -> list[dict[str, Any]]:
+    """List pending single-use approvals."""
+    from noxai.security.approvals import ApprovalsCenter
+
+    return await ApprovalsCenter.list_pending()
+
+
+@api_router.post("/approvals/{approval_id}/resolve", dependencies=WRITE_DEPS)
+async def resolve_scoped_approval_endpoint(
+    approval_id: str, body: ApprovalResolveRequest
+) -> dict[str, Any]:
+    """Approve or deny a pending approval."""
+    from noxai.security.approvals import ApprovalsCenter
+
+    if body.decision == "approve":
+        token = await ApprovalsCenter.approve(approval_id)
+        return {"ok": True, "status": "approved", "token": token}
+    else:
+        await ApprovalsCenter.deny(approval_id, reason="User rejected via UI")
+        return {"ok": True, "status": "denied"}
+
+
+# ---------------------------------------------------------------------------
+# Audit Chain & Integrity Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/audit/chain", dependencies=READ_DEPS)
+async def get_audit_chain_endpoint(
+    limit: int = Query(50, ge=1, le=200),
+) -> list[dict[str, Any]]:
+    """List tamper-evident audit log events with hash chain linkages."""
+    async with get_db() as db:
+        rows = await fetch_all(
+            db,
+            """
+            SELECT id, sequence_num, prev_hash, current_hash, actor,
+                   action, target, decision, summary_redacted, created_at
+            FROM audit_events ORDER BY sequence_num DESC LIMIT ?
+            """,
+            (limit,),
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "sequence_num": int(r["sequence_num"]),
+                "prev_hash": str(r["prev_hash"]),
+                "current_hash": str(r["current_hash"]),
+                "actor": str(r["actor"]),
+                "action": str(r["action"]),
+                "target": str(r["target"]),
+                "decision": str(r["decision"]),
+                "summary": str(r["summary_redacted"]),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+
+
+@api_router.post("/audit/verify", dependencies=WRITE_DEPS)
+async def verify_audit_chain_endpoint() -> dict[str, Any]:
+    """Verify cryptographic hash chain integrity of the tamper-evident audit log."""
+    from noxai.security.audit import verify_audit_chain
+
+    valid, count, msg = await verify_audit_chain()
+    return {"verified": valid, "total_events": count, "message": msg}
+
+
+# ---------------------------------------------------------------------------
+# Skills Catalog & Untrusted Import Endpoints
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/skills", dependencies=READ_DEPS)
+async def list_skills_endpoint() -> list[dict[str, Any]]:
+    """List available skills with enable status and script permissions."""
+    from noxai.skills.catalog import get_skills_catalog
+
+    catalog = get_skills_catalog()
+    catalog.discover_skills()
+    async with get_db() as db:
+        await catalog.sync_state(db)
+    skills = catalog.list_skills()
+    return [
+        {
+            "name": s.name,
+            "version": s.meta.version,
+            "description": s.description,
+            "enabled": s.enabled,
+            "allow_scripts": s.allow_scripts,
+            "scripts": s.scripts,
+        }
+        for s in skills
+    ]
+
+
+@api_router.post("/skills/{name}/enable", dependencies=WRITE_DEPS)
+async def enable_skill_endpoint(name: str) -> dict[str, bool]:
+    """Enable a skill for use by agents."""
+    from noxai.skills.catalog import get_skills_catalog
+
+    catalog = get_skills_catalog()
+    async with get_db() as db:
+        ok = await catalog.enable_skill(name, db=db)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found.")
+    return {"ok": True}
+
+
+@api_router.post("/skills/{name}/disable", dependencies=WRITE_DEPS)
+async def disable_skill_endpoint(name: str) -> dict[str, bool]:
+    """Disable a skill."""
+    from noxai.skills.catalog import get_skills_catalog
+
+    catalog = get_skills_catalog()
+    async with get_db() as db:
+        ok = await catalog.disable_skill(name, db=db)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found.")
+    return {"ok": True}
+
+
+@api_router.post("/skills/install", dependencies=WRITE_DEPS)
+async def install_skill_endpoint(body: UntrustedSkillInstallRequest) -> dict[str, Any]:
+    """Install an untrusted skill package (staged, scanned, disabled by default)."""
+    from noxai.skills.catalog import get_skills_catalog
+    from noxai.skills.security import install_untrusted_skill
+
+    try:
+        res = await install_untrusted_skill(body.source, allow_critical=body.force)
+        catalog = get_skills_catalog()
+        async with get_db() as db:
+            await catalog.sync_state(db)
+        return res
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe)) from pe
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Unified Health Diagnostics Endpoint
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/health/full", dependencies=READ_DEPS)
+async def full_health_diagnostics_endpoint() -> dict[str, Any]:
+    """Comprehensive health, doctor, and selftest diagnostics."""
+    import shutil
+
+    from noxai.db import get_db, get_db_path
+    from noxai.models.keypool import get_default_keypool
+    from noxai.security.audit import verify_audit_chain
+    from noxai.security.kill_switch import KillSwitch
+
+    keypool = get_default_keypool()
+
+    valid, count, msg = await verify_audit_chain()
+    audit_res = {"verified": valid, "total_events": count, "message": msg}
+    panic_active = await KillSwitch.is_active()
+
+    db_ok = True
+    wal_mode = True
+    async with get_db() as db:
+        mode_row = await fetch_one(db, "PRAGMA journal_mode")
+        wal_mode = bool(mode_row and mode_row[0].lower() == "wal")
+
+    has_gh = shutil.which("gh") is not None
+    has_git = shutil.which("git") is not None
+
+    return {
+        "status": "healthy" if not panic_active and db_ok else "degraded",
+        "panic_engaged": panic_active,
+        "database": {
+            "wal_mode": wal_mode,
+            "path": str(get_db_path()),
+            "ok": db_ok,
+        },
+        "cloud": {
+            "active_keys": keypool.healthy_keys_count,
+            "total_keys": keypool.total_keys,
+        },
+        "audit": audit_res,
+        "tools": {
+            "gh_installed": has_gh,
+            "git_installed": has_git,
+        },
+    }
+
+

@@ -10,10 +10,32 @@ import {
   WifiOff,
   ListTodo,
   KeyRound,
+  Plug,
+  Mail,
+  GitBranch,
+  Bot,
+  ShieldAlert,
+  ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 import { SystemStatus } from '../types';
 
-export type TabType = 'chat' | 'briefings' | 'jobs' | 'tasks' | 'keys' | 'memory' | 'activity' | 'settings';
+export type TabType =
+  | 'chat'
+  | 'briefings'
+  | 'mail'
+  | 'connectors'
+  | 'github'
+  | 'agents'
+  | 'approvals'
+  | 'audit'
+  | 'skills'
+  | 'jobs'
+  | 'tasks'
+  | 'keys'
+  | 'memory'
+  | 'activity'
+  | 'settings';
 
 interface NavRailProps {
   activeTab: TabType;
@@ -31,6 +53,13 @@ export const NavRail: React.FC<NavRailProps> = ({
   const tabs: { id: TabType; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'briefings', label: 'Briefings', icon: Newspaper },
+    { id: 'mail', label: 'Mail', icon: Mail },
+    { id: 'connectors', label: 'Connectors', icon: Plug },
+    { id: 'github', label: 'GitHub', icon: GitBranch },
+    { id: 'agents', label: 'Agents', icon: Bot },
+    { id: 'approvals', label: 'Approvals', icon: ShieldAlert },
+    { id: 'audit', label: 'Audit', icon: ShieldCheck },
+    { id: 'skills', label: 'Skills', icon: Wrench },
     { id: 'jobs', label: 'Jobs', icon: Calendar },
     { id: 'tasks', label: 'Tasks', icon: ListTodo },
     { id: 'keys', label: 'KeyPool', icon: KeyRound },
@@ -65,7 +94,7 @@ export const NavRail: React.FC<NavRailProps> = ({
       </div>
 
       {/* Navigation Icons */}
-      <nav className="flex-1 flex flex-col gap-2 w-full px-2">
+      <nav className="flex-1 flex flex-col gap-1.5 w-full px-2 overflow-y-auto overflow-x-hidden py-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

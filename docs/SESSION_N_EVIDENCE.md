@@ -563,6 +563,68 @@ $ nx preset list
   - `test_github_intelligence.py`: 8/8 PASSED
   - `test_agents_framework.py`: 9/9 PASSED
 
+---
 
+## Phase 8: UI Pages, Unified CLI Commands & Health Diagnostics Evidence
 
+### 1. Night-Sky UI Architecture & Responsive Views [VERIFIED-BUILD / VERIFIED-TEST]
+- Built and validated 7 new dedicated pages matching NoX's night-sky glassmorphism design:
+  - `ConnectorsPage.tsx`: Ingestion hub for Gmail, IMAP, Calendar, Feeds, and Channels with live status badges, last sync timestamps, background sync triggers, and delete confirmation modals.
+  - `MailPage.tsx`: Categorized inbox with automated phishing detection badges (`[SUSPECTED PHISHING]`), AI draft reply drawer with clipboard copy, and 10-second soft-delete restoration (`UndoToast`).
+  - `GitHubPage.tsx`: Watched repositories management, Actions workflow runs, and expandable automated failure triage reports with direct run links.
+  - `AgentsPage.tsx`: Visual operational presets switcher, grid of 8 built-in autonomous agents with budget meters (tokens & USD), enable/disable toggles, and on-demand prompt execution modal.
+  - `ApprovalsPage.tsx`: Gate for high-impact write operations with payload review, scope tags, and single-use cryptographic token issuance.
+  - `AuditPage.tsx`: Tamper-evident forward-hash log viewer with sequence numbers, SHA-256 hash linkages, copy controls, and live cryptographic verification badge.
+  - `SkillsPage.tsx`: Agent capabilities catalog, script execution permissions (`allow_scripts`), enable/disable switches, and staged untrusted skill installer with security warnings.
+- Navigation: Extended `NavRail.tsx` with smooth scrollable navigation and updated `App.tsx` tab routing.
+- Vitest UI test suite: 11 test files passed, 47/47 tests passed in 10.03s (`npm test`).
+- Production build: `npm run build` succeeded cleanly producing `dist/index.html` and optimized assets.
 
+### 2. REST API Integration (`src/noxai/api/routes.py`) [VERIFIED-TEST]
+- Endpoints registered, CSRF-gated, and tested:
+  - `GET /api/connectors`, `POST /api/connectors/{name}/sync`, `DELETE /api/connectors/{name}`
+  - `GET /api/mail`, `POST /api/mail/{id}/draft`, `DELETE /api/mail/{id}`, `POST /api/mail/{id}/restore`
+  - `GET /api/github/repos`, `POST /api/github/repos`, `DELETE /api/github/repos/{owner}/{repo}`, `GET /api/github/runs`
+  - `GET /api/agents`, `POST /api/agents/{name}/run`, `POST /api/agents/{name}/toggle`
+  - `GET /api/presets`, `POST /api/presets/{name}/apply`
+  - `GET /api/approvals/pending`, `POST /api/approvals/{id}/resolve`
+  - `GET /api/audit/chain`, `POST /api/audit/verify`
+  - `GET /api/skills`, `POST /api/skills/{name}/enable`, `POST /api/skills/{name}/disable`, `POST /api/skills/install`
+  - `GET /api/health/full`
+
+### 3. Unified CLI Diagnostics (`nx health`, `nx selftest`, `nx doctor`) [VERIFIED-LIVE]
+- Live terminal execution:
+```text
+$ nx health
+                         NoX Unified Health Diagnostics                         
+┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Subsystem             ┃ Status                ┃ Details                      ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Overall Status        │ HEALTHY               │ Daemon & Subsystems          │
+│                       │                       │ Operational                  │
+│ Kill Switch           │ DISENGAGED            │ Normal autonomous execution  │
+│                       │                       │ allowed                      │
+│ Database (SQLite WAL) │ PASS                  │ Path: ~/.local/share/nox/…   │
+│ Cloud KeyPool         │ PASS                  │ 5/5 active keys              │
+│ Audit Log Chain       │ VERIFIED              │ 3 events, SHA-256 chain valid│
+│ GitHub CLI (gh)       │ FALLBACK (httpx REST) │ Dual-engine GitHub intell…   │
+│ Git CLI (git)         │ FOUND                 │ Repository hygiene & tracking│
+└───────────────────────┴───────────────────────┴──────────────────────────────┘
+
+$ nx selftest
+                        NoX Subsystem Self-Test Results                         
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Subsystem Test                ┃ Result ┃ Details                             ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Configuration                 │ PASS   │ Port: 7777                          │
+│ Database SQLite WAL R/W       │ PASS   │ Atomic transaction verified         │
+│ Kill Switch Safety            │ PASS   │ Panic engaged: False                │
+│ Indian PII Redaction          │ PASS   │ Aadhaar/PAN/Card regex active       │
+│ Guardrails & Prompt Defense   │ PASS   │ Injection scanner active            │
+│ Audit Log Cryptographic Chain │ PASS   │ 3 events validated without tampering│
+│ SecretStore Protected/Keyring │ PASS   │ Encrypted credential cycle verified │
+└───────────────────────────────┴────────┴─────────────────────────────────────┘
+
+$ nx doctor
+All required checks passed (3 warning(s)). NoX is ready.
+```

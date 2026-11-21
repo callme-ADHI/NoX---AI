@@ -3,15 +3,15 @@
 ## Acceptance Matrix
 
 - [x] **N1**: Session M integrity gates pass (one scheduler authority, KeyPool really used, note retrieval taint-proof, every test change justified, full suites green).
-- [ ] **N2**: OpenJarvis feature matrix document: every upstream capability with status ported / partial / adapted differently / excluded-with-reason, and every "ported" row has code, tests and a live or protocol-level proof.
-- [ ] **N3**: Security layer: guardrails (secret/PII/injection scanners), tamper-evident audit log, per-skill/agent permission manifests, approvals center, secret store, kill switch.
-- [ ] **N4**: Connector framework with typed health, retry, rate-limit handling and graceful degradation; daemon start never blocked by a connector.
-- [ ] **N5**: Mail: Gmail (OAuth, read-only default) and generic IMAP; Calendar (read-only) and ICS; user-defined mail profile; triage, digest, thread summaries, search, deadline and event extraction, reply drafts, guarded sending.
+- [x] **N2**: OpenJarvis feature matrix document: every upstream capability with status ported / partial / adapted differently / excluded-with-reason, and every "ported" row has code, tests and a live or protocol-level proof.
+- [x] **N3**: Security layer: guardrails (secret/PII/injection scanners), tamper-evident audit log, per-skill/agent permission manifests, approvals center, secret store, kill switch.
+- [x] **N4**: Connector framework with typed health, retry, rate-limit handling and graceful degradation; daemon start never blocked by a connector.
+- [x] **N5**: Mail: Gmail (OAuth, read-only default) and generic IMAP; Calendar (read-only) and ICS; user-defined mail profile; triage, digest, thread summaries, search, deadline and event extraction, reply drafts, guarded sending.
 - [x] **N6**: Chat and social: Telegram (owner remote control + inbox), Slack, Discord, public feeds (RSS/Atom, Bluesky, Mastodon, Reddit RSS); WhatsApp and unofficial scraping excluded with reasons.
 - [x] **N7**: GitHub intelligence via gh or fine-grained token: repo watch, Actions status and failure triage, PR/issue/notification summaries, security alerts, workflow review, guarded write actions, push verification, Actions watch after push.
 - [x] **N8**: Agents framework (on-demand, scheduled, continuous) with built-in agents, presets, budgets, approvals, start/stop/delete.
 - [x] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
-- [ ] **N10**: UI, CLI, doctor, health and selftest cover everything; delete controls everywhere data is stored.
+- [x] **N10**: UI, CLI, doctor, health and selftest cover everything; delete controls everywhere data is stored.
 - [x] **N11**: Skill import from GitHub repos and Hermes/OpenClaw-style catalogs, treated as untrusted (staged, scanned, disabled by default).
 - [ ] **N12**: Repo hygiene and CI: secret scan of the full git history is clean, .github workflows added, branch pushed, draft PR opened, Actions run watched with NoX's own GitHub tooling and fixed until green.
 - [ ] **N13**: Packaging and docs updated (PKGBUILD deps, INSTALL, CONNECTORS guides, OPERATIONS, CHANGELOG, README).
@@ -78,10 +78,10 @@
 - [x] 8. Tests: agent budgets, continuous restart, kill switch, preset apply/revert, skill scanner fixtures, optimizer, SIGKILL recovery.
 
 ### Phase 8: UI, CLI, Health, Selftest
-- [ ] 1. UI pages (night-sky theme): Connectors, Mail, GitHub, Agents, Approvals, Audit viewer, Skills. Delete controls with undo semantics.
-- [ ] 2. CLI commands: `nx connect|disconnect`, `nx mail`, `nx gh`, `nx agents`, `nx preset`, `nx skill`, `nx audit verify`, `nx panic`, `nx health`, `nx selftest [--live]`.
-- [ ] 3. Unified health and doctor tables.
-- [ ] 4. Targeted notifications (connector failure, pending approval, failed CI run, digest ready).
+- [x] 1. UI pages (night-sky theme): Connectors, Mail, GitHub, Agents, Approvals, Audit viewer, Skills. Delete controls with undo semantics.
+- [x] 2. CLI commands: `nx connect|disconnect`, `nx mail`, `nx gh`, `nx agents`, `nx preset`, `nx skill`, `nx audit verify`, `nx panic`, `nx health`, `nx selftest [--live]`.
+- [x] 3. Unified health and doctor tables.
+- [x] 4. Targeted notifications (connector failure, pending approval, failed CI run, digest ready).
 
 ### Phase 9: Repo Hygiene, CI and a Proper Push
 - [ ] 1. Pre-push audit: clean working tree, no personal/runtime data, complete history secret scan (`git log -p --all`). Check repo size and licenses.
