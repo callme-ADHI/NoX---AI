@@ -125,3 +125,14 @@ This document records all architectural decisions, trade-offs, and clarification
 - **Context**: Personal emails, calendar events, and banking messages must be safeguarded from accidental cloud egress, and automated agents must never independently send emails.
 - **Decision**: Table `mail_items` defaults to `privacy_class = 'local_only'`. All incoming message text is scrubbed through `PIIRedactor` and capped at 20KB before persistence in SQLite. Draft generation is permitted, but actual message transmission (`action="send"`) strictly requires verification and single-use consumption of an approval token from `ApprovalsCenter`.
 - **Consequences**: Prevents unapproved email transmission and accidental leak of financial or personal PII.
+
+### ADR-N8: Interactive Channels, Owner Pairing Protocol, and Exclusion of WhatsApp & Scraping
+- **Context**: Remote messaging via chat apps (Telegram, Slack, Discord) offers powerful mobile control, but exposure to open networks risks prompt injection attacks, privilege escalation from unauthorized senders, and account bans.
+- **Decision**:
+  - Telegram bot implements an ephemeral 6-digit cryptographic pairing flow (`/pair <code>`). Only the verified owner chat ID is permitted to execute commands (`/status`, `/briefing`, `/approve`, `/panic`). Unpaired or unauthorized interactions are rejected and logged to the tamper-evident audit log.
+  - All channel egress is gated through `PIIRedactor` and `OutputScanner`, stripping credentials, tokens, and Indian PII before transmission over external networks.
+  - Feeds are gathered through clean public syndication (RSS/Atom, unauthenticated Bluesky API, Mastodon public timelines, Reddit RSS).
+  - Reverse-engineered WhatsApp clients (Baileys, puppeteer-web wrappers) are explicitly excluded due to Meta ToS violations, phone number ban risks, session key compromise vectors, and commercial API overhead.
+  - Social network scraping (X/Twitter, LinkedIn, Instagram) is explicitly excluded due to aggressive anti-bot countermeasures (Cloudflare/fingerprinting) and prompt-injection attack surfaces.
+- **Consequences**: Secure, ban-free remote control and external intelligence gathering with strict egress privacy.
+

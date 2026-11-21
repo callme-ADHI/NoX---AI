@@ -7,7 +7,7 @@
 - [ ] **N3**: Security layer: guardrails (secret/PII/injection scanners), tamper-evident audit log, per-skill/agent permission manifests, approvals center, secret store, kill switch.
 - [ ] **N4**: Connector framework with typed health, retry, rate-limit handling and graceful degradation; daemon start never blocked by a connector.
 - [ ] **N5**: Mail: Gmail (OAuth, read-only default) and generic IMAP; Calendar (read-only) and ICS; user-defined mail profile; triage, digest, thread summaries, search, deadline and event extraction, reply drafts, guarded sending.
-- [ ] **N6**: Chat and social: Telegram (owner remote control + inbox), Slack, Discord, public feeds (RSS/Atom, Bluesky, Mastodon, Reddit RSS); WhatsApp and unofficial scraping excluded with reasons.
+- [x] **N6**: Chat and social: Telegram (owner remote control + inbox), Slack, Discord, public feeds (RSS/Atom, Bluesky, Mastodon, Reddit RSS); WhatsApp and unofficial scraping excluded with reasons.
 - [ ] **N7**: GitHub intelligence via gh or fine-grained token: repo watch, Actions status and failure triage, PR/issue/notification summaries, security alerts, workflow review, guarded write actions, push verification, Actions watch after push.
 - [ ] **N8**: Agents framework (on-demand, scheduled, continuous) with built-in agents, presets, budgets, approvals, start/stop/delete.
 - [ ] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
@@ -50,11 +50,11 @@
 - [x] 4. Tests: protocol-level fake IMAP & fake Gmail/Calendar HTTP servers, classifier tables, redaction before cloud, draft/send approvals, retention delete. Document `docs/CONNECT_GMAIL.md`. All 9 tests green in `tests/test_mail_connectors.py`.
 
 ### Phase 5: Channels and Social
-- [ ] 1. Telegram bot: owner pairing with one-time code, allow-list, commands, private output protection.
-- [ ] 2. Slack (Socket Mode) & Discord bot: read into Social digest, guarded posting, untrusted data handling.
-- [ ] 3. Feeds connector: RSS/Atom, Bluesky, Mastodon public timelines, Reddit RSS.
-- [ ] 4. Excluded protocols documented (WhatsApp Baileys, X, LinkedIn, Instagram, Facebook).
-- [ ] 5. Tests: protocol-level fakes, pairing, allow-list, spoofed sender, private-output blocking, reconnect.
+- [x] 1. Telegram bot: owner pairing with one-time code, allow-list, commands, private output protection.
+- [x] 2. Slack (Socket Mode) & Discord bot: read into Social digest, guarded posting, untrusted data handling.
+- [x] 3. Feeds connector: RSS/Atom, Bluesky, Mastodon public timelines, Reddit RSS.
+- [x] 4. Excluded protocols documented (WhatsApp Baileys, X, LinkedIn, Instagram, Facebook).
+- [x] 5. Tests: protocol-level fakes, pairing, allow-list, spoofed sender, private-output blocking, reconnect.
 
 ### Phase 6: GitHub and Actions Intelligence
 - [ ] 1. Auth via `gh` CLI subprocess calls; fallback fine-grained GITHUB_TOKEN in secret store.

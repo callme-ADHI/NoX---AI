@@ -332,3 +332,61 @@ $ nx disconnect calendar
   - `test_mail_classifier_categories_and_extraction`: PASSED
   - `test_digest_generator`: PASSED
 
+---
+
+## Phase 5: Channels and Social Subsystems Evidence
+
+### 1. Database Schema Migration 018 [VERIFIED-TEST]
+- Applied `src/noxai/migrations/018_channels_and_social.sql` with automatic SQLite online backup.
+- Created tables:
+  - `channels`: id, name, type (telegram, slack, discord, custom), enabled, config_json, pairing_code, owner_id, allowlist_json, health_status, health_reason.
+  - `social_items`: id, source (rss, bluesky, mastodon, reddit, slack, discord), channel_or_feed, author, title, content_sanitized, url, published_at, created_at, deleted_at.
+- Created indexes on source, published_at, deleted_at, type, enabled.
+
+### 2. Telegram Bot Channel with Owner Pairing & Egress Filter [VERIFIED-TEST]
+- Implemented `TelegramChannel` (`src/noxai/channels/telegram.py`):
+  - Long-polling client via `httpx`.
+  - Cryptographic 6-digit numeric pairing code (`nx channel telegram --pair`).
+  - `/pair <code>` binds sender's `chat_id` as the channel `owner_id` in SQLite.
+  - Commands implemented and verified: `/status`, `/briefing`, `/approve`, `/panic`.
+  - Rejection of unauthorized users: messages from non-owner IDs receive an authorization error and are logged to `audit_events` with decision `denied`.
+  - Privacy egress filter: outgoing messages containing Indian PII (phone, Aadhaar) or secret tokens are redacted through `PIIRedactor` and `OutputScanner` before sending.
+
+### 3. Slack & Discord Channels with Guarded Posting [VERIFIED-TEST]
+- Implemented `SlackChannel` (`src/noxai/channels/slack.py`) and `DiscordChannel` (`src/noxai/channels/discord.py`):
+  - Ingestion: cleans inbound messages with `InputScanner` (stripping zero-width unicode, bidi overrides, and hidden injection tags) before persistence in `social_items`.
+  - Guarded Posting: `send_message(..., guarded=True)` generates a `PendingApproval` in `ApprovalsCenter`. Executing with valid approval token verifies exact payload match, consumes token (single-use), and posts via API.
+
+### 4. Public Syndicated Feeds Connector [VERIFIED-TEST]
+- Implemented `FeedsConnector` (`src/noxai/connectors/feeds.py`):
+  - Syndication sources: RSS / Atom via `feedparser`, Bluesky public ATProto API, Mastodon public timeline, Reddit standard RSS.
+  - HTML tag stripping and input sanitization before storing in `social_items`.
+  - Social digest generator: aggregates items by source, counts breakdowns, and provides highlight summaries (`nx feeds digest`).
+
+### 5. Architectural Exclusions Documented [VERIFIED-TEST]
+- Fully documented in `docs/CHANNELS.md` and recorded in `docs/DECISIONS.md` under **ADR-N8**:
+  - Excluded WhatsApp: Meta ToS violations, phone number ban risks, session key exposure, and protocol fragility.
+  - Excluded Web Scraping: Anti-bot barriers (Cloudflare, fingerprinting) and prompt injection attack surface.
+
+### 6. CLI Commands [VERIFIED-LIVE]
+```text
+$ nx channel list
+Configured Messaging Channels
+No channels configured. Run `nx channel telegram` or `nx channel slack`.
+
+$ nx feeds list
+Stored Feed Items by Source
+No social items found. Run `nx feeds sync` or add feeds.
+```
+
+### 7. Test Suite Execution (`tests/test_channels_and_feeds.py`) [VERIFIED-TEST]
+- All 7 tests passed in 1.20s:
+  - `test_migration_018_tables`: PASSED
+  - `test_base_channel_pairing_and_privacy`: PASSED
+  - `test_telegram_channel_pairing_and_commands`: PASSED
+  - `test_telegram_outgoing_privacy_filter`: PASSED
+  - `test_slack_channel_ingest_and_guarded_send`: PASSED
+  - `test_discord_channel_ingest_and_guarded_send`: PASSED
+  - `test_feeds_connector_sync_and_digest`: PASSED
+
+

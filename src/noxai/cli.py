@@ -34,8 +34,10 @@ from noxai.commands.audit import audit_app
 from noxai.commands.backup import backup_app
 from noxai.commands.briefing_cmd import briefing_app
 from noxai.commands.briefings import briefings_app
+from noxai.commands.channel import channel_app
 from noxai.commands.cloud import cloud_app
 from noxai.commands.connect import connect_app, disconnect_command
+from noxai.commands.feeds import feeds_app
 from noxai.commands.jobs import jobs_app
 from noxai.commands.keys import keys_app
 from noxai.commands.mail import mail_app
@@ -88,6 +90,8 @@ app.add_typer(secrets_app, name="secrets")
 app.add_typer(panic_app, name="panic")
 app.add_typer(connect_app, name="connect")
 app.add_typer(mail_app, name="mail")
+app.add_typer(channel_app, name="channel")
+app.add_typer(feeds_app, name="feeds")
 app.command(name="disconnect")(disconnect_command)
 
 bench_app = typer.Typer(name="bench", help="Benchmark latency and throughput commands.")
