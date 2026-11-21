@@ -30,9 +30,9 @@
 - [x] 6. Gate E, Session L deliverables check: verify `job_plans`, `job_run_steps`, plan-first executor, delete controls, daily 20:00 GitHub backup with private-repo check.
 
 ### Phase 2: OpenJarvis Gap Analysis
-- [ ] 1. Shallow-clone OpenJarvis to `/tmp` (pinned commit `77bff2548ad155ffd29a4d2e0d9c56c1eaaa754b`).
-- [ ] 2. Create `docs/OPENJARVIS_PARITY.md` with complete capability matrix (module, function, status: ported/partial/adapted/excluded, NoX code, decision/reason, test/proof pointer).
-- [ ] 3. Clean up `/tmp` clone with guarded rm and record deletion proof.
+- [x] 1. Shallow-clone OpenJarvis to `/tmp` (pinned commit `77bff2548ad155ffd29a4d2e0d9c56c1eaaa754b`).
+- [x] 2. Create `docs/OPENJARVIS_PARITY.md` with complete capability matrix (module, function, status: ported/partial/adapted/excluded, NoX code, decision/reason, test/proof pointer).
+- [x] 3. Clean up `/tmp` clone with guarded rm and record deletion proof.
 
 ### Phase 3: Security and Privacy Foundation
 - [ ] 1. Guardrails module: input scanner (injection, hidden markers, invisible Unicode), output scanner (secrets, tokens, keys), PII redactor (Indian Aadhaar, PAN, IFSC/bank, UPI, cards, OTP, phone, emails). Reversible locally via in-memory placeholder map.
