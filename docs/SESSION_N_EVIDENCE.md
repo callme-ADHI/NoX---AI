@@ -628,3 +628,52 @@ $ nx selftest
 $ nx doctor
 All required checks passed (3 warning(s)). NoX is ready.
 ```
+
+---
+
+## Phase 9: Repo Hygiene, CI Workflows & GitHub Intelligence Evidence
+
+### 1. Full Git History Secret Scan [VERIFIED-LIVE]
+- Evaluated full git history across all commits and branches:
+  ```bash
+  git log -p --all
+  ```
+- Result: **0 real unmasked secrets, private keys, or API tokens found**.
+- Synthetic fixtures in `tests/` explicitly isolated and verified by `tests/test_repo_hygiene.py`.
+- Working tree audit: No personal data, runtime SQLite files, or untracked logs.
+
+### 2. GitHub Actions Workflows & Repo Hygiene [VERIFIED-LIVE]
+- Added `.github/workflows/ci.yml`:
+  - Triggers on push to `main` and pull requests.
+  - Matrix / jobs: Python 3.13 (ruff lint, full pytest suite 701 tests), Node 20 (npm ci, vitest UI tests, production UI build).
+- Added `.github/workflows/codeql.yml`:
+  - Static security and vulnerability analysis for Python and JavaScript/TypeScript.
+- Added `.github/dependabot.yml`:
+  - Daily vulnerability dependency updates for pip, npm, and github-actions.
+- Added `.github/pull_request_template.md` and `SECURITY.md`.
+
+### 3. Packaging & Documentation Verification [VERIFIED-LIVE]
+- `packaging/arch/PKGBUILD`: Verified package targets `nox` and `nox-app`. UI assets build cleanly with `npm run build`, and Python packaging is handled dynamically via `pyproject.toml`.
+- Documentation updated: `README.md`, `CHANGELOG.md`, `docs/OPERATIONS.md`, `docs/INSTALL.md`, `docs/OPENJARVIS_PARITY.md`.
+
+---
+
+## Baseline vs Final Metrics Comparison
+
+| Metric | Baseline (Session M) | Final (Session N) | Status |
+|---|---|---|---|
+| Git Branch | `session-m` (`77bff25`) | `session-n` | Verified |
+| Database Migrations | 19 migrations (`001`-`019`) | 20 migrations (`001`-`020`) | Verified |
+| Python Tests (pytest) | 645 passed | 701 passed (0 failed) | +56 tests |
+| UI Tests (vitest) | 47 passed (11 files) | 47 passed (11 files) | 100% green |
+| Desktop Tests (cargo) | 3 passed | 3 passed | 100% green |
+| UI Build | Clean | Clean (`dist/index.html`) | Verified |
+| OpenJarvis Parity | 0 tracked | 48 capabilities documented | 100% evaluated |
+| Security Modules | Ad-hoc checks | Guardrails, PII redactor, SHA-256 audit, Kill switch | Full suite |
+| Connectors | Briefing RSS | Gmail PKCE, IMAP SSL, Calendar ICS, RSS/Feeds | 4 active |
+| Social & Channels | None | Telegram paired, Slack/Discord ingest | Paired & tested |
+| GitHub Intel | None | Dual-engine (gh + REST), failure triage, linter, watch | Verified |
+| Agents Framework | DAG planner only | 8 built-in agents, 7 presets, skill scanner, optimizer | 8 agents |
+| UI Pages | 5 pages | 12 pages (night-sky theme, soft-delete everywhere) | +7 pages |
+| CLI Diagnostics | `nx doctor` | `nx doctor`, `nx health`, `nx selftest` | Unified |
+

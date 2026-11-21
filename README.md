@@ -249,6 +249,22 @@ NoX includes a command-line interface with shell completions, rich tables, and s
 | | `nx briefing list` | List recent briefing runs and generation times | `nx briefing list -n 5` |
 | | `nx prompt history <t>` | View prompt version history for a briefing topic | `nx prompt history tech_releases` |
 | | `nx prompt rollback <t>`| Roll back a topic prompt to a prior version | `nx prompt rollback tech_releases 1` |
+| **Security & Panic** | `nx panic` | Immediate kill switch: stop agents & disconnect channels | `nx panic` |
+| | `nx panic --resume` | Clear emergency lockdown and resume normal operation | `nx panic --resume` |
+| | `nx audit verify` | Cryptographically verify SHA-256 audit log hash chain | `nx audit verify` |
+| **Diagnostics** | `nx health` | Unified operational health table across all subsystems | `nx health` |
+| | `nx selftest [--live]` | Comprehensive integration test suite and live probes | `nx selftest` |
+| **Connectors** | `nx connect list` | List status of Gmail, IMAP, Calendar, Feeds connectors | `nx connect list` |
+| | `nx connect sync <c>` | Trigger on-demand sync for a connector | `nx connect sync gmail` |
+| | `nx connect disconnect` | Disconnect connector and revoke credentials | `nx connect disconnect gmail` |
+| **Mail** | `nx mail list` | List categorized inbox items with phishing flags | `nx mail list` |
+| | `nx mail draft <id>` | Draft guarded AI reply for an email | `nx mail draft 12` |
+| **GitHub** | `nx gh repos` | List watched GitHub repositories | `nx gh repos` |
+| | `nx gh triage <run_id>` | Plain-language failure root cause triage for CI runs | `nx gh triage 12345` |
+| | `nx gh watch <repo>` | Watch GitHub Actions CI runs with live triage updates | `nx gh watch callme-ADHI/NoX---AI` |
+| **Agents & Presets**| `nx agents list` | List 8 built-in agents, budgets, and operational modes | `nx agents list` |
+| | `nx preset list` | List operational agent presets | `nx preset list` |
+| | `nx preset apply <p>` | Activate an agent preset with automatic configuration | `nx preset apply morning-digest` |
 
 ## 🚀 Quickstart
 

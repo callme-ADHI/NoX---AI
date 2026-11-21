@@ -97,3 +97,63 @@ The API secrets file must be protected with `0600` permissions:
 ```bash
 chmod 600 ~/.config/nox/secrets.env
 ```
+
+---
+
+## 5. Security & Emergency Kill Switch
+
+### Panic Button (`nx panic`)
+In the event of suspected intrusion, credential compromise, or unintended agent actions:
+```bash
+# Immediately terminates continuous agents, disconnects external connectors/channels,
+# revokes pending approvals, and writes a cryptographic audit event
+nx panic
+
+# Resume normal operational state
+nx panic --resume
+```
+
+### Cryptographic Audit Chain Verification
+Verify the SHA-256 forward-hash linkage of the tamper-evident audit log:
+```bash
+nx audit verify
+```
+
+---
+
+## 6. Unified Diagnostics & Health Checks
+
+NoX provides two complementary diagnostic commands:
+```bash
+# High-level operational health table (daemon, DB WAL, KeyPool, audit, tools)
+nx health
+
+# Deep subsystem integration test suite (config, DB read/write, kill switch, PII, guardrails, secret store)
+nx selftest
+
+# Run live network probes alongside unit tests
+nx selftest --live
+```
+
+---
+
+## 7. Connectors, Channels & GitHub Intelligence
+
+### Connector Management
+```bash
+# List connector status
+nx connect list
+
+# Sync specific connector (gmail, imap, calendar, feeds)
+nx connect sync gmail
+
+# Disconnect and revoke credentials
+nx connect disconnect gmail
+```
+
+### GitHub CI Watcher
+```bash
+# Watch GitHub Actions runs for a repository and print triaged failure summaries
+nx gh watch callme-ADHI/NoX---AI
+```
+

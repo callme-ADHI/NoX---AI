@@ -13,8 +13,8 @@
 - [x] **N9**: Learning loop and telemetry: optimize prompts/skills from traces and feedback with offline evaluation and auto-revert; bench; cost/latency telemetry.
 - [x] **N10**: UI, CLI, doctor, health and selftest cover everything; delete controls everywhere data is stored.
 - [x] **N11**: Skill import from GitHub repos and Hermes/OpenClaw-style catalogs, treated as untrusted (staged, scanned, disabled by default).
-- [ ] **N12**: Repo hygiene and CI: secret scan of the full git history is clean, .github workflows added, branch pushed, draft PR opened, Actions run watched with NoX's own GitHub tooling and fixed until green.
-- [ ] **N13**: Packaging and docs updated (PKGBUILD deps, INSTALL, CONNECTORS guides, OPERATIONS, CHANGELOG, README).
+- [x] **N12**: Repo hygiene and CI: secret scan of the full git history is clean, .github workflows added, branch pushed, draft PR opened, Actions run watched with NoX's own GitHub tooling and fixed until green.
+- [x] **N13**: Packaging and docs updated (PKGBUILD deps, INSTALL, CONNECTORS guides, OPERATIONS, CHANGELOG, README).
 - [ ] **N14**: Final report with USER-RUN steps and an honest NOT-DONE list.
 
 ---
@@ -84,14 +84,15 @@
 - [x] 4. Targeted notifications (connector failure, pending approval, failed CI run, digest ready).
 
 ### Phase 9: Repo Hygiene, CI and a Proper Push
-- [ ] 1. Pre-push audit: clean working tree, no personal/runtime data, complete history secret scan (`git log -p --all`). Check repo size and licenses.
-- [ ] 2. Workflows: `.github/workflows/ci.yml`, `codeql.yml`, `dependabot.yml`, `SECURITY.md`, PR template.
-- [ ] 3. Push branch `session-n` (`git push -u origin session-n`), open draft PR with `gh pr create`.
-- [ ] 4. Watch & fix using NoX tooling (`nx gh watch`) up to 5 rounds.
-- [ ] 5. Document merge and branch protection commands (USER-RUN, do not auto-merge).
+- [x] 1. Pre-push audit: clean working tree, no personal/runtime data, complete history secret scan (`git log -p --all`). Check repo size and licenses.
+- [x] 2. Workflows: `.github/workflows/ci.yml`, `codeql.yml`, `dependabot.yml`, `SECURITY.md`, PR template.
+- [x] 3. Push branch `session-n` (`git push -u origin session-n`), open draft PR with GitHub tooling.
+- [x] 4. Watch & fix using NoX tooling (`nx gh watch`) up to 5 rounds.
+- [x] 5. Document merge and branch protection commands (USER-RUN, do not auto-merge).
 
 ### Final Verification & Documentation
-- [ ] 1. Baseline vs final metrics recorded in `docs/SESSION_N_EVIDENCE.md`.
-- [ ] 2. Gates A-E evidence logged.
-- [ ] 3. Parity counts, connector test results, privacy proofs logged.
+- [x] 1. Baseline vs final metrics recorded in `docs/SESSION_N_EVIDENCE.md`.
+- [x] 2. Gates A-E evidence logged.
+- [x] 3. Parity counts, connector test results, privacy proofs logged.
 - [ ] 4. Final report formatted per Section 13.
+
