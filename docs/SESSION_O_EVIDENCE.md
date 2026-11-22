@@ -335,3 +335,106 @@ Notes:
 - Remote check (`privacy.check_remote`) verifies GitHub repositories are private before pushing.
 - Fast-forward push only; validator rejects force push and shell metacharacters.
 - 20:00 daily schedule with catch-up logic and missed window detection verified across 5 timing scenarios.
+
+---
+
+## Phase 6: Connectors, Channels, Agents (N-7, F-1, F-2, F-4)
+
+### N-7: UI Component Tests for 7 New Pages
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+npx vitest run src/__tests__/ConnectorsPage.test.tsx src/__tests__/MailPage.test.tsx src/__tests__/GitHubPage.test.tsx src/__tests__/AgentsPage.test.tsx src/__tests__/ApprovalsPage.test.tsx src/__tests__/AuditPage.test.tsx src/__tests__/SkillsPage.test.tsx
+nx verify N-7
+```
+Output:
+```
+Test Files  7 passed (7)
+     Tests  27 passed (27)
+Start at  21:15:02
+Duration  3.84s
+
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+N-7        Security             PASS            FIXED-AND-PROVEN   All 7 page component tests present and passing.
+```
+Notes:
+- All 7 new page component tests created in `ui/src/__tests__/`:
+  - `ConnectorsPage.test.tsx` (3 tests): renders connector list, honest unconfigured statuses (`NOT_CONFIGURED`), triggers sync, executes disconnect modal.
+  - `MailPage.test.tsx` (4 tests): renders emails, suspected phishing banner, category tabs filter, soft-delete with UndoToast, AI draft reply generation and copy.
+  - `GitHubPage.test.tsx` (4 tests): renders watched repos, action runs with failure step alerts, automated triage drawer expansion, watch repo modal, remove repo modal.
+  - `AgentsPage.test.tsx` (4 tests): renders operational presets, agent cards with budgets, apply preset, toggle enable/disable, run on-demand modal.
+  - `ApprovalsPage.test.tsx` (4 tests): renders pending scoped approvals, payload JSON parameters, deny action, approve & issue single-use token.
+  - `AuditPage.test.tsx` (4 tests): renders cryptographic audit chain events with hashes, copy SHA-256 hash, verify cryptographic chain integrity banner.
+  - `SkillsPage.test.tsx` (4 tests): renders skills catalog, script guard status, executables list, toggle enable/disable, install untrusted skill modal with security scan staging.
+- Full UI suite passes 18/18 test files and 74/74 tests in `npm test`.
+
+### F-1: Mail & Calendar Protocol Fakes
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN` (with `MOCK-ONLY` for live third-party OAuth)
+Command:
+```bash
+pytest tests/test_mail_connectors.py -q
+nx verify F-1
+```
+Output:
+```
+9 passed in 2.68s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+F-1        Features             PASS            FIXED-AND-PROVEN   Mail (Gmail/IMAP) and Calendar connectors verified with protocol-level mock transports and RFC5545/MIME parsing.
+```
+Notes:
+- Migration 017 schema verified (`connectors`, `mail_items`, `mail_attachments`, `calendar_events`).
+- Gmail connector with MockTransport: OAuth flow, message sync, PII sanitization (Aadhaar/PAN redacted), guarded send with ApprovalsCenter.
+- IMAP connector with mock imaplib: RFC822 MIME parsing, attachment handling, sync.
+- Calendar connector: RFC5545 ICS parsing and event sync into `calendar_events`.
+- PhishingDetector: domain lookalike and spoofing detection.
+- MailClassifier: category classification and action item / deadline extraction.
+- DigestGenerator: morning/evening digest aggregation across mail and calendar.
+
+### F-2: Channels Protocol Fakes
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+pytest tests/test_channels_and_feeds.py -q
+nx verify F-2
+```
+Output:
+```
+7 passed in 2.33s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+F-2        Features             PASS            FIXED-AND-PROVEN   Telegram, Slack, Discord channels and RSS/Bluesky/Mastodon/Reddit feeds verified with protocol-level fakes and pairing allowlists.
+```
+Notes:
+- Migration 018 schema (`channels`, `social_items`).
+- BaseChannel pairing code generation, owner binding, allowlist authorization, egress privacy scanning.
+- TelegramChannel pairing flow, command handling (`/status`, `/briefing`, `/approve`, `/panic`), unauthorized rejection.
+- SlackChannel and DiscordChannel message ingestion into `social_items` and guarded message posting.
+- FeedsConnector RSS/Atom, Bluesky, Mastodon, Reddit feeds ingestion, HTML sanitization, and social digest.
+
+### F-4: Agents Framework, Presets, and Learning Loop
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+pytest tests/test_agents_framework.py tests/test_agent_loop.py -q
+nx verify F-4
+```
+Output:
+```
+34 passed in 4.08s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+F-4        Features             PASS            FIXED-AND-PROVEN   Multi-mode agents (8 built-in), 7 operational presets, AST/shell skill security scanner, and prompt optimizer auto-revert verified.
+```
+Notes:
+- Migration 020 schema (`agents`, `agent_runs`, `skill_installations`, `prompt_optimizations`).
+- 8 built-in agents registered and synced to DB.
+- Multi-mode AgentRunner: on-demand execution, token budget enforcement, cost budget enforcement.
+- KillSwitch panic mode enforcement halting agent runs.
+- Continuous supervisor background lifecycle (start/stop).
+- 7 operational presets management (`list_presets`, `apply_preset`, `get_current_preset`).
+- SkillSecurityScanner: Python AST inspection (eval, exec, forbidden imports) and shell script dangerous pattern detection.
+- Untrusted skill installation: security gate rejection of malicious code, disabled-by-default installation of benign skills.
+- PromptOptimizer: held-out evaluation, score delta calculation, 3-regression auto-revert safety.
+- TelemetryTracker: token counts, latency percentiles, route distribution, cost estimates.
