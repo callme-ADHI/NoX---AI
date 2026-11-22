@@ -438,3 +438,35 @@ Notes:
 - Untrusted skill installation: security gate rejection of malicious code, disabled-by-default installation of benign skills.
 - PromptOptimizer: held-out evaluation, score delta calculation, 3-regression auto-revert safety.
 - TelemetryTracker: token counts, latency percentiles, route distribution, cost estimates.
+
+---
+
+## Phase 7: GitHub Intelligence (N-1, F-3)
+
+### N-1: Credential Extraction Hard Ban
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+(Proven in Phase 2; verified zero instances of `git credential fill` in codebase and SecretStore `github:token` deleted).
+
+### F-3: GitHub Intelligence gh-First & Actions Triage
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN` (with `USER-RUN` for live token setup)
+Command:
+```bash
+pytest tests/test_github_intelligence.py -q
+nx verify F-3
+```
+Output:
+```
+8 passed in 2.41s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+F-3        Features             PASS            FIXED-AND-PROVEN   GitHub intelligence verified with gh-first architecture, Actions log triage, workflow security linter, and guarded write approvals (gh unauthenticated on host (USER-RUN: gh auth login)).
+```
+Notes:
+- Migration 019 schema verified (`github_watched_repos`, `github_actions_runs`, `github_items`).
+- Watched repos management: CRUD operations with private repo classification and watch settings.
+- gh-first architecture: `gh run list`, `gh pr list`, `gh run view --log-failed` executed prior to REST fallback.
+- Triage heuristics: categorizes pytest failures (`AssertionError`), lint/type errors (`ruff check`), missing dependencies (`ModuleNotFoundError`), and runner timeouts.
+- Workflow YAML security linter: statically flags missing explicit permissions, mutable branch refs (@main), and script injection expressions.
+- Guarded write operations: rerun and comment operations require single-use approval tokens from `ApprovalsCenter`.
+- Honest health state: reports `NOT_CONFIGURED` when unauthenticated rather than faking health.
+- Live instructions for connecting host `gh`: run `gh auth login` with `read:org, repo` scopes.

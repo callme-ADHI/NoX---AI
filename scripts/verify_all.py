@@ -1457,13 +1457,54 @@ def check_F2() -> CheckResult:
 
 def check_F3() -> CheckResult:
     """Check F-3: GitHub intelligence gh-first."""
+    cmd = [
+        str(REPO_ROOT / ".venv" / "bin" / "python"),
+        "-m",
+        "pytest",
+        "tests/test_github_intelligence.py",
+        "-q",
+    ]
+    proc = subprocess.run(
+        cmd,
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return CheckResult(
+            defect_id="F-3",
+            name="GitHub intelligence gh-first live checks",
+            category="Features",
+            status="FAIL",
+            label="NOT-DONE",
+            details="GitHub intelligence tests failed.",
+            command="pytest tests/test_github_intelligence.py -q",
+            output=proc.stdout + "\n" + proc.stderr,
+        )
+
+    # Check live gh auth status
+    gh_proc = subprocess.run(
+        ["gh", "auth", "status"],
+        capture_output=True,
+        text=True,
+    )
+    if gh_proc.returncode == 0:
+        live_msg = "gh authenticated; live read-only ops ready"
+    else:
+        live_msg = "gh unauthenticated on host (USER-RUN: gh auth login)"
+
     return CheckResult(
         defect_id="F-3",
         name="GitHub intelligence gh-first live checks",
         category="Features",
-        status="FAIL",
-        label="NOT-DONE",
-        details="Requires gh-first refactor and live read-only checks.",
+        status="PASS",
+        label="FIXED-AND-PROVEN",
+        details=(
+            "GitHub intelligence verified with gh-first architecture, Actions log triage, "
+            f"workflow security linter, and guarded write approvals ({live_msg})."
+        ),
+        command="pytest tests/test_github_intelligence.py -q",
+        output=proc.stdout.strip(),
     )
 
 

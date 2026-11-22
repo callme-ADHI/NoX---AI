@@ -70,6 +70,10 @@ Per Rule 6 of Session O, every change to an existing test file, or to auth, priv
 - **Change**: Added subprocess daemon SIGKILL resume test proving daemon termination and reboot repair under the same run_id.
 - **Reason**: Fulfills C-3. Verifies true crash recovery with subprocess SIGKILL.
 
+### `tests/test_github_intelligence.py`
+- **Change**: Allowed `"NOT_CONFIGURED"` in `test_github_auth_and_health_states` status assertion.
+- **Reason**: Enforces Rule 4 and N-2 honest status requirement; unconfigured/unauthenticated GitHub connector reports `NOT_CONFIGURED`, never `HEALTHY`.
+
 
 
 

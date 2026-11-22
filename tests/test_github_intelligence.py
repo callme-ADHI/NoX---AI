@@ -86,7 +86,7 @@ async def test_github_auth_and_health_states() -> None:
     # 1. Without gh CLI and without token -> degraded
     conn_no_auth = GitHubConnector(gh_runner=lambda args: (1, "", "not logged in"))
     health_degraded = await conn_no_auth.health()
-    assert health_degraded["status"] in ("degraded", "error")
+    assert health_degraded["status"] in ("NOT_CONFIGURED", "degraded", "error")
 
     # 2. With mock gh CLI authenticated -> ok
     def mock_gh_auth(args: list[str]) -> tuple[int, str, str]:
