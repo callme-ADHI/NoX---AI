@@ -56,7 +56,7 @@ def get_db_path() -> Path:
     """Return the active database path, allowing NOX_DATABASE_PATH override."""
     if "NOX_DATABASE_PATH" in os.environ:
         return Path(os.environ["NOX_DATABASE_PATH"]).expanduser().resolve()
-    return DB_PATH
+    return get_data_dir() / "nox.db"
 
 
 DB_PATH = DATA_DIR / "nox.db"
@@ -158,7 +158,6 @@ def restore_db(backup_file: Path, target_path: Path | None = None) -> Path:
     return target
 
 
-DB_PATH = get_db_path()
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # ---------------------------------------------------------------------------

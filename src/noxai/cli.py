@@ -371,6 +371,21 @@ def health(
         has_gh = shutil.which("gh") is not None
         has_git = shutil.which("git") is not None
 
+        connectors_info: list[dict[str, Any]] = []
+        try:
+            from noxai.connectors.base import ConnectorRegistry
+            conns = await ConnectorRegistry.list_db_connectors()
+            for c in conns:
+                connectors_info.append({
+                    "name": c["name"],
+                    "type": c["type"],
+                    "enabled": c["enabled"],
+                    "status": c["health_status"],
+                    "reason": c["health_reason"],
+                })
+        except Exception:
+            pass
+
         return {
             "status": "healthy" if not panic_active else "panic_engaged",
             "panic_engaged": panic_active,
@@ -388,6 +403,7 @@ def health(
                 "gh_installed": has_gh,
                 "git_installed": has_git,
             },
+            "connectors": connectors_info,
         }
 
     res = asyncio.run(_gather_health())
@@ -435,6 +451,34 @@ def health(
         "[green]FOUND[/]" if res["tools"]["git_installed"] else "[red]MISSING[/]",
         "Repository hygiene & tracking",
     )
+
+    if res.get("connectors"):
+        for conn_item in res["connectors"]:
+            c_name = conn_item["name"]
+            c_stat = conn_item["status"]
+            c_reason = conn_item.get("reason", "")
+            if c_stat in ("HEALTHY", "ok"):
+                c_display = "[green]HEALTHY[/]"
+            elif c_stat == "CONFIGURED_UNTESTED":
+                c_display = "[yellow]CONFIGURED (UNTESTED)[/]"
+            elif c_stat == "NOT_CONFIGURED":
+                c_display = "[dim]NOT CONFIGURED[/]"
+            elif c_stat in ("FAILED", "error"):
+                c_display = "[red]FAILED[/]"
+            elif c_stat == "DEGRADED":
+                c_display = "[yellow]DEGRADED[/]"
+            elif c_stat == "DISABLED":
+                c_display = "[dim]DISABLED[/]"
+            else:
+                c_display = f"[cyan]{c_stat}[/]"
+            table.add_row(f"Connector: {c_name}", c_display, c_reason or "Configured external service")
+    else:
+        table.add_row(
+            "Connectors",
+            "[dim]0 CONFIGURED[/]",
+            "All external connectors in NOT_CONFIGURED state",
+        )
+
     console.print(table)
 
 
@@ -559,7 +603,7 @@ def selftest(
             results.append({
                 "name": "SecretStore Protected/Keyring",
                 "status": "PASS",
-                "details": "Encrypted credential cycle verified",
+                "details": "0600 file / keyring protected store verified",
             })
         except Exception as exc:
             results.append({

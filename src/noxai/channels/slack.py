@@ -51,7 +51,7 @@ class SlackChannel(BaseChannel):
     async def health(self) -> dict[str, Any]:
         token = self.get_token()
         if not token:
-            return {"status": "degraded", "reason": "No Slack bot token"}
+            return {"status": "NOT_CONFIGURED", "reason": "No Slack bot token configured"}
         try:
             headers = {"Authorization": f"Bearer {token}"}
             async with self._get_client() as client:
@@ -59,9 +59,9 @@ class SlackChannel(BaseChannel):
                 data = resp.json()
                 if data.get("ok"):
                     return {"status": "ok", "reason": f"Connected as {data.get('user')}"}
-                return {"status": "error", "reason": data.get("error", "auth failed")}
+                return {"status": "FAILED", "reason": data.get("error", "auth failed")}
         except Exception as exc:
-            return {"status": "error", "reason": str(exc)}
+            return {"status": "FAILED", "reason": str(exc)}
 
     async def ingest_message(
         self,

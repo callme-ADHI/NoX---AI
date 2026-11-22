@@ -2704,9 +2704,9 @@ async def list_connectors_endpoint() -> list[dict[str, Any]]:
                     "name": c.name,
                     "type": c.connector_type,
                     "status": health["status"],
-                    "healthy": health.get("healthy", False),
+                    "healthy": health["status"] in ("HEALTHY", "ok"),
                     "last_sync_at": health.get("last_sync_at"),
-                    "error": health.get("error"),
+                    "error": health.get("last_error") or health.get("error"),
                     "item_count": cnt,
                 }
             )
@@ -2732,6 +2732,7 @@ async def sync_connector_endpoint(name: str) -> dict[str, Any]:
 @api_router.delete("/connectors/{name}", dependencies=WRITE_DEPS)
 async def disconnect_connector_endpoint(name: str) -> dict[str, bool]:
     """Disconnect and revoke credentials for a connector."""
+    from noxai.security.audit import log_audit_event
     from noxai.security.secrets import SecretStore
 
     for key in (f"{name}_token", f"{name}_password", f"{name}_key"):
@@ -2739,6 +2740,14 @@ async def disconnect_connector_endpoint(name: str) -> dict[str, bool]:
             SecretStore.delete(key)
         except Exception as exc:
             log.debug("disconnect_delete_secret_failed: %s", exc)
+
+    await log_audit_event(
+        actor="user",
+        action="data_delete",
+        target=f"connector:{name}",
+        decision="allow",
+        summary_redacted=f"Revoked credentials and disconnected connector {name}",
+    )
     return {"ok": True}
 
 
@@ -2815,6 +2824,8 @@ async def draft_mail_reply_endpoint(mail_id: str) -> dict[str, Any]:
 @api_router.delete("/mail/{mail_id}", dependencies=WRITE_DEPS)
 async def delete_mail_endpoint(mail_id: str) -> dict[str, bool]:
     """Soft-delete an email item with undo capability."""
+    from noxai.security.audit import log_audit_event
+
     async with get_db() as db:
         await execute(
             db,
@@ -2822,6 +2833,14 @@ async def delete_mail_endpoint(mail_id: str) -> dict[str, bool]:
             (mail_id,),
         )
         await db.commit()
+
+    await log_audit_event(
+        actor="user",
+        action="data_delete",
+        target=f"mail:{mail_id}",
+        decision="allow",
+        summary_redacted=f"Soft-deleted email item {mail_id}",
+    )
     return {"ok": True}
 
 
@@ -2898,12 +2917,22 @@ async def add_github_repo_endpoint(body: GitHubRepoAddRequest) -> dict[str, Any]
 @api_router.delete("/github/repos/{owner}/{repo}", dependencies=WRITE_DEPS)
 async def remove_github_repo_endpoint(owner: str, repo: str) -> dict[str, bool]:
     """Remove a repository from the watch list."""
+    from noxai.security.audit import log_audit_event
+
     repo_name = f"{owner}/{repo}"
     async with get_db() as db:
         await execute(
             db, "DELETE FROM github_watched_repos WHERE repo_name = ?", (repo_name,)
         )
         await db.commit()
+
+    await log_audit_event(
+        actor="user",
+        action="data_delete",
+        target=f"github_repo:{repo_name}",
+        decision="allow",
+        summary_redacted=f"Removed watched GitHub repository {repo_name}",
+    )
     return {"ok": True}
 
 

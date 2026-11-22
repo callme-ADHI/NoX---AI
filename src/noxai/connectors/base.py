@@ -14,6 +14,7 @@ import logging
 import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
@@ -24,6 +25,18 @@ log = logging.getLogger(__name__)
 CONNECTORS_CONFIG_PATH = Path("~/.config/nox/connectors.toml").expanduser()
 
 T = TypeVar("T")
+
+
+class ConnectorStatus(StrEnum):
+    """Honest operational states for external connectors and channels."""
+
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    CONFIGURED_UNTESTED = "CONFIGURED_UNTESTED"
+    HEALTHY = "HEALTHY"
+    DEGRADED = "DEGRADED"
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    FAILED = "FAILED"
+    DISABLED = "DISABLED"
 
 
 class RateLimiter:
@@ -160,7 +173,7 @@ class BaseConnector(abc.ABC):
             )
             await db.commit()
 
-    async def mark_sync(self, status: str = "ok", reason: str = "") -> None:
+    async def mark_sync(self, status: str = ConnectorStatus.HEALTHY.value, reason: str = "") -> None:
         """Record successful sync timestamp and health."""
         now = datetime.now(UTC).isoformat()
         async with get_db() as db:
@@ -175,16 +188,30 @@ class BaseConnector(abc.ABC):
             )
             await db.commit()
 
+        try:
+            from noxai.security.audit import log_audit_event
+            await log_audit_event(
+                actor=f"connector:{self.name}",
+                action="connector_sync",
+                target=self.name,
+                decision="allow",
+                summary_redacted=f"Connector {self.name} sync status={status}: {reason}",
+            )
+        except Exception as exc:
+            log.debug("connector_sync_audit_log_failed error=%s", exc)
+
     async def register_in_db(self) -> None:
         """Ensure this connector has a row in the connectors table."""
         now = datetime.now(UTC).isoformat()
+        initial_status = ConnectorStatus.NOT_CONFIGURED.value
+        initial_reason = "initialized without credentials"
         async with get_db() as db:
             await db.execute(
                 """
                 INSERT INTO connectors (
                     id, name, type, enabled, config_json, health_status,
                     health_reason, privacy_class, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, ?, 'ok', 'initialized', ?, ?, ?)
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     type = excluded.type,
                     config_json = excluded.config_json,
@@ -196,6 +223,8 @@ class BaseConnector(abc.ABC):
                     self.name,
                     self.connector_type,
                     json.dumps(self.config),
+                    initial_status,
+                    initial_reason,
                     self.privacy_class,
                     now,
                     now,
@@ -208,6 +237,10 @@ class ConnectorRegistry:
     """Registry managing available connectors and configuration."""
 
     _connectors: ClassVar[dict[str, BaseConnector]] = {}
+
+    @classmethod
+    def get_instance(cls) -> type[ConnectorRegistry]:
+        return cls
 
     @classmethod
     def register(cls, connector: BaseConnector) -> None:

@@ -51,7 +51,7 @@ class DiscordChannel(BaseChannel):
     async def health(self) -> dict[str, Any]:
         token = self.get_token()
         if not token:
-            return {"status": "degraded", "reason": "No Discord bot token"}
+            return {"status": "NOT_CONFIGURED", "reason": "No Discord bot token configured"}
         try:
             headers = {"Authorization": f"Bot {token}"}
             async with self._get_client() as client:
@@ -59,9 +59,9 @@ class DiscordChannel(BaseChannel):
                 if resp.status_code == 200:
                     data = resp.json()
                     return {"status": "ok", "reason": f"Connected as {data.get('username')}"}
-                return {"status": "error", "reason": f"Discord error {resp.status_code}"}
+                return {"status": "FAILED", "reason": f"Discord error {resp.status_code}"}
         except Exception as exc:
-            return {"status": "error", "reason": str(exc)}
+            return {"status": "FAILED", "reason": str(exc)}
 
     async def ingest_message(
         self,

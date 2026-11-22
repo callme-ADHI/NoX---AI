@@ -552,3 +552,154 @@ class TestPlannerSummariserPrivacyRecordingTransport:
         restored_reply = PIIRedactor.restore(cloud_reply, placeholder_map)
         expected_reply = "Client with PAN ABCDE1234F and UPI user@okhdfcbank requested a summary."
         assert restored_reply == expected_reply
+
+
+# ---------------------------------------------------------------------------
+# 10. Guarded Actions Audit Coverage Tests (N-3)
+# ---------------------------------------------------------------------------
+
+
+class TestGuardedActionsAuditCoverage:
+    """Verifies that all guarded actions append a hash-chained audit event."""
+
+    async def test_connector_sync_and_credentials_audit_logging(self, tmp_path: Path) -> None:
+        from noxai.connectors.base import BaseConnector
+        from noxai.connectors.gmail import GmailConnector
+
+        class DummyConnector(BaseConnector):
+            async def auth(self) -> bool:
+                return True
+
+            async def health(self) -> dict[str, Any]:
+                return {"status": "ok"}
+
+            async def sync(self) -> dict[str, Any]:
+                await self.mark_sync(status="ok", reason="Test sync executed")
+                return {"synced": 1}
+
+            async def fetch(self, query: str | None = None, limit: int = 50) -> list[Any]:
+                return []
+
+            async def search(self, query: str, limit: int = 20) -> list[Any]:
+                return []
+
+            async def guarded_write(
+                self, action: str, payload: dict[str, Any], approval_id: str | None = None
+            ) -> dict[str, Any]:
+                return {"status": "ok"}
+
+        dummy = DummyConnector("dummy_conn", "dummy")
+        await dummy.sync()
+
+        # Check audit event for connector_sync
+        events = await get_recent_audit_events(limit=5)
+        actions = [e["action"] for e in events]
+        assert "connector_sync" in actions
+
+        # Check credentials saved
+        gmail = GmailConnector()
+        await gmail.save_credentials(access_token="test_token", client_id="test_client_id")
+        events = await get_recent_audit_events(limit=5)
+        actions = [e["action"] for e in events]
+        assert "connector_credentials_saved" in actions
+
+    async def test_approvals_and_kill_switch_audit_logging(self) -> None:
+        # Request approval
+        appr = await ApprovalsCenter.request_approval(
+            action_type="write_test",
+            payload={"key": "val"},
+            preview="Preview write",
+            scope="test:write",
+        )
+        # Deny approval
+        await ApprovalsCenter.deny(appr.id, actor="admin", reason="denied")
+
+        # Request second approval to approve & consume
+        appr2 = await ApprovalsCenter.request_approval(
+            action_type="execute_cmd",
+            payload={"cmd": "ls"},
+            preview="Preview ls",
+            scope="cmd:ls",
+        )
+        await ApprovalsCenter.approve(appr2.id, actor="admin")
+        await ApprovalsCenter.verify_and_consume(appr2.id, "execute_cmd", {"cmd": "ls"})
+
+        # Panic engage and resume
+        await KillSwitch.engage(reason="Test panic", actor="test_user")
+        await KillSwitch.resume(actor="test_user")
+
+        events = await get_recent_audit_events(limit=20)
+        actions = [e["action"] for e in events]
+        assert "approval_requested:write_test" in actions
+        assert "approval_denied" in actions
+        assert "approval_requested:execute_cmd" in actions
+        assert "approval_granted" in actions
+        assert "approval_consumed" in actions
+        assert "panic_engaged" in actions
+        assert "panic_resumed" in actions
+
+        valid, count, _ = await verify_audit_chain()
+        assert valid
+        assert count >= 7
+
+    async def test_skill_install_audit_logging(self, tmp_path: Path) -> None:
+        from noxai.skills.security import install_untrusted_skill
+
+        skill_dir = tmp_path / "test_skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Test\nSafe skill content")
+
+        res = await install_untrusted_skill(str(skill_dir), target_name="test_skill")
+        assert res["status"] == "disabled"
+
+        events = await get_recent_audit_events(limit=5)
+        actions = [e["action"] for e in events]
+        assert "skill_install" in actions
+        assert events[0]["decision"] == "allow"
+
+    async def test_cloud_egress_audit_logging(self) -> None:
+        import httpx
+
+        from noxai.models.base import Message
+        from noxai.models.nvidia import NvidiaProvider
+
+        class FakeTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                stream_content = (
+                    b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\ndata: [DONE]\n\n'
+                )
+                return httpx.Response(200, content=stream_content)
+
+        transport = FakeTransport()
+        provider = NvidiaProvider(api_key="nvapi-dummy", transport=transport)
+        async for _chunk in provider.chat(
+            model="meta/llama-3.1-70b-instruct",
+            messages=[Message(role="user", content="hi")],
+        ):
+            pass
+
+        events = await get_recent_audit_events(limit=5)
+        actions = [e["action"] for e in events]
+        assert "cloud_egress" in actions
+
+    async def test_tamper_detection_injected_audit_verify(self) -> None:
+        # Create a chain
+        for i in range(3):
+            await log_audit_event("actor", f"action_{i}", "target", "allowed", f"Event {i}")
+
+        valid, count, _msg = await verify_audit_chain()
+        assert valid
+        assert count == 3
+
+        # Inject tampering
+        async with get_db() as db:
+            await execute(
+                db,
+                "UPDATE audit_events SET summary_redacted = 'TAMPERED' WHERE id = 2",
+            )
+            await db.commit()
+
+        valid, bad_id, err_msg = await verify_audit_chain()
+        assert not valid
+        assert bad_id == 2
+        assert "Tampering detected" in err_msg

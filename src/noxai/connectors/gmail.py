@@ -101,6 +101,13 @@ class GmailConnector(BaseConnector):
         if client_secret:
             SecretStore.set(f"connector:{self.name}:client_secret", client_secret)
             self.client_secret = client_secret
+        await log_audit_event(
+            actor="user",
+            action="connector_credentials_saved",
+            target=self.name,
+            decision="allow",
+            summary_redacted=f"Saved credentials for connector {self.name}",
+        )
 
     def generate_pkce_pair(self) -> tuple[str, str]:
         """Generate (code_verifier, code_challenge)."""
@@ -230,23 +237,54 @@ class GmailConnector(BaseConnector):
 
     async def health(self) -> dict[str, Any]:
         """Return connector health status."""
-        async with get_db() as db:
-            async with db.execute(
-                """
-                SELECT health_status, health_reason, last_sync_at, last_error
-                FROM connectors WHERE name = ?
-                """,
-                (self.name,),
-            ) as cur:
-                row = await cur.fetchone()
-                if row:
-                    return {
-                        "status": row[0],
-                        "reason": row[1] or "",
-                        "last_sync_at": row[2],
-                        "last_error": row[3],
-                    }
-        return {"status": "degraded", "reason": "Not initialized", "last_sync_at": None}
+        creds = await self.get_credentials()
+        has_token = bool(creds.get("access_token") or creds.get("refresh_token"))
+
+        try:
+            async with get_db() as db:
+                async with db.execute(
+                    """
+                    SELECT health_status, health_reason, last_sync_at, last_error
+                    FROM connectors WHERE name = ?
+                    """,
+                    (self.name,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        db_status = row[0]
+                        last_sync = row[2]
+                        if db_status in ("degraded", "error", "FAILED"):
+                            return {
+                                "status": db_status,
+                                "reason": row[1] or "",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        if not has_token:
+                            return {
+                                "status": "NOT_CONFIGURED",
+                                "reason": "No OAuth tokens configured in SecretStore",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        status = "HEALTHY" if last_sync else "CONFIGURED_UNTESTED"
+                        return {
+                            "status": status,
+                            "reason": row[1] or "",
+                            "last_sync_at": last_sync,
+                            "last_error": row[3],
+                        }
+        except Exception as exc:
+            log.debug("gmail_health_db_read_failed error=%s", exc)
+
+        if not has_token:
+            return {
+                "status": "NOT_CONFIGURED",
+                "reason": "No OAuth tokens configured in SecretStore",
+                "last_sync_at": None,
+                "last_error": None,
+            }
+        return {"status": "CONFIGURED_UNTESTED", "reason": "Tokens present; not yet synced", "last_sync_at": None}
 
     def _extract_body_and_attachments(
         self,

@@ -104,7 +104,7 @@ class NvidiaProvider(Provider):
         self,
         api_key: str | None = None,
         api_keys: list[str] | None = None,
-        key_pool: NvidiaKeyPool | None = None,
+        key_pool: KeyPool | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         requests_per_minute: int = 30,
         max_retries: int = 4,
@@ -247,6 +247,19 @@ class NvidiaProvider(Provider):
                 retry_after=2.0,
             )
             raise RateLimitError("NVIDIA request budget exhausted")
+
+        try:
+            from noxai.security.audit import log_audit_event
+            target_model = payload.get("model", "nvidia")
+            await log_audit_event(
+                actor="router",
+                action="cloud_egress",
+                target=f"nvidia:{target_model}",
+                decision="allow",
+                summary_redacted=f"Cloud LLM request to {target_model}",
+            )
+        except Exception as exc:
+            log.debug("cloud_egress_audit_log_failed error=%s", exc)
 
         attempt = 0
         backoff = 1.0

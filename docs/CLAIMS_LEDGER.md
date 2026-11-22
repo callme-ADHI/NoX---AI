@@ -20,11 +20,11 @@ Recorded: 2026-11-22 06:50:56 IST. All 33 defect items began as FAIL / NOT-DONE.
 
 | Claim ID | Source Session | Defect ID | Claim Summary | Verification Method | Initial Baseline | Final Status | Evidence Reference |
 |---|---|---|---|---|---|---|---|
-| **CLM-01** | Session N | N-1 | GitHub token storage & auth | Regression test for no token extraction; `nx secrets delete` | FAIL (NOT-DONE) | PENDING | Phase 2 |
-| **CLM-02** | Session N | N-2 | Connector health reporting | State machine (`NOT_CONFIGURED`, `CONFIGURED_UNTESTED`, `HEALTHY`, etc.) | FAIL (NOT-DONE) | PENDING | Phase 2 / 6 |
-| **CLM-03** | Session N | N-3 | Audit log completeness | Audit events logged on all guarded calls; test enumerates call sites | FAIL (NOT-DONE) | PENDING | Phase 2 |
-| **CLM-04** | Session N | N-4 | SecretStore encryption claim | Text & code audit (0600 file vs genuine keyring) | FAIL (NOT-DONE) | PENDING | Phase 2 |
-| **CLM-05** | Session N | N-5 | Skill security scanner | Multi-language static scanner with malicious test fixtures | FAIL (NOT-DONE) | PENDING | Phase 2 |
+| **CLM-01** | Session N | N-1 | GitHub token storage & auth | Regression test for no token extraction; `nx secrets delete` | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 2 (`nx verify N-1`) |
+| **CLM-02** | Session N | N-2 | Connector health reporting | State machine (`NOT_CONFIGURED`, `CONFIGURED_UNTESTED`, `HEALTHY`, etc.) | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 2 (`nx verify N-2`) |
+| **CLM-03** | Session N | N-3 | Audit log completeness | Audit events logged on all guarded calls; test enumerates call sites | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 2 (`nx verify N-3`) |
+| **CLM-04** | Session N | N-4 | SecretStore encryption claim | Text & code audit (0600 file vs genuine keyring) | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 2 (`nx verify N-4`) |
+| **CLM-05** | Session N | N-5 | Skill security scanner | Multi-language static scanner with malicious test fixtures | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 2 (`nx verify N-5`) |
 | **CLM-06** | Session N | N-6 | OpenJarvis parity counts | Rebuilt from pinned shallow clone in `/tmp` with source citations | FAIL (NOT-DONE) | PENDING | Phase 9 |
 | **CLM-07** | Session N | N-7 | 7 New UI Pages test coverage | Vitest component tests + Playwright flows | FAIL (NOT-DONE) | PENDING | Phase 6 |
 | **CLM-08** | Session N | N-8 | GitHub Actions CI green | Push workflows if scope granted, local CI script `scripts/ci-local.sh` | FAIL (NOT-DONE) | PENDING | Phase 10 |

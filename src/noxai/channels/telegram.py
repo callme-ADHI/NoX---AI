@@ -72,15 +72,15 @@ class TelegramChannel(BaseChannel):
     async def health(self) -> dict[str, Any]:
         token = self.get_token()
         if not token:
-            return {"status": "degraded", "reason": "No bot token configured"}
+            return {"status": "NOT_CONFIGURED", "reason": "No Telegram bot token configured"}
         try:
             res = await self._api_call("getMe")
             if res.get("ok"):
                 username = res.get("result", {}).get("username", "")
                 return {"status": "ok", "reason": f"Connected as @{username}"}
-            return {"status": "error", "reason": "getMe returned not ok"}
+            return {"status": "FAILED", "reason": "getMe returned not ok"}
         except Exception as exc:
-            return {"status": "error", "reason": str(exc)}
+            return {"status": "FAILED", "reason": str(exc)}
 
     async def send_message(
         self,
@@ -105,6 +105,13 @@ class TelegramChannel(BaseChannel):
         res = await self._api_call(
             "sendMessage",
             {"chat_id": recipient_id, "text": sanitized_text, "parse_mode": "Markdown"},
+        )
+        await log_audit_event(
+            actor="user",
+            action="telegram_send",
+            target=recipient_id,
+            decision="executed",
+            summary_redacted=f"Telegram message sent to {recipient_id}",
         )
         return {"status": "sent", "message_id": res.get("result", {}).get("message_id")}
 

@@ -181,13 +181,13 @@ class GitHubConnector(BaseConnector):
                     if resp.status_code == 200:
                         login = resp.json().get("login", "unknown")
                         return {"status": "ok", "reason": f"Authenticated via token as {login}"}
-                    return {"status": "error", "reason": f"GitHub API error {resp.status_code}"}
+                    return {"status": "FAILED", "reason": f"GitHub API error {resp.status_code}"}
             except Exception as exc:
-                return {"status": "error", "reason": str(exc)}
+                return {"status": "FAILED", "reason": str(exc)}
 
         return {
-            "status": "degraded",
-            "reason": "Neither gh CLI nor GITHUB_TOKEN configured; limited to public endpoints",
+            "status": "NOT_CONFIGURED",
+            "reason": "Neither gh CLI authenticated nor GITHUB_TOKEN configured; limited to public endpoints",
         }
 
     async def list_watched_repos(self) -> list[dict[str, Any]]:

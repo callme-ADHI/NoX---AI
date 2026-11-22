@@ -60,23 +60,62 @@ class FeedsConnector(BaseConnector):
         return True
 
     async def health(self) -> dict[str, Any]:
-        async with get_db() as db:
-            async with db.execute(
-                """
-                SELECT health_status, health_reason, last_sync_at, last_error
-                FROM connectors WHERE name = ?
-                """,
-                (self.name,),
-            ) as cur:
-                row = await cur.fetchone()
-                if row:
-                    return {
-                        "status": row[0],
-                        "reason": row[1] or "",
-                        "last_sync_at": row[2],
-                        "last_error": row[3],
-                    }
-        return {"status": "ok", "reason": "Feeds ready", "last_sync_at": None}
+        has_feeds = bool(
+            self.rss_urls or self.bluesky_handles or self.mastodon_instances or self.subreddits
+        )
+        if not has_feeds:
+            return {
+                "status": "NOT_CONFIGURED",
+                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                "last_sync_at": None,
+                "last_error": None,
+            }
+
+        try:
+            async with get_db() as db:
+                async with db.execute(
+                    """
+                    SELECT health_status, health_reason, last_sync_at, last_error
+                    FROM connectors WHERE name = ?
+                    """,
+                    (self.name,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        db_status = row[0]
+                        last_sync = row[2]
+                        if db_status in ("degraded", "error", "FAILED"):
+                            return {
+                                "status": db_status,
+                                "reason": row[1] or "",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        if not has_feeds:
+                            return {
+                                "status": "NOT_CONFIGURED",
+                                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        status = "HEALTHY" if last_sync else "CONFIGURED_UNTESTED"
+                        return {
+                            "status": status,
+                            "reason": row[1] or "",
+                            "last_sync_at": last_sync,
+                            "last_error": row[3],
+                        }
+        except Exception as exc:
+            log.debug("feeds_health_db_read_failed error=%s", exc)
+
+        if not has_feeds:
+            return {
+                "status": "NOT_CONFIGURED",
+                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                "last_sync_at": None,
+                "last_error": None,
+            }
+        return {"status": "CONFIGURED_UNTESTED", "reason": "Feeds configured; not yet synced", "last_sync_at": None}
 
     def _clean_html(self, raw_html: str) -> str:
         clean = re.sub(r"<[^>]+>", " ", raw_html)

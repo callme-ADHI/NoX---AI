@@ -55,7 +55,7 @@ NoX will generate a PKCE verifier/challenge pair and display an authorization UR
 ## 3. Verification & Security Invariants
 
 Once authorized:
-- **Zero Raw Secret Exposure:** Tokens and client secrets are stored in NoX's encrypted/chmod 0600 `SecretStore` (`~/.local/share/nox/connectors/secrets.json` or system keyring).
+- **Zero Raw Secret Exposure:** Tokens and client secrets are stored in NoX's 0600-permission file / system keyring `SecretStore` (`~/.local/share/nox/connectors/secrets.json` or system keyring).
 - **Default Read-Only:** Emails synced into NoX are marked `local_only` in SQLite.
 - **PII Redaction:** Indian Aadhaar, PAN, UPI IDs, credit cards, and OTPs are redacted into reversible placeholders before storage.
 - **Guarded Send:** NoX will never send an email automatically. Any sending action creates an item in `ApprovalsCenter` and requires human approval via `nx approvals approve <id>`.

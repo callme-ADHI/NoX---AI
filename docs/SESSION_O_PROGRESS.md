@@ -9,11 +9,11 @@
 ## 1. Defect Tracker
 
 ### Security & Credential Hygiene (Session N)
-- [ ] **N-1**: Remove "git credential fill" / token extraction code paths, delete stored `github:token` by name via `nx secrets delete github:token`, add regression & repo-hygiene tests.
-- [ ] **N-2**: Introduce honest connector/channel states (`NOT_CONFIGURED`, `CONFIGURED_UNTESTED`, `HEALTHY`, `DEGRADED`, `AUTH_REQUIRED`, `FAILED`, `DISABLED`) in `nx health`, `nx doctor`, `nx selftest`, and UI.
-- [ ] **N-3**: Complete audit log wiring for every guarded action (connector read/sync, write, approval, denial, cloud egress, delete, panic, skill install) with test enumerating call sites.
-- [ ] **N-4**: Fix SecretStore terminology (genuine keyring or 0600 file text; no false "encrypted" claims).
-- [ ] **N-5**: Multi-language static skill scanner (Python, shell, JS, Markdown with embedded commands) with malicious test fixtures.
+- [x] **N-1**: Remove "git credential fill" / token extraction code paths, delete stored `github:token` by name via `nx secrets delete github:token`, add regression & repo-hygiene tests.
+- [x] **N-2**: Introduce honest connector/channel states (`NOT_CONFIGURED`, `CONFIGURED_UNTESTED`, `HEALTHY`, `DEGRADED`, `AUTH_REQUIRED`, `FAILED`, `DISABLED`) in `nx health`, `nx doctor`, `nx selftest`, and UI.
+- [x] **N-3**: Complete audit log wiring for every guarded action (connector read/sync, write, approval, denial, cloud egress, delete, panic, skill install) with test enumerating call sites.
+- [x] **N-4**: Fix SecretStore terminology (genuine keyring or 0600 file text; no false "encrypted" claims).
+- [x] **N-5**: Multi-language static skill scanner (Python, shell, JS, Markdown with embedded commands) with malicious test fixtures.
 - [ ] **N-6**: Rebuild `docs/OPENJARVIS_PARITY.md` from a fresh pinned shallow clone in `/tmp` with cited upstream paths and proof.
 - [ ] **N-7**: Add UI component tests for all 7 new pages and Playwright flows against real temp-instance daemon.
 - [ ] **N-8**: GitHub Actions CI workflows and local CI-equivalent (`scripts/ci-local.sh`).
@@ -64,7 +64,12 @@
   - [x] Build `nx verify` harness (`scripts/verify_all.py`) with temp-instance launcher, bare repo helper, mock HTTP server, recorder.
   - [x] Run initial harness to produce `docs/SESSION_O_BEFORE.txt`.
   - [x] Populate `docs/CLAIMS_LEDGER.md`.
-- [ ] **Phase 2: Security and Credential Hygiene (N-1 to N-5)**
+- [x] **Phase 2: Security and Credential Hygiene (N-1 to N-5)**
+  - [x] N-1: Zero credential fill / token extraction strings; SecretStore github:token removed; repo-hygiene test added.
+  - [x] N-2: Honest connector & channel states (`NOT_CONFIGURED`), migration 021 applied; honest UI & CLI reporting.
+  - [x] N-3: Audit log wired across connector sync, credentials save, approvals, egress, skills, and kill switch. Tamper-evident hash chain & tamper detection proven.
+  - [x] N-4: SecretStore truthfully documented as 0600 file / system keyring; false encryption claims removed.
+  - [x] N-5: Multi-language static scanner covering Python AST, Shell, JS/TS, and Markdown with malicious test fixtures.
 - [ ] **Phase 3: Core Runtime (C-1 to C-8)**
 - [ ] **Phase 4: Briefing Content (T-1, T-2)**
 - [ ] **Phase 5: Jobs and Daily GitHub Backup (L-1, L-2)**

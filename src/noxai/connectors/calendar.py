@@ -87,23 +87,59 @@ class CalendarConnector(BaseConnector):
         return False
 
     async def health(self) -> dict[str, Any]:
-        async with get_db() as db:
-            async with db.execute(
-                """
-                SELECT health_status, health_reason, last_sync_at, last_error
-                FROM connectors WHERE name = ?
-                """,
-                (self.name,),
-            ) as cur:
-                row = await cur.fetchone()
-                if row:
-                    return {
-                        "status": row[0],
-                        "reason": row[1] or "",
-                        "last_sync_at": row[2],
-                        "last_error": row[3],
-                    }
-        return {"status": "degraded", "reason": "Not initialized", "last_sync_at": None}
+        has_source = False
+        if self.ics_path and Path(self.ics_path).expanduser().exists():
+            has_source = True
+        elif self.ics_url:
+            has_source = True
+        elif SecretStore.get(f"connector:{self.name}:access_token"):
+            has_source = True
+
+        try:
+            async with get_db() as db:
+                async with db.execute(
+                    """
+                    SELECT health_status, health_reason, last_sync_at, last_error
+                    FROM connectors WHERE name = ?
+                    """,
+                    (self.name,),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        db_status = row[0]
+                        last_sync = row[2]
+                        if db_status in ("degraded", "error", "FAILED"):
+                            return {
+                                "status": db_status,
+                                "reason": row[1] or "",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        if not has_source:
+                            return {
+                                "status": "NOT_CONFIGURED",
+                                "reason": "No ICS file, remote URL, or Google Calendar credentials configured",
+                                "last_sync_at": last_sync,
+                                "last_error": row[3],
+                            }
+                        status = "HEALTHY" if last_sync else "CONFIGURED_UNTESTED"
+                        return {
+                            "status": status,
+                            "reason": row[1] or "",
+                            "last_sync_at": last_sync,
+                            "last_error": row[3],
+                        }
+        except Exception as exc:
+            log.debug("calendar_health_db_read_failed error=%s", exc)
+
+        if not has_source:
+            return {
+                "status": "NOT_CONFIGURED",
+                "reason": "No ICS file, remote URL, or Google Calendar credentials configured",
+                "last_sync_at": None,
+                "last_error": None,
+            }
+        return {"status": "CONFIGURED_UNTESTED", "reason": "Configured; not yet synced", "last_sync_at": None}
 
     def _parse_ics_datetime(self, val: str) -> str:
         """Parse RFC5545 date/datetime strings to ISO8601 string."""
