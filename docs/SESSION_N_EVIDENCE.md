@@ -656,6 +656,22 @@ All required checks passed (3 warning(s)). NoX is ready.
 - `packaging/arch/PKGBUILD`: Verified package targets `nox` and `nox-app`. UI assets build cleanly with `npm run build`, and Python packaging is handled dynamically via `pyproject.toml`.
 - Documentation updated: `README.md`, `CHANGELOG.md`, `docs/OPERATIONS.md`, `docs/INSTALL.md`, `docs/OPENJARVIS_PARITY.md`.
 
+### 4. Git Push & Draft Pull Request [VERIFIED-LIVE]
+- Branch pushed cleanly to remote:
+  ```bash
+  git push -u origin session-n
+  # * [new branch] session-n -> session-n
+  ```
+- Draft Pull Request created on GitHub via REST API:
+  - **PR Number**: `#1`
+  - **PR URL**: `https://github.com/callme-ADHI/NoX---AI/pull/1`
+  - **Title**: `feat(session-n): OpenJarvis Parity, Connectors, GitHub Intelligence, and Multi-Mode Agents`
+  - **Base**: `main` <- **Head**: `session-n`
+  - **Draft Status**: `True`
+- GitHub Token & Workflow Scope Note:
+  - The configured Personal Access Token has `repo` access which allowed pushing `session-n` and opening PR #1.
+  - Adding or modifying files in `.github/workflows/` requires the explicit `workflow` scope checkbox on GitHub. Workflow templates are saved locally on `session-n-with-workflows` and staged for immediate push once the user enables the `workflow` checkbox.
+
 ---
 
 ## Baseline vs Final Metrics Comparison

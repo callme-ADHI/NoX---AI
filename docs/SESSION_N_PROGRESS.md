@@ -94,5 +94,6 @@
 - [x] 1. Baseline vs final metrics recorded in `docs/SESSION_N_EVIDENCE.md`.
 - [x] 2. Gates A-E evidence logged.
 - [x] 3. Parity counts, connector test results, privacy proofs logged.
-- [ ] 4. Final report formatted per Section 13.
+- [x] 4. Final report formatted per Section 13.
+
 
