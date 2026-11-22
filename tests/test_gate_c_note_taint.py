@@ -216,3 +216,50 @@ async def test_build_four_part_context_taint_invariants(
     assert bool(sys_msg.content.taint & TaintFlag.PRIVATE) is True
     assert sys_msg.content.get_data_class() == DataClass.LOCAL_ONLY
     assert "RELEVANT USER NOTES & DOCUMENTS" in sys_msg.content.text
+
+
+@pytest.mark.asyncio
+async def test_c8_retrieval_notes_tagged_local_only_in_db_and_chunkmatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """C-8: Verify notes chunks are tagged 'local_only' in DB, ChunkMatch, and search_documents."""
+    from noxai.db import fetch_all
+    from noxai.memory.docs import search_documents
+
+    monkeypatch.setattr("noxai.db.DB_PATH", tmp_path / "test_c8.db")
+    monkeypatch.setattr("noxai.db.DATA_DIR", tmp_path)
+    await init_db()
+
+    vault_dir = tmp_path / "Obsidian Vault"
+    vault_dir.mkdir()
+    study_dir = tmp_path / "Study"
+    study_dir.mkdir()
+
+    v_note = vault_dir / "Architecture.md"
+    v_note.write_text("Obsidian Vault confidential specs on distributed scheduler.", encoding="utf-8")
+    s_note = study_dir / "Algorithms.md"
+    s_note.write_text("Study notes on zero-knowledge cryptographic proofs.", encoding="utf-8")
+
+    async with get_db() as db:
+        await index_documents(roots=[str(vault_dir), str(study_dir)], db=db)
+
+        # 1. Verify DB rows have privacy_class = 'local_only'
+        doc_rows = await fetch_all(db, "SELECT path, privacy_class FROM documents")
+        assert len(doc_rows) == 2
+        for dr in doc_rows:
+            assert dr["privacy_class"] == "local_only"
+
+        chunk_rows = await fetch_all(db, "SELECT id, privacy_class FROM chunks")
+        assert len(chunk_rows) >= 2
+        for cr in chunk_rows:
+            assert cr["privacy_class"] == "local_only"
+
+        # 2. Verify search_documents returns ChunkMatch with privacy_class = 'local_only'
+        matches = await search_documents("scheduler", db=db)
+        assert len(matches) >= 1
+        for m in matches:
+            assert m.privacy_class == "local_only"
+            content = m.to_content()
+            assert content.is_private() is True
+            assert content.get_data_class() == DataClass.LOCAL_ONLY
+            assert bool(content.taint & TaintFlag.PRIVATE) is True

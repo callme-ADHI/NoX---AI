@@ -396,4 +396,34 @@ async def test_nvidia_provider_timeout_failover(tmp_path, monkeypatch):
     assert pool._keys["k2"].total_requests == 1
 
 
+@pytest.mark.asyncio
+async def test_nvidia_provider_mock_server_404_410_model_endpoint_not_found(tmp_path, monkeypatch):
+    """Verify NvidiaProvider handles 404/410 model-gone errors by raising ProviderUnavailable."""
+    monkeypatch.setattr("noxai.db.DB_PATH", tmp_path / "test_404_410.db")
+    monkeypatch.setattr("noxai.db.DATA_DIR", tmp_path)
+    from noxai.db import init_db
+    await init_db()
+
+    cfg = get_config()
+
+    def mock_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "Model deprecated or not found"})
+
+    transport = httpx.MockTransport(mock_handler)
+    pool = KeyPool(config=cfg, keys=["nvapi-key-1"], transport=transport)
+
+    from noxai.models.base import Message, ProviderUnavailable
+    from noxai.models.nvidia import NvidiaProvider
+
+    prov = NvidiaProvider(key_pool=pool, transport=transport)
+    messages = [Message(role="user", content="Hello")]
+
+    with pytest.raises(ProviderUnavailable) as exc_info:
+        async for _ in prov.chat(model="nvidia/unknown-model", messages=messages, stream=False):
+            pass
+
+    assert "model endpoint not found" in str(exc_info.value).lower()
+
+
+
 

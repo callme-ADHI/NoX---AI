@@ -500,7 +500,6 @@ async def run_live_conversation_eval(route: str = "both") -> bool:
                 config=cfg,
                 allow_cloud=allow_cloud,
                 tools=[],
-                max_tokens=80,
             )
 
         try:

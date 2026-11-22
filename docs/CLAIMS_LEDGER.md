@@ -28,14 +28,14 @@ Recorded: 2026-11-22 06:50:56 IST. All 33 defect items began as FAIL / NOT-DONE.
 | **CLM-06** | Session N | N-6 | OpenJarvis parity counts | Rebuilt from pinned shallow clone in `/tmp` with source citations | FAIL (NOT-DONE) | PENDING | Phase 9 |
 | **CLM-07** | Session N | N-7 | 7 New UI Pages test coverage | Vitest component tests + Playwright flows | FAIL (NOT-DONE) | PENDING | Phase 6 |
 | **CLM-08** | Session N | N-8 | GitHub Actions CI green | Push workflows if scope granted, local CI script `scripts/ci-local.sh` | FAIL (NOT-DONE) | PENDING | Phase 10 |
-| **CLM-09** | Session M | C-1 | Single scheduler authority | Temp instance proof: 04:00 & 18:00 fire once | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-10** | Session J/M| C-2 | Unattended briefing automation | Temp instance proof: UI closed, catch-up, 0-item = FAILED | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-11** | Session M | C-3 | Subprocess SIGKILL recovery | Real daemon SIGKILL mid-task and restart recovery | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-12** | Session M | C-4 | KeyPool allocation in provider | Real lease cycle, token bucket refill, mock 429/401/500 server | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-13** | Session M | C-5 | Cloud default ON + taint isolation | Fresh instance proof with recording transport (notes/mail/chat) | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-14** | Session M | C-6 | Conversation memory persistence | Real model 8-scenario evaluation transcripts without token cap | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-15** | Session M | C-7 | Migration 009 convergence | DB copy test of both pre- and post-edit upgrade paths | FAIL (NOT-DONE) | PENDING | Phase 3 |
-| **CLM-16** | Session M | C-8 | Retrieval taint on notes | Chunks strictly `local_only` in DB & retrieval queries | FAIL (NOT-DONE) | PENDING | Phase 3 |
+| **CLM-09** | Session M | C-1 | Single scheduler authority | Temp instance proof: 04:00 & 18:00 fire once | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-1`) |
+| **CLM-10** | Session J/M| C-2 | Unattended briefing automation | Temp instance proof: UI closed, catch-up, 0-item = FAILED | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-2`) |
+| **CLM-11** | Session M | C-3 | Subprocess SIGKILL recovery | Real daemon SIGKILL mid-task and restart recovery | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-3`) |
+| **CLM-12** | Session M | C-4 | KeyPool allocation in provider | Real lease cycle, token bucket refill, mock 429/401/500 server | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-4`) |
+| **CLM-13** | Session M | C-5 | Cloud default ON + taint isolation | Fresh instance proof with recording transport (notes/mail/chat) | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-5`) |
+| **CLM-14** | Session M | C-6 | Conversation memory persistence | Real model 8-scenario evaluation transcripts without token cap | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-6`) |
+| **CLM-15** | Session M | C-7 | Migration 009 convergence | DB copy test of both pre- and post-edit upgrade paths | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-7`) |
+| **CLM-16** | Session M | C-8 | Retrieval taint on notes | Chunks strictly `local_only` in DB & retrieval queries | FAIL (NOT-DONE) | FIXED-AND-PROVEN | Phase 3 (`nx verify C-8`) |
 | **CLM-17** | Session J | T-1 | Briefing content quality & links | Live network run, <=25-word quotes, CTFs <=3, HTTP link validator | FAIL (NOT-DONE) | PENDING | Phase 4 |
 | **CLM-18** | Session J | T-2 | Single Run Briefing button | Playwright test surviving refresh, nav, and tab closing | FAIL (NOT-DONE) | PENDING | Phase 4 |
 | **CLM-19** | Session L | L-1 | Stuck BackUp job reconciliation | Audit document `docs/audits/job-stuck-audit.md` + watchdog fix | FAIL (NOT-DONE) | PENDING | Phase 5 |

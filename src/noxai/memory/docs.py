@@ -88,6 +88,20 @@ class ChunkMatch:
     line_end: int
     char_start: int
     char_end: int
+    privacy_class: str = "local_only"
+
+    def to_content(self) -> Any:
+        """Convert chunk match into a Content object with privacy taint."""
+        from noxai.taint import Content, DataClass, TaintFlag
+
+        if self.privacy_class == "local_only":
+            return Content(
+                text=self.text,
+                taint=TaintFlag.PRIVATE,
+                source=self.path,
+                data_class=DataClass.LOCAL_ONLY,
+            )
+        return Content(text=self.text, source=self.path, data_class=DataClass(self.privacy_class))
 
 
 @dataclass
@@ -373,6 +387,12 @@ async def index_documents(
         existing_rows = await fetch_all(conn, "SELECT id, path, mtime, size, sha256, source_root FROM documents")
         doc_map = {r["path"]: r for r in existing_rows}
         seen_paths: set[str] = set()
+        has_priv = False
+        try:
+            p_info = await fetch_all(conn, "PRAGMA table_info(documents)")
+            has_priv = any(c["name"] == "privacy_class" for c in p_info)
+        except Exception:
+            has_priv = False
 
         for root_str in active_roots:
             root_path = Path(root_str)
@@ -463,40 +483,93 @@ async def index_documents(
                         await execute(conn, "DELETE FROM chunks WHERE document_id = ?", (doc_id,))
                         stats.updated += 1
                     else:
-                        await execute(
-                            conn,
-                            """
-                            INSERT INTO documents (id, path, mtime, size, sha256, indexed_at, source_root)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (doc_id, abs_path_str, st.st_mtime, st.st_size, file_sha, now_iso, root_str),
-                        )
+                        if has_priv:
+                            await execute(
+                                conn,
+                                """
+                                INSERT INTO documents (
+                                    id, path, mtime, size, sha256, indexed_at, source_root,
+                                    privacy_class
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'local_only')
+                                """,
+                                (
+                                    doc_id,
+                                    abs_path_str,
+                                    st.st_mtime,
+                                    st.st_size,
+                                    file_sha,
+                                    now_iso,
+                                    root_str,
+                                ),
+                            )
+                        else:
+                            await execute(
+                                conn,
+                                """
+                                INSERT INTO documents (
+                                    id, path, mtime, size, sha256, indexed_at, source_root
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    doc_id,
+                                    abs_path_str,
+                                    st.st_mtime,
+                                    st.st_size,
+                                    file_sha,
+                                    now_iso,
+                                    root_str,
+                                ),
+                            )
                         stats.indexed += 1
 
                     # Bulk insert chunks
                     for ch in doc_chunks:
                         ch_id = f"chk_{uuid.uuid4().hex[:12]}"
-                        await execute(
-                            conn,
-                            """
-                            INSERT INTO chunks (
-                                id, document_id, chunk_index, text, heading_path,
-                                char_start, char_end, line_start, line_end, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                ch_id,
-                                doc_id,
-                                ch.chunk_index,
-                                ch.text,
-                                ch.heading_path,
-                                ch.char_start,
-                                ch.char_end,
-                                ch.line_start,
-                                ch.line_end,
-                                now_iso,
-                            ),
-                        )
+                        if has_priv:
+                            await execute(
+                                conn,
+                                """
+                                INSERT INTO chunks (
+                                    id, document_id, chunk_index, text, heading_path,
+                                    char_start, char_end, line_start, line_end, created_at,
+                                    privacy_class
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local_only')
+                                """,
+                                (
+                                    ch_id,
+                                    doc_id,
+                                    ch.chunk_index,
+                                    ch.text,
+                                    ch.heading_path,
+                                    ch.char_start,
+                                    ch.char_end,
+                                    ch.line_start,
+                                    ch.line_end,
+                                    now_iso,
+                                ),
+                            )
+                        else:
+                            await execute(
+                                conn,
+                                """
+                                INSERT INTO chunks (
+                                    id, document_id, chunk_index, text, heading_path,
+                                    char_start, char_end, line_start, line_end, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    ch_id,
+                                    doc_id,
+                                    ch.chunk_index,
+                                    ch.text,
+                                    ch.heading_path,
+                                    ch.char_start,
+                                    ch.char_end,
+                                    ch.line_start,
+                                    ch.line_end,
+                                    now_iso,
+                                ),
+                            )
                         stats.chunks_created += 1
 
         # Detect deleted documents for all configured roots
@@ -556,19 +629,43 @@ async def search_documents(
         return []
 
     async def _run_search(conn: aiosqlite.Connection) -> list[ChunkMatch]:
-        sql = """
-            SELECT c.id, c.document_id, c.chunk_index, c.text, c.heading_path,
-                   c.line_start, c.line_end, c.char_start, c.char_end,
-                   d.path, d.source_root,
-                   bm25(fts_document_chunks) as rank,
-                   snippet(fts_document_chunks, 0, '<b>', '</b>', '...', 24) as fts_snippet
-            FROM fts_document_chunks f
-            JOIN chunks c ON f.rowid = c.rowid
-            JOIN documents d ON c.document_id = d.id
-            WHERE fts_document_chunks MATCH ?
-            ORDER BY rank ASC
-            LIMIT ?
-        """
+        has_priv_col = False
+        try:
+            info = await fetch_all(conn, "PRAGMA table_info(chunks)")
+            has_priv_col = any(col["name"] == "privacy_class" for col in info)
+        except Exception:
+            has_priv_col = False
+
+        if has_priv_col:
+            sql = """
+                SELECT c.id, c.document_id, c.chunk_index, c.text, c.heading_path,
+                       c.line_start, c.line_end, c.char_start, c.char_end,
+                       c.privacy_class,
+                       d.path, d.source_root,
+                       bm25(fts_document_chunks) as rank,
+                       snippet(fts_document_chunks, 0, '<b>', '</b>', '...', 24) as fts_snippet
+                FROM fts_document_chunks f
+                JOIN chunks c ON f.rowid = c.rowid
+                JOIN documents d ON c.document_id = d.id
+                WHERE fts_document_chunks MATCH ?
+                ORDER BY rank ASC
+                LIMIT ?
+            """
+        else:
+            sql = """
+                SELECT c.id, c.document_id, c.chunk_index, c.text, c.heading_path,
+                       c.line_start, c.line_end, c.char_start, c.char_end,
+                       'local_only' AS privacy_class,
+                       d.path, d.source_root,
+                       bm25(fts_document_chunks) as rank,
+                       snippet(fts_document_chunks, 0, '<b>', '</b>', '...', 24) as fts_snippet
+                FROM fts_document_chunks f
+                JOIN chunks c ON f.rowid = c.rowid
+                JOIN documents d ON c.document_id = d.id
+                WHERE fts_document_chunks MATCH ?
+                ORDER BY rank ASC
+                LIMIT ?
+            """
         rows = await fetch_all(conn, sql, (fts_query, k * 2))
         matches: list[ChunkMatch] = []
         for r in rows:
@@ -588,6 +685,9 @@ async def search_documents(
                     line_end=int(r["line_end"]),
                     char_start=int(r["char_start"]),
                     char_end=int(r["char_end"]),
+                    privacy_class=str(
+                        r["privacy_class"] if "privacy_class" in r.keys() else "local_only"
+                    ),
                 )
             )
             if len(matches) >= k:

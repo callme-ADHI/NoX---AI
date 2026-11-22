@@ -19,14 +19,14 @@
 - [ ] **N-8**: GitHub Actions CI workflows and local CI-equivalent (`scripts/ci-local.sh`).
 
 ### Core Runtime (Sessions J, K, M)
-- [ ] **C-1**: Single authoritative scheduler path per job type (no duplicate briefing/backup runs).
-- [ ] **C-2**: Live automation proof in temp instance: 04:00 & 18:00 with catch-up, UI closed, 0 items = FAILED, no false reconciler, resume under same run id.
-- [ ] **C-3**: Resume after SIGKILL (real subprocess daemon) live proof.
-- [ ] **C-4**: KeyPool allocator genuinely wired in provider/engine; token bucket refills; live `nx keys status`; 429/401/404/410 handling with mock server.
-- [ ] **C-5**: Cloud default ON with persisted toggle; prove local_only content never egresses via recording transport.
-- [ ] **C-6**: Conversation memory evaluation with REAL models (cloud and local) across 8 scenarios without artificial token caps.
-- [ ] **C-7**: Migration 009 convergence and test both upgrade paths on a copy of the real DB.
-- [ ] **C-8**: Retrieval taint: notes (Vault, Study) chunks strictly `local_only`.
+- [x] **C-1**: Single authoritative scheduler path per job type (no duplicate briefing/backup runs).
+- [x] **C-2**: Live automation proof in temp instance: 04:00 & 18:00 with catch-up, UI closed, 0 items = FAILED, no false reconciler, resume under same run id.
+- [x] **C-3**: Resume after SIGKILL (real subprocess daemon) live proof.
+- [x] **C-4**: KeyPool allocator genuinely wired in provider/engine; token bucket refills; live `nx keys status`; 429/401/404/410 handling with mock server.
+- [x] **C-5**: Cloud default ON with persisted toggle; prove local_only content never egresses via recording transport.
+- [x] **C-6**: Conversation memory evaluation with REAL models (cloud and local) across 8 scenarios without artificial token caps.
+- [x] **C-7**: Migration 009 convergence and test both upgrade paths on a copy of the real DB.
+- [x] **C-8**: Retrieval taint: notes (Vault, Study) chunks strictly `local_only`.
 
 ### Content (Session J)
 - [ ] **T-1**: Live-proven briefing content: news, funded internships with <=25-word verbatim evidence snippets from fetched pages, hackathons as individual events, CTFs <= 3, strict link checks, remove mocked search from production code (`tools/builtin/web.py`).
@@ -70,7 +70,15 @@
   - [x] N-3: Audit log wired across connector sync, credentials save, approvals, egress, skills, and kill switch. Tamper-evident hash chain & tamper detection proven.
   - [x] N-4: SecretStore truthfully documented as 0600 file / system keyring; false encryption claims removed.
   - [x] N-5: Multi-language static scanner covering Python AST, Shell, JS/TS, and Markdown with malicious test fixtures.
-- [ ] **Phase 3: Core Runtime (C-1 to C-8)**
+- [x] **Phase 3: Core Runtime (C-1 to C-8)**
+  - [x] C-1: Single authoritative scheduler per job type (BriefingScheduler sole owner of morning/evening; migration 022 applied; no duplicate briefing/backup runs).
+  - [x] C-2: Automation proof in temp instance: 04:00 & 18:00 with catch-up, UI closed, 0 items = FAILED, no false reconciler, resume under same run id.
+  - [x] C-3: Resume after SIGKILL: real daemon subprocess killed with SIGKILL mid-run resumed under exact same run id without duplicate topic runs.
+  - [x] C-4: KeyPool pure allocator wired in `models/nvidia.py` without legacy fallback; refill, lease, and 429/401/404/410 handling verified.
+  - [x] C-5: Cloud default ON with persistent toggle; RecordingTransport proves local_only content (mail, notes, private chat, private repo) never egresses to cloud.
+  - [x] C-6: Live conversation memory evaluation with real models (8/8 scenarios passed on cloud route without artificial token caps; raw transcripts in `/tmp/nox_live_eval_transcripts.json`).
+  - [x] C-7: Migration 009 convergence (pre-edit, post-edit, and real DB copy converged via migration 022/023).
+  - [x] C-8: Retrieval taint: notes (Vault, Study) chunks strictly `local_only` in DB, ChunkMatch, and retrieval.
 - [ ] **Phase 4: Briefing Content (T-1, T-2)**
 - [ ] **Phase 5: Jobs and Daily GitHub Backup (L-1, L-2)**
 - [ ] **Phase 6: Connectors, Channels, Agents (N-2, N-7, F-1, F-2, F-4)**

@@ -661,6 +661,10 @@ class BriefingScheduler:
                     task_status in ("failed", "cancelled", "interrupted")
                     or task_status is None
                     or task_status == "done"
+                    or (
+                        task_status == "running"
+                        and (not sup or r["task_id"] not in getattr(sup, "_running_tasks", {}))
+                    )
                 )
 
                 if is_dead:

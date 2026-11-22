@@ -46,6 +46,35 @@ Per Rule 6 of Session O, every change to an existing test file, or to auth, priv
 - **Change**: Added `fallback_policy` parameter in `make_test_router()`.
 - **Reason**: Documented in Session M audit; verifies router fallback policy behaviors.
 
+### `tests/test_gate_a_scheduler_authority.py`
+- **Change**: Updated invocation to use `_execute_schedule` instead of removed duplicate runner methods `_run_morning_briefing` / `_run_evening_briefing`, and separated SQLite context managers to prevent transaction lock contention.
+- **Reason**: Fulfills C-1 (unified scheduler authority, no duplicate briefing runner in PersistentScheduler). No assertions weakened; invariant of exactly one morning run and one evening run preserved.
+
+### `tests/test_gate_c_note_taint.py`
+- **Change**: Added `test_c8_retrieval_notes_tagged_local_only_in_db_and_chunkmatch` verifying notes chunks from Obsidian Vault and Study are tagged `local_only` in DB, `ChunkMatch`, and `search_documents`.
+- **Reason**: Fulfills C-8. Strengthens taint protection guarantees; no existing tests weakened or deleted.
+
+### `tests/test_cloud_taint_recording.py`
+- **Change**: Added comprehensive multi-source local_only taint isolation test verifying mail, notes, chat in private mode, and private-repo logs never reach cloud request body via RecordingTransport.
+- **Reason**: Fulfills C-5. Strengthens privacy assertions; no existing tests weakened or deleted.
+
+### `tests/test_migration_009_convergence.py`
+- **Change**: Added test suite verifying pre-edit and post-edit upgrade paths of migration 009, plus upgrade convergence on real database copy.
+- **Reason**: Fulfills C-7. Verifies schema and settings convergence across both historical migration paths.
+
+### `tests/test_c2_automation_proof.py`
+- **Change**: Added live automation proof test verifying morning 04:00, evening 18:00, catch-up, missed window, 0-items failure gate, and orphaned run repair under same run id.
+- **Reason**: Fulfills C-2. Live proof on isolated temp instance with UI closed and no manual clicks.
+
+### `tests/test_c3_sigkill_resume.py`
+- **Change**: Added subprocess daemon SIGKILL resume test proving daemon termination and reboot repair under the same run_id.
+- **Reason**: Fulfills C-3. Verifies true crash recovery with subprocess SIGKILL.
+
+
+
+
+
+
 ---
 
 ## 2. Safety, Auth, Egress, and Connector Files

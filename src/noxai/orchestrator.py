@@ -180,6 +180,8 @@ def _build_cloud_system_prompt(
         "- Tool Execution Rules: Always formulate your answers from real tool outputs. "
         "Never repeat the same tool call with identical arguments in a single turn. "
         "Never output raw <tool_call> or <function=...> XML tags in your conversational text.\n"
+        "- Facts & Context: When answering questions where recalled facts or conversation history "
+        "already contain the answer, answer directly from that context without invoking tools.\n"
         "Provide direct, structured, and insightful answers."
     )
     if active_skill_body:
@@ -209,6 +211,8 @@ def _build_local_system_prompt(
         "jobs and memories.\n"
         "- System & Tools: Use get_time, system_info, list_files, read_file, run_shell, "
         "web_search, fetch_page.\n"
+        "- Facts & Context: When answering questions where recalled facts or conversation history "
+        "already contain the answer, answer directly from that context without invoking tools.\n"
         "Provide direct, structured, and helpful answers."
     )
     if recalled_memories:

@@ -240,8 +240,6 @@ class PersistentScheduler:
 
     def _register_default_handlers(self) -> None:
         """Register built-in action runners."""
-        self.register_handler("briefing_morning", self._run_morning_briefing)
-        self.register_handler("briefing_evening", self._run_evening_briefing)
         self.register_handler("backup_daily", self._run_backup_job)
         self.register_handler("generic", self._run_generic_job)
         self.register_handler("traces_cleanup", self._run_traces_cleanup)
@@ -260,70 +258,6 @@ class PersistentScheduler:
     # -----------------------------------------------------------------------
     # Built-in Handlers
     # -----------------------------------------------------------------------
-
-    async def _run_morning_briefing(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
-        now_dt = self.clock.now()
-        date_str = now_dt.strftime("%Y-%m-%d")
-        async with get_db() as db:
-            existing = await fetch_one(
-                db,
-                """
-                SELECT id, state FROM briefing_runs
-                WHERE date = ? AND slot = 'morning' AND state IN ('running', 'queued', 'succeeded', 'partial')
-                LIMIT 1
-                """,
-                (date_str,),
-            )
-            if existing:
-                log.info(
-                    "Morning briefing for %s already served/running in briefing_runs (%s, id=%s); skipping persistent schedule duplicate.",
-                    date_str,
-                    existing["state"],
-                    existing["id"],
-                )
-                return {"status": "skipped", "reason": "already_served", "run_id": existing["id"]}
-
-        from noxai.briefing.engine import BriefingPipeline
-
-        pipeline = BriefingPipeline(config=self.config)
-        return await pipeline.execute_run(
-            slot="morning",
-            date_str=date_str,
-            trigger="scheduled",
-            cancel_event=cancel_event,
-        )
-
-    async def _run_evening_briefing(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
-        now_dt = self.clock.now()
-        date_str = now_dt.strftime("%Y-%m-%d")
-        async with get_db() as db:
-            existing = await fetch_one(
-                db,
-                """
-                SELECT id, state FROM briefing_runs
-                WHERE date = ? AND slot = 'evening' AND state IN ('running', 'queued', 'succeeded', 'partial')
-                LIMIT 1
-                """,
-                (date_str,),
-            )
-            if existing:
-                log.info(
-                    "Evening briefing for %s already served/running in briefing_runs (%s, id=%s); skipping persistent schedule duplicate.",
-                    date_str,
-                    existing["state"],
-                    existing["id"],
-                )
-                return {"status": "skipped", "reason": "already_served", "run_id": existing["id"]}
-
-        from noxai.briefing.engine import BriefingPipeline
-
-        pipeline = BriefingPipeline(config=self.config)
-        return await pipeline.execute_run(
-            slot="evening",
-            date_str=date_str,
-            trigger="scheduled",
-            cancel_event=cancel_event,
-        )
 
     async def _run_backup_job(self, schedule: Schedule, run_id: str, cancel_event: asyncio.Event) -> Any:
         from noxai.jobs.catchup import is_job_due
@@ -689,7 +623,17 @@ class PersistentScheduler:
         heartbeat_stop = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat_loop(run_id, heartbeat_stop))
 
-        handler = self._handlers.get(schedule.target_action)
+        if schedule.target_action.startswith("briefing_"):
+            log.info(
+                "Schedule '%s' targets '%s' which is exclusively owned by BriefingScheduler; persistent schedule yielding.",
+                schedule.name,
+                schedule.target_action,
+            )
+            handler = None
+            is_briefing_yield = True
+        else:
+            handler = self._handlers.get(schedule.target_action)
+            is_briefing_yield = False
         finished_status = "success"
         error_msg: str | None = None
 
@@ -702,12 +646,14 @@ class PersistentScheduler:
                 schedule_run_id=run_id,
             ) as tr_rec:
                 try:
-                    if handler is None:
+                    if is_briefing_yield:
+                        tr_rec.record_step(name=f"yield_{schedule.target_action}", status="skipped")
+                    elif handler is None:
                         raise ValueError(f"No registered handler for target_action: '{schedule.target_action}'")
-
-                    # Execute with timeout
-                    await asyncio.wait_for(handler(schedule, run_id, cancel_evt), timeout=timeout_seconds)
-                    tr_rec.record_step(name=f"execute_{schedule.target_action}", status="success")
+                    else:
+                        # Execute with timeout
+                        await asyncio.wait_for(handler(schedule, run_id, cancel_evt), timeout=timeout_seconds)
+                        tr_rec.record_step(name=f"execute_{schedule.target_action}", status="success")
 
                 except TimeoutError:
                     tr_rec.record_step(name=f"execute_{schedule.target_action}", status="timeout")
