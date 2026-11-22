@@ -596,6 +596,42 @@ def selftest(
 
 
 # ---------------------------------------------------------------------------
+# nx verify
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def verify(
+    all_checks: bool = typer.Option(
+        False, "--all", "-a", help="Run all verification harness checks."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output verification results as JSON."
+    ),
+    check_id: str | None = typer.Argument(
+        None, help="Specific defect ID to check (e.g. N-1, C-1, etc.)"
+    ),
+) -> None:
+    """Run real verification harness for defect IDs (Session O)."""
+    import subprocess
+    import sys
+
+    script_path = Path(__file__).resolve().parent.parent.parent / "scripts" / "verify_all.py"
+    cmd = [sys.executable, str(script_path)]
+    if all_checks or not check_id:
+        cmd.append("--all")
+    elif check_id:
+        cmd.append(check_id)
+    if json_output:
+        cmd.append("--json")
+
+    res = subprocess.run(cmd)
+    if res.returncode != 0:
+        raise typer.Exit(res.returncode)
+
+
+
+# ---------------------------------------------------------------------------
 # nx token
 # ---------------------------------------------------------------------------
 
