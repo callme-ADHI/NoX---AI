@@ -1,0 +1,11 @@
+Recovered interrupted run srun_2be0ec782886 for schedule 'test_b5_crash'
+Process PID: 75525
+Active run spawned: srun_2be0ec782886
+Database status before crash: running
+Sending SIGKILL (kill -9) to process...
+Process terminated with exit code: -9
+Interrupted runs recovered on restart: 1
+Run ID=srun_2be0ec782886 status after restart: interrupted
+Run error message: Interrupted by daemon restart / crash
+Schedule last_status: interrupted
+PROVED: Daemon kill -9 caused running job to be recovered and marked interrupted on restart.

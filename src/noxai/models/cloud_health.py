@@ -227,8 +227,10 @@ class CloudHealth:
         retry_after: float | None = None,
     ) -> None:
         """Record an error or exception during a cloud turn."""
-        self.last_latency = latency_seconds
-        err_str = str(error)
+        if isinstance(error, Exception):
+            err_str = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
+        else:
+            err_str = str(error)
 
         if status_code in (401, 403):
             self.circuit_breaker.force_open(custom_cooldown=300.0)

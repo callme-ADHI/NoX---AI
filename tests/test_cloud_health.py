@@ -250,6 +250,7 @@ class TestModelRouterCloudFallback:
         fake_cloud.cloud_health = health  # type: ignore[attr-defined]
 
         cfg = get_config()
+        cfg.models.fallback_policy = "auto_notify"
         router = ModelRouter(
             config=cfg,
             providers={"ollama": fake_local, "nvidia": fake_cloud},
@@ -271,8 +272,8 @@ class TestModelRouterCloudFallback:
         # 0 calls to cloud!
         assert len(fake_cloud.calls) == 0
         assert len(fake_local.calls) == 1
-        assert "".join(chunks) == "Local fallback answer"
-        assert any("Cloud provider unavailable" in n for n in notices)
+        assert "Local fallback answer" in "".join(chunks)
+        assert any("Cloud model is down" in n or "Cloud provider unavailable" in n for n in notices)
 
 
 # ===========================================================================

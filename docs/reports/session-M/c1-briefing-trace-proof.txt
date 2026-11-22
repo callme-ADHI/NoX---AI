@@ -1,0 +1,49 @@
+================================================================================
+NoX Session M: Acceptance Check C1 (Real Briefing Topic Trace)
+================================================================================
+Executed real briefing topic worker for topic 'topic_ai' (AI & Frontier Systems)
+under run 'brun_c1_proof'.
+
+1. Raw SQLite Trace Record
+--------------------------------------------------------------------------------
+SELECT id, started_at, finished_at, source, schedule_run_id, request_text, intent, engine, model, steps, final_status, error_text
+FROM traces WHERE id = 'tr_brun_c1_proof_topic_ai':
+
+ID: tr_brun_c1_proof_topic_ai
+Started: 2026-11-19T03:07:11.510609+00:00
+Finished: 2026-11-19T03:07:19.625182+00:00
+Source: briefing
+Schedule Run ID: brun_c1_proof
+Request Text: Extract intelligence for topic 'AI & Frontier Systems' (topic_ai)
+Intent: briefing_topic
+Engine: nvidia
+Model: meta/llama-3.3-70b-instruct
+Key Slot: None (raw secret never stored)
+Final Status: success
+Error Text: None
+Steps:
+[
+  {"name": "fetch_sources", "tool_or_skill": "crawler", "duration_ms": 75.0, "status": "success"},
+  {"name": "stage_items", "tool_or_skill": null, "duration_ms": 6.0, "status": "success"}
+]
+
+2. CLI Output: nx traces show tr_brun_c1_proof_topic_ai
+--------------------------------------------------------------------------------
+Trace: tr_brun_c1_proof_topic_ai
+Source: briefing  |  Status: success
+Started: 2026-11-19T03:07:11.510609+00:00  |  Finished: 2026-11-19T03:07:19.625182+00:00
+Engine: nvidia  |  Model: meta/llama-3.3-70b-instruct  |  Key Slot: None
+
+Request Text:
+Extract intelligence for topic 'AI & Frontier Systems' (topic_ai)
+
+Execution Steps:
+- fetch_sources (tool: crawler, duration: 75.0ms, status: success)
+- stage_items (tool: None, duration: 6.0ms, status: success)
+
+3. Secret Verification
+--------------------------------------------------------------------------------
+- No API keys (nvapi-*, bearer tokens, or keys) appear in the database trace.
+- Key slot index / slot ID tracking is safe and does not expose tokens.
+
+Result: PASS

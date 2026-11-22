@@ -1,0 +1,21 @@
+=== NOX WORKSTREAM E2 ACCEPTANCE PROOF ===
+Timestamp: 2026-11-19T06:19:09Z
+
+--- Pytest Output for Validation Rules ---
+============================= test session starts ==============================
+platform linux -- Python 3.14.10, pytest-9.1.1, pluggy-1.7.0 -- /home/boss/Documents/Projects/NoX/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/boss/Documents/Projects/NoX
+configfile: pyproject.toml
+plugins: anyio-4.15.1, asyncio-1.4.0, cov-7.1.0, repeat-0.9.4, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 60.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 7 items / 4 deselected / 3 selected
+
+tests/test_skills_and_mcp.py::test_validation_malformed_frontmatter PASSED [ 33%]
+tests/test_skills_and_mcp.py::test_validation_oversized_file PASSED      [ 66%]
+tests/test_skills_and_mcp.py::test_validation_escaping_symlink PASSED    [100%]
+
+======================= 3 passed, 4 deselected in 2.12s ========================

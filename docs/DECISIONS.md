@@ -84,3 +84,79 @@ This document records all architectural decisions, trade-offs, and clarification
 - **Context**: Users need delete controls for jobs, tasks, and briefings with safety against accidental deletion.
 - **Decision**: Soft delete via `deleted_at` timestamp. Running items are cooperatively cancelled first through TaskSupervisor (within 5s). Deleted items are hidden from default views and can be restored within 24h (`/restore` API or CLI, or 10s toast in UI). Deleting a briefing safely cleans up unmodified generated vault notes while preserving user-edited notes and opportunity entries.
 - **Consequences**: Immediate, safe responsiveness without permanent accidental data loss.
+
+---
+
+## Session N Decisions
+
+### ADR-N1: Cryptographic Hash Chaining for Tamper-Evident Audit Logging
+- **Context**: Actions taken by autonomous agents, connectors, and external channels require proof against post-hoc tampering or stealth row deletion in SQLite.
+- **Decision**: Table `audit_events` with SHA-256 hash chaining:
+  `hash = SHA256(prev_hash | id | ts | actor | action | target | decision | summary_redacted)`.
+  Genesis entry uses 64 zeros. `nx audit verify` walks the chain from ID 1 to N, confirming cryptographic linkage.
+- **Consequences**: Any row alteration, deletion, or injection is immediately flagged with exact row ID.
+
+### ADR-N2: In-Memory Reversible Placeholder Redaction for Indian PII & Secrets
+- **Context**: Sensitive Indian PII (Aadhaar, PAN, UPI, IFSC, Cards, OTP) must never be sent unredacted to external cloud providers, but local assistant workflows need full context.
+- **Decision**: `PIIRedactor` uses Verhoeff checksum algorithm for Aadhaar validation, Luhn algorithm for cards, and strict regexes for PAN, UPI, IFSC, and OTP. Replaces with placeholders (`[AADHAAR_REDACTED_1]`, etc.) while maintaining an in-memory dictionary scoped strictly to the lifecycle of the single request. `restore()` replaces placeholders with originals in local responses.
+- **Consequences**: Zero PII leaks over the wire (verified via `RecordingTransport`), with seamless local readability.
+
+### ADR-N3: Approvals Center with Exact-Payload Verification & Single-Use State
+- **Context**: Sensitive write actions (send mail, create issue, run script) require explicit authorization, but malicious agents could alter the payload between approval and execution.
+- **Decision**: `ApprovalsCenter` stores canonical JSON payload and checks byte-for-byte equality at `verify_and_consume()`. Successful execution transitions status immediately to `consumed` (preventing replay attacks). Confirmation codes enable out-of-band approval from chat channels.
+- **Consequences**: High-risk actions cannot be hijacked or replayed.
+
+### ADR-N4: Protected File-Based Secret Store with System Keyring Fallback
+- **Context**: Dependency on external secret daemons can cause failures in headless environments or minimal Arch Linux installs.
+- **Decision**: `SecretStore` detects working system keyring (libsecret/keyring); if unavailable or headless, falls back to `~/.local/share/nox/connectors/secrets.json` enforced with strict `0600` permissions (and parent directory `0700`). Values are never logged or revealed in `nx secrets list`.
+- **Consequences**: Robust secret persistence with zero external binary runtime dependencies.
+
+### ADR-N5: Emergency Kill Switch Architecture (`nx panic`)
+- **Context**: User needs an immediate, non-interactive mechanism to stop all background autonomous tasks and revoke authorizations.
+- **Decision**: `KillSwitch.engage()` sets atomic flag `panic_engaged = 1` in `security_state`, immediately revokes all pending approvals in `pending_approvals` and `approvals`, pauses active loops, and writes an audit event. `KillSwitch.resume()` clears the state.
+- **Consequences**: Immediate single-command quarantine of autonomous operations.
+
+### ADR-N6: Base Connector Abstraction with Non-Blocking Daemon Sync & Typed Health
+- **Context**: Integrations with external services (Gmail, IMAP, Calendar, Telegram, Slack, GitHub) must never block daemon startup or cause unhandled exceptions when remote services are offline or rate-limiting.
+- **Decision**: Abstract `BaseConnector` defines lifecycle methods (`auth`, `health`, `sync`, `fetch`, `search`, `guarded_write`), token-bucket rate limiting, and exponential backoff retry. Connector failures update database status to `degraded` or `error` without crashing daemon processes.
+- **Consequences**: Connectors are resilient to external outages and operate asynchronously in background sync tasks.
+
+### ADR-N7: Email Privacy Invariant, PII Sanitization, and Guarded Sending Flow
+- **Context**: Personal emails, calendar events, and banking messages must be safeguarded from accidental cloud egress, and automated agents must never independently send emails.
+- **Decision**: Table `mail_items` defaults to `privacy_class = 'local_only'`. All incoming message text is scrubbed through `PIIRedactor` and capped at 20KB before persistence in SQLite. Draft generation is permitted, but actual message transmission (`action="send"`) strictly requires verification and single-use consumption of an approval token from `ApprovalsCenter`.
+- **Consequences**: Prevents unapproved email transmission and accidental leak of financial or personal PII.
+
+### ADR-N8: Interactive Channels, Owner Pairing Protocol, and Exclusion of WhatsApp & Scraping
+- **Context**: Remote messaging via chat apps (Telegram, Slack, Discord) offers powerful mobile control, but exposure to open networks risks prompt injection attacks, privilege escalation from unauthorized senders, and account bans.
+- **Decision**:
+  - Telegram bot implements an ephemeral 6-digit cryptographic pairing flow (`/pair <code>`). Only the verified owner chat ID is permitted to execute commands (`/status`, `/briefing`, `/approve`, `/panic`). Unpaired or unauthorized interactions are rejected and logged to the tamper-evident audit log.
+  - All channel egress is gated through `PIIRedactor` and `OutputScanner`, stripping credentials, tokens, and Indian PII before transmission over external networks.
+  - Feeds are gathered through clean public syndication (RSS/Atom, unauthenticated Bluesky API, Mastodon public timelines, Reddit RSS).
+  - Reverse-engineered WhatsApp clients (Baileys, puppeteer-web wrappers) are explicitly excluded due to Meta ToS violations, phone number ban risks, session key compromise vectors, and commercial API overhead.
+  - Social network scraping (X/Twitter, LinkedIn, Instagram) is explicitly excluded due to aggressive anti-bot countermeasures (Cloudflare/fingerprinting) and prompt-injection attack surfaces.
+- **Consequences**: Secure, ban-free remote control and external intelligence gathering with strict egress privacy.
+
+### ADR-N9: GitHub & Actions Intelligence Architecture, Heuristic Log Triage, and Static Workflow Linting
+- **Context**: Autonomous development workflows require monitoring CI failures and reviewing pull requests without manual web browsing, but headless server environments frequently lack the `gh` binary or full web authentication.
+- **Decision**:
+  - Implement dual-engine execution: use `gh` CLI subprocess execution if present on PATH, with seamless fallback to GitHub REST API via `httpx` using fine-grained `GITHUB_TOKEN` stored securely in `SecretStore`.
+  - Automated failure triage runs `gh run view --log-failed` (or REST failed job logs), isolates the terminal error frame, and classifies into `test_failure`, `lint_or_type_error`, `dependency_error`, `build_failure`, `auth_error`, or `timeout` with suggested remediations.
+  - Implement static workflow linter inspecting `.github/workflows/*.yml` for explicit permissions, avoiding `write-all`, requiring action pinning (SHA/immutable refs), and preventing script injection in `run:` steps.
+  - Guarded write operations (workflow rerun, PR comment, workflow dispatch) strictly enforce authorization through `ApprovalsCenter`.
+- **Consequences**: Autonomous CI monitoring, fast triage, and secure repository interaction with zero mandatory external CLI dependencies.
+
+### ADR-N10: Multi-Mode Agent Framework, Presets, Untrusted Skill Sandbox, and 3-Regression Auto-Revert
+- **Context**: Autonomous personal agents require diverse operational cadences (on-demand interactive chat, scheduled periodic jobs, continuous background watchdogs) with strict safety boundaries: hard token/cost budgets, emergency kill switch enforcement, safe ingestion of third-party skills, and automated revert of degraded prompt optimizations.
+- **Decision**:
+  - Implement `AgentRunner` supporting on-demand, scheduled (cron), and continuous supervisor execution with proactive token/cost budget checks and immediate blocking under active panic mode (`KillSwitch`).
+  - Ship 8 built-in agent specifications (`deep_research`, `morning_digest`, `inbox_triage`, `github_ci_watch`, `scheduled_monitor`, `code_assistant`, `notes_assistant`, `simple_chat`).
+  - Provide 7 operational system presets (`morning-digest`, `deep-research`, `code-assistant`, `scheduled-monitor`, `chat-simple`, `inbox-triage`, `github-ops`) for instantaneous profile switching.
+  - Require static AST and shell script security scanning (`SkillSecurityScanner`) on untrusted skill packages before staging; reject critical vulnerabilities (`eval`, `exec`, `ctypes`, destructive shell patterns) by default and install external skills in a `disabled` state.
+  - Implement prompt learning loop (`PromptOptimizer`) with offline benchmark evaluation and automatic reversion to baseline prompt if 3 consecutive evaluation regressions occur.
+### ADR-N11: Night-Sky UI Architecture, Unified Diagnostics, and Soft-Delete Protection
+- **Context**: A complete OpenJarvis parity interface requires intuitive management for connectors, mail triage, GitHub intelligence, autonomous agents, human approvals, tamper-evident audit logs, and skills catalogs, while adhering to NoX's night-sky glassmorphism design system, explicit delete confirmation controls, and comprehensive diagnostic health checks.
+- **Decision**:
+  - Implement 7 responsive UI views in `ui/src/pages/` (`ConnectorsPage`, `MailPage`, `GitHubPage`, `AgentsPage`, `ApprovalsPage`, `AuditPage`, `SkillsPage`) integrated into `NavRail` and `App.tsx`.
+  - Enforce delete controls everywhere: `DeleteConfirmModal` for destructive actions (disconnecting connectors, unwatching repositories, revoking credentials) and `UndoToast` with 10-second soft-delete restoration for email triage.
+  - Implement unified diagnostics: REST endpoint `/api/health/full` and CLI commands `nx health` and `nx selftest`, aggregating database WAL integrity, KeyPool availability, cryptographic SHA-256 audit log validation, and CLI tool availability into clear Rich tables.
+- **Consequences**: Consistent night-sky visual styling, safe data deletion workflows, and instant system diagnostic introspection across both web UI and terminal CLI.

@@ -1,0 +1,31 @@
+================================================================================
+NoX Session M: Acceptance Check C5 (Trace Retention and Cleanup Proof)
+================================================================================
+
+1. Ingestion of Backdated and Current Traces
+--------------------------------------------------------------------------------
+Inserted 3 test traces:
+- tr_c5_old_1: started 2026-05-01 (approx 200 days old)
+- tr_c5_old_2: started 2026-07-01 (approx 140 days old)
+- tr_c5_recent: started 2026-11-19 (today)
+
+Before Cleanup:
+- tr_c5_old_1 exists: True
+- tr_c5_old_2 exists: True
+- tr_c5_recent exists: True
+
+2. Execution of cleanup_old_traces(max_days=90, max_rows=100000)
+--------------------------------------------------------------------------------
+Executed cleanup matching the persistent scheduler's daily traces_cleanup job.
+Result Summary:
+- deleted_expired: 2
+- deleted_capped: 0
+- remaining: 32
+
+3. Verification After Cleanup
+--------------------------------------------------------------------------------
+- tr_c5_old_1 exists: False (purged per 90-day retention policy)
+- tr_c5_old_2 exists: False (purged per 90-day retention policy)
+- tr_c5_recent exists: True (preserved)
+
+Result: PASS

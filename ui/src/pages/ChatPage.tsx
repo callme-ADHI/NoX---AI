@@ -431,11 +431,19 @@ export const ChatPage: React.FC = () => {
       setActiveRunId(null);
       activeRunIdRef.current = null;
       const errMsgText = err?.message || String(err) || 'Server error';
+      let content = `⚠️ Failed to send message: ${errMsgText}. Please try again.`;
+      if (
+        errMsgText.includes('401') ||
+        errMsgText.toLowerCase().includes('unauthorized') ||
+        errMsgText.includes('session token')
+      ) {
+        content = `⚠️ Session expired (NoX daemon was restarted). Please run 'nx open' in your terminal or refresh the browser to reconnect.`;
+      }
       const errorMsg: Message = {
         id: `msg_err_${Date.now()}`,
         conversation_id: activeConvId || '',
         role: 'assistant',
-        content: `⚠️ Failed to send message: ${errMsgText}. Please try again.`,
+        content,
       };
       setMessages((prev) => [...prev, errorMsg]);
     }

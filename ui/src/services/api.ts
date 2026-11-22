@@ -18,6 +18,16 @@ import {
   NotificationItem,
   SystemStatus,
   Task,
+  ConnectorInfo,
+  MailItem,
+  GitHubRepo,
+  GitHubRun,
+  AgentInfo,
+  PresetInfo,
+  ScopedApproval,
+  AuditChainEvent,
+  SkillInfo,
+  FullHealthDiagnostics,
 } from '../types';
 
 const API_BASE = '/api';
@@ -68,6 +78,10 @@ async function request<T>(
       errDetail = errJson.detail || errJson.message || JSON.stringify(errJson);
     } catch {
       // ignore
+    }
+    if (response.status === 401 && typeof window !== 'undefined') {
+      sessionStorage.removeItem('nox_token');
+      localStorage.removeItem('nox_token');
     }
     throw new Error(`API ${response.status}: ${errDetail}`);
   }
@@ -519,4 +533,117 @@ export const api = {
     request<{ ok: boolean }>(`/notifications/${id}/read`, {
       method: 'POST',
     }),
+
+  // Connectors
+  getConnectors: () => request<ConnectorInfo[]>('/connectors'),
+
+  syncConnector: (name: string) =>
+    request<{ ok: boolean; connector: string; stats: Record<string, unknown> }>(
+      `/connectors/${name}/sync`,
+      { method: 'POST' }
+    ),
+
+  disconnectConnector: (name: string) =>
+    request<{ ok: boolean }>(`/connectors/${name}`, { method: 'DELETE' }),
+
+  // Mail
+  getMail: (params: { limit?: number; category?: string; unread_only?: boolean } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.limit) sp.set('limit', String(params.limit));
+    if (params.category) sp.set('category', params.category);
+    if (params.unread_only) sp.set('unread_only', 'true');
+    const qs = sp.toString();
+    return request<MailItem[]>(`/mail${qs ? `?${qs}` : ''}`);
+  },
+
+  draftMailReply: (mailId: string) =>
+    request<{ mail_id: string; to: string; subject: string; draft_body: string }>(
+      `/mail/${mailId}/draft`,
+      { method: 'POST' }
+    ),
+
+  deleteMail: (mailId: string) =>
+    request<{ ok: boolean }>(`/mail/${mailId}`, { method: 'DELETE' }),
+
+  restoreMail: (mailId: string) =>
+    request<{ ok: boolean }>(`/mail/${mailId}/restore`, { method: 'POST' }),
+
+  // GitHub Intelligence
+  getGitHubRepos: () => request<GitHubRepo[]>('/github/repos'),
+
+  addGitHubRepo: (repo_name: string, is_private = false, watch_actions = true, watch_prs = true) =>
+    request<{ ok: boolean; repo_name: string }>('/github/repos', {
+      method: 'POST',
+      body: JSON.stringify({ repo_name, is_private, watch_actions, watch_prs }),
+    }),
+
+  removeGitHubRepo: (owner: string, repo: string) =>
+    request<{ ok: boolean }>(`/github/repos/${owner}/${repo}`, { method: 'DELETE' }),
+
+  getGitHubRuns: (params: { repo?: string; limit?: number } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.repo) sp.set('repo', params.repo);
+    if (params.limit) sp.set('limit', String(params.limit));
+    const qs = sp.toString();
+    return request<GitHubRun[]>(`/github/runs${qs ? `?${qs}` : ''}`);
+  },
+
+  // Agents & Presets
+  getAgents: () => request<AgentInfo[]>('/agents'),
+
+  runAgent: (name: string, input_prompt?: string) =>
+    request<Record<string, unknown>>(`/agents/${name}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ input_prompt }),
+    }),
+
+  toggleAgent: (name: string) =>
+    request<{ ok: boolean; name: string; enabled: boolean }>(`/agents/${name}/toggle`, {
+      method: 'POST',
+    }),
+
+  getPresets: () => request<PresetInfo[]>('/presets'),
+
+  applyPreset: (name: string) =>
+    request<Record<string, unknown>>(`/presets/${name}/apply`, { method: 'POST' }),
+
+  // Approvals
+  getPendingApprovals: () => request<ScopedApproval[]>('/approvals/pending'),
+
+  resolveScopedApproval: (approvalId: string, decision: 'approve' | 'deny') =>
+    request<{ ok: boolean; status: string; token?: string }>(
+      `/approvals/${approvalId}/resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      }
+    ),
+
+  // Audit
+  getAuditChain: (limit = 50) =>
+    request<AuditChainEvent[]>(`/audit/chain?limit=${limit}`),
+
+  verifyAuditChain: () =>
+    request<{ verified: boolean; total_events: number; message: string }>(
+      '/audit/verify',
+      { method: 'POST' }
+    ),
+
+  // Skills
+  getSkills: () => request<SkillInfo[]>('/skills'),
+
+  enableSkill: (name: string) =>
+    request<{ ok: boolean }>(`/skills/${name}/enable`, { method: 'POST' }),
+
+  disableSkill: (name: string) =>
+    request<{ ok: boolean }>(`/skills/${name}/disable`, { method: 'POST' }),
+
+  installSkill: (source: string, force = false) =>
+    request<Record<string, unknown>>('/skills/install', {
+      method: 'POST',
+      body: JSON.stringify({ source, force }),
+    }),
+
+  // Full Health Diagnostics
+  getFullHealth: () => request<FullHealthDiagnostics>('/health/full'),
 };

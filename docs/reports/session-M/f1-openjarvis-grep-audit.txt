@@ -1,0 +1,62 @@
+./src/noxai/models/engine.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/memory/conversation.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/memory/docs.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/scheduler/persistent.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/skills/parser.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/skills/catalog.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/commands/schedule.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/commands/traces.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/commands/prompt.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/commands/skill.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/commands/mcp.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/tracing/redact.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/tracing/recorder.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/tracing/cleanup.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/tracing/rewrite.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/mcp/client.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./src/noxai/mcp/__init__.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./docs/prompts/session-M.md:1:NoX Session M: Port the Useful Parts of OpenJarvis, Then Delete It
+./docs/prompts/session-M.md:5:1.  Study the open-source project OpenJarvis (Stanford, Apache-2.0) by cloning it into a temporary folder.
+./docs/prompts/session-M.md:8:4.  Delete the OpenJarvis clone completely when finished, keeping only the license attribution that the Apache-2.0 license requires.
+./docs/prompts/session-M.md:9:OpenJarvis is a reference, never a dependency. After this session NoX must run with OpenJarvis not installed, not imported and not present on disk (except attribution text).
+./docs/prompts/session-M.md:40:Delete the OpenJarvis clone, leave attribution
+./docs/prompts/session-M.md:43:• Do not install OpenJarvis (pip, uv add, uv sync of its repo, maturin, its installers, or any curl | bash). You only read its files.
+./docs/prompts/session-M.md:68:• The only deletion you may do outside the NoX repo is removing the OpenJarvis clone in Section 9, with the exact guarded procedure given there.
+./docs/prompts/session-M.md:76:• Port the smallest amount of OpenJarvis code and the largest amount of understanding. Prefer re-implementing a pattern in about 100 to 300 lines of clean NoX code over copying a large module with its dependencies.
+./docs/prompts/session-M.md:77:• If a file you want to port pulls in many OpenJarvis internals, do not copy the tree. Re-implement the idea.
+./docs/prompts/session-M.md:113:3.2 Clone OpenJarvis for reading
+./docs/prompts/session-M.md:115:OJ_DIR="$(mktemp -d /tmp/openjarvis-study.XXXXXX)"
+./docs/prompts/session-M.md:118:git clone --depth 1 https://github.com/open-jarvis/OpenJarvis.git src
+./docs/prompts/session-M.md:125:• Use only the official repository open-jarvis/OpenJarvis. Several forks exist on GitHub with similar names. Do not clone any fork.
+./docs/prompts/session-M.md:131:• src/openjarvis/engine/: the inference engine interface (generate, stream, list_models, health) and the cloud backend.
+./docs/prompts/session-M.md:132:• src/openjarvis/scheduler/: cron and interval task scheduling and its MCP scheduler tools.
+./docs/prompts/session-M.md:133:• src/openjarvis/memory/: memory backends (SQLite, BM25, FAISS, ColBERT), document ingestion, chunking and context injection with source attribution.
+./docs/prompts/session-M.md:134:• src/openjarvis/agents/: the base agent class, the registry, and especially the continuous monitor agent with memory compression and the deep-research agent with inline citations.
+./docs/prompts/session-M.md:135:• src/openjarvis/learning/ and the traces module: how traces are recorded and what fields they hold (read only the recording, not the training).
+./docs/prompts/session-M.md:136:• src/openjarvis/mcp/ and the skills code (search for skill, SKILL.md, agentskills): how skills are discovered from a catalog, loaded and invoked as tools.
+./docs/prompts/session-M.md:137:• src/openjarvis/tools/: the tool interface and registry.
+./docs/prompts/session-M.md:139:For each area write: what it does in your own words (not pasted code), file sizes in lines, its imports from other OpenJarvis modules, license headers present, the specific functions or classes worth porting, and what NoX needs instead of copying (because of dependencies). Finish with a 'Port decision' table: item, port as code or re-implement as pattern, estimated lines, risk.
+./docs/prompts/session-M.md:140:Gate: if the study shows that a workstream below depends on something that does not exist in OpenJarvis (for example no scheduler persistence), say so and build the NoX version from first principles using the acceptance checks, still crediting nothing you did not take.
+./docs/prompts/session-M.md:142:OpenJarvis is Apache License 2.0. You may reuse and adapt its code if you follow these rules. Do them as you go, not at the end.
+./docs/prompts/session-M.md:145:3.  Every NoX file that contains copied or closely adapted OpenJarvis code gets a header comment: 'Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0), commit <hash>. Modified for NoX: <one line>.'
+./docs/prompts/session-M.md:153:Introduce a small engine abstraction in noxai (adapt the existing client code; do not rewrite working call paths wholesale). Study OpenJarvis's engine interface (generate, stream, list_models, health) and take the idea, not the multi-engine zoo.
+./docs/prompts/session-M.md:175:A daemon-owned scheduler. Study OpenJarvis's scheduler (cron and interval tasks). Port the idea of persisted jobs with a clear state machine; implement it on NoX's storage.
+./docs/prompts/session-M.md:198:The owner wants dislike feedback on a briefing topic to make NoX rewrite its own briefing prompt. That only works if every run records what was asked, what was used and what the outcome was. OpenJarvis records traces of agent runs and uses them for learning. Take the recording idea only. Do not port any training or policy-learning code.
+./docs/prompts/session-M.md:218:Then, build the memory algorithm. Study OpenJarvis's continuous monitor agent and its memory compression, then implement this design in NoX (adjust only if the audit shows a constraint):
+./docs/prompts/session-M.md:235:Study OpenJarvis's memory ingestion (chunking, embedding, source attribution, backend interface). Build the NoX version:
+./docs/prompts/session-M.md:254:Let NoX discover and use reusable 'skills' (folders of instructions) and external tools over MCP without hardcoding each capability. Study how OpenJarvis discovers a catalog of skills, exposes each skill as a tool to the agent, and follows the open agentskills.io format (a folder with a SKILL.md that has YAML frontmatter with at least name and description). Read the actual format in the OpenJarvis code and docs; do not assume.
+./docs/prompts/session-M.md:259:4.  Ship two small, useful, hand-written skills to prove the system: briefing-format (the formatting rules for NoX briefings, with clickable source links) and notes-search (how to use the document memory and cite sources). Write them yourself; do not copy any skill from OpenJarvis or its community catalogs.
+./docs/prompts/session-M.md:260:5.  MCP client: study OpenJarvis's MCP layer. In NoX, implement a minimal MCP client that can connect to servers listed in config (stdio transport first), list their tools, and expose them to the agent with the same safety model: each server is disabled until the owner enables it; each tool call is logged to traces; a per-server allowlist of tool names; a timeout of 30 seconds per call. If NoX already has an MCP client, extend it instead of writing a second one. If adding MCP needs a new dependency, prefer the official MCP Python SDK; justify it in the report and add it to the PKGBUILD dependency list.
+./docs/prompts/session-M.md:270:10. Workstream F: Delete the OpenJarvis clone (cleanup)
+./docs/prompts/session-M.md:275:echo "$OJ_DIR"                    # must print /tmp/openjarvis-study.XXXXXX
+./docs/prompts/session-M.md:277:  /tmp/openjarvis-study.*) ls "$OJ_DIR" && rm -rf -- "$OJ_DIR" ;;
+./docs/prompts/session-M.md:281:find / -maxdepth 4 -iname '*openjarvis*' -not -path '*/proc/*' 2>/dev/null | head
+./docs/prompts/session-M.md:282:If $OJ_DIR is no longer set in your shell, find the folder with ls -d /tmp/openjarvis-study.*, print it, check it is the only match, and then delete it with the same guard.
+./docs/prompts/session-M.md:338:Done means: branch session-m exists with one commit per task; baseline test failures did not increase; every acceptance check is PASS, or UNVERIFIED or FAILED with a reason; the OpenJarvis clone is gone and attribution remains; NoX starts and nx doctor runs with OpenJarvis absent.
+./docs/prompts/session-M.md:340:Never do these, whatever the circumstances: commit secrets; modify the owner's notes, certificates or study files; run unreviewed community skills or scripts; install OpenJarvis; report a result you did not observe.
+./tests/test_conversation_memory.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./tests/test_document_memory.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./tests/test_skills_and_mcp.py:1:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./scripts/run_d1_acceptance.py:2:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./scripts/run_d2_acceptance.py:2:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),
+./scripts/run_e_acceptance.py:2:# Portions adapted from OpenJarvis (https://github.com/open-jarvis/OpenJarvis, Apache-2.0),

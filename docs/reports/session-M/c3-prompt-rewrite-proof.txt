@@ -1,0 +1,54 @@
+================================================================================
+NoX Session M: Acceptance Check C3 (Prompt Feedback, Rewrite, Rollback Proof)
+================================================================================
+
+1. Dislike Topic Through UI API
+--------------------------------------------------------------------------------
+Endpoint: POST /api/briefings/brun_c1_proof/feedback/detailed
+Payload:
+{
+  "rating": "dislike",
+  "topic_id": "topic_ai",
+  "reason_text": "Focus more on open-weight LLM architectures and quant benchmarks. Avoid generic corporate PR announcements.",
+  "tags": ["too_generic"]
+}
+
+Response:
+{"ok": true, "feedback_id": "fb_891b89deae"}
+
+2. Resulting Row in prompt_feedback Table
+--------------------------------------------------------------------------------
+ID: pfb_d26eab5b78
+Topic: topic_ai
+Trace ID: tr_combine_brun_c1_proof
+Note: Focus more on open-weight LLM architectures and quant benchmarks. Avoid generic corporate PR announcements.
+Created At: 2026-11-19T03:19:14.940952+00:00
+Applied: 0 (initially unapplied)
+
+3. Trigger AI Prompt Improvement (nx prompt improve topic_ai)
+--------------------------------------------------------------------------------
+CLI Invocation: nx prompt improve topic_ai
+Generated new prompt version 2 for 'topic_ai' incorporating dislike feedback.
+
+[Old Prompt (v1)]:
+Extract concise, verified technical intelligence for topic_ai. Focus on architecture, releases, and actionable details. Avoid marketing fluff.
+
+[New Active Prompt (v2)]:
+Extract concise, verified technical intelligence for topic_ai. Strict constraints based on feedback: Focus more on open-weight LLM architectures and quant benchmarks. Avoid generic corporate PR announcements.. Focus on architecture, releases, and actionable details. Avoid generic PR.
+
+Applied Flag in prompt_feedback:
+- Row 'pfb_d26eab5b78': applied = 1
+
+4. Rollback to Prior Prompt Version (nx prompt rollback topic_ai 1)
+--------------------------------------------------------------------------------
+CLI Invocation: nx prompt rollback topic_ai 1
+Output:
+✓ Successfully rolled back prompt for 'topic_ai' to version 1.
+Active Prompt (v1):
+Extract concise, verified technical intelligence for topic_ai. Focus on architecture, releases, and actionable details. Avoid marketing fluff.
+
+Version Rows (prompt_versions):
+Version 1 | Status: active   | Created By: seed         | Changelog: Initial baseline prompt
+Version 2 | Status: reverted | Created By: auto-feedback| Changelog: Refined from 1 dislike feedback notes...
+
+Result: PASS

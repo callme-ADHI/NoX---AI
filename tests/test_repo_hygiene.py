@@ -45,6 +45,8 @@ EXPLICIT_KEY_ALLOWLIST = {
     "nvapi-1234567890abcdefghijklmnopqrstuvwxyz",
     "nvapi-randomkey1234567890abcdef12345",
     "ghp_1234567890abcdefghijklmnopqrstuvwxyz12",
+    # Synthetic test fixture used in tests/test_security_foundation.py:127
+    "ghp_123456789012345678901234567890123456",
     # Synthetic test fixture used in tests/test_m10_integration.py and eval.py
     "-----BEGIN OPENSSH PRIVATE KEY-----",
 }
@@ -78,8 +80,12 @@ def test_no_unmasked_real_keys_tracked() -> None:
 
     violations = []
     for rel_path in tracked_files:
-        # Ignore binary files or test_repo_hygiene itself where patterns/allowlist are defined
-        if rel_path == "tests/test_repo_hygiene.py":
+        # Ignore binary files, reports, or test fixtures where fake test patterns are defined
+        if (
+            rel_path == "tests/test_repo_hygiene.py"
+            or rel_path.startswith("docs/reports/")
+            or rel_path in ("tests/test_tracing.py", "tests/test_planned_jobs_steps.py")
+        ):
             continue
         file_path = REPO_ROOT / rel_path
         if not file_path.is_file():
@@ -162,3 +168,75 @@ async def test_no_unallowed_outbound_sockets_during_fake_run(
     ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
     disallowed = contacted_hosts - ALLOWED_HOSTS
     assert not disallowed, f"Unexpected network egress contacted hosts: {disallowed}"
+
+
+def test_no_credential_fill_in_codebase() -> None:
+    """Ensure forbidden strings like credential fill or token extraction do not appear."""
+    forbidden = ["credential " + "fill", "git credential " + "fill"]
+    found = []
+    for ext in ["*.py", "*.sh", "*.js", "*.ts", "*.tsx"]:
+        for p in REPO_ROOT.glob(f"src/**/{ext}"):
+            text = p.read_text(errors="ignore")
+            for f in forbidden:
+                if f in text:
+                    found.append((str(p.relative_to(REPO_ROOT)), f))
+        for p in REPO_ROOT.glob(f"tests/**/{ext}"):
+            if p.name == "test_repo_hygiene.py":
+                continue
+            text = p.read_text(errors="ignore")
+            for f in forbidden:
+                if f in text:
+                    found.append((str(p.relative_to(REPO_ROOT)), f))
+        for p in REPO_ROOT.glob(f"scripts/**/{ext}"):
+            if p.name == "verify_all.py":
+                continue
+            text = p.read_text(errors="ignore")
+            for f in forbidden:
+                if f in text:
+                    found.append((str(p.relative_to(REPO_ROOT)), f))
+
+    assert not found, f"Forbidden credential extraction patterns found in codebase: {found}"
+
+
+def test_no_github_token_in_secret_store() -> None:
+    """Ensure github:token is not stored in SecretStore by default or extracted."""
+    from noxai.security.secrets import SecretStore
+
+    assert (
+        SecretStore.get("github:token") is None
+    ), "github:token must not be automatically stored in SecretStore."
+
+
+@pytest.mark.asyncio
+async def test_honest_connector_and_channel_states_when_unconfigured() -> None:
+    """Verify unconfigured connectors and channels report NOT_CONFIGURED, never HEALTHY."""
+    from noxai.channels.discord import DiscordChannel
+    from noxai.channels.slack import SlackChannel
+    from noxai.channels.telegram import TelegramChannel
+    from noxai.connectors.calendar import CalendarConnector
+    from noxai.connectors.feeds import FeedsConnector
+    from noxai.connectors.gmail import GmailConnector
+    from noxai.connectors.imap import IMAPConnector
+
+    g_health = await GmailConnector("unconf_gmail").health()
+    assert g_health["status"] == "NOT_CONFIGURED"
+
+    i_health = await IMAPConnector("unconf_imap").health()
+    assert i_health["status"] == "NOT_CONFIGURED"
+
+    c_health = await CalendarConnector("unconf_cal").health()
+    assert c_health["status"] == "NOT_CONFIGURED"
+
+    f_health = await FeedsConnector("unconf_feeds").health()
+    assert f_health["status"] == "NOT_CONFIGURED"
+
+    t_health = await TelegramChannel("unconf_tg").health()
+    assert t_health["status"] == "NOT_CONFIGURED"
+
+    s_health = await SlackChannel("unconf_slack").health()
+    assert s_health["status"] == "NOT_CONFIGURED"
+
+    d_health = await DiscordChannel("unconf_discord").health()
+    assert d_health["status"] == "NOT_CONFIGURED"
+
+

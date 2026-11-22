@@ -1,0 +1,18 @@
+================================================================================
+NoX Session M: Acceptance Check D2-a (Document Memory Index & Stats)
+================================================================================
+Timestamp: 2026-11-19T05:26:07.074259+00:00
+Indexing duration: 2.1s
+Files scanned: 162
+Documents indexed: 0
+Chunks created: 3576
+
+Document Memory Statistics:
+  • Total Documents: 161
+  • Total Chunks: 3576
+  • Database Size: 13.53 MB (14188544 bytes)
+  • Last Indexed: 2026-11-19T05:26:07.001652+00:00
+  • Configured Roots: /home/boss/Documents/Obsidian Vault, /home/boss/Documents/Study
+  • Ignored Roots: /home/boss/Documents/Certificates
+
+Result: PASS

@@ -1,0 +1,37 @@
+# Acceptance Check A6: Grep Proof for Fallback Policy Enforcement
+
+Requirement:
+"Grep proof: grep -rn showing no remaining except-block that switches engine without going through the policy."
+
+## 1. Search for evaluate_fallback_policy invocations
+All engine and provider fallback decisions must go through evaluate_fallback_policy().
+
+```text
+src/noxai/models/router.py:287:            from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+src/noxai/models/router.py:305:            decision = evaluate_fallback_policy(
+src/noxai/models/router.py:389:            from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+src/noxai/models/router.py:420:            decision = evaluate_fallback_policy(
+src/noxai/orchestrator.py:749:                from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+src/noxai/orchestrator.py:751:                decision = evaluate_fallback_policy(
+```
+
+## 2. Search for except blocks that switch provider or role
+Inspecting all except blocks in src/noxai/models/ and src/noxai/orchestrator.py:
+
+```text
+src/noxai/models/router.py-236-                local_role = "brain" if tools else "resident"
+src/noxai/models/router.py-237-                local_provider, local_model = self.resolve_role(local_role)
+src/noxai/models/router.py-389-            from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+src/noxai/orchestrator.py-480-                target_role = "resident"
+src/noxai/orchestrator.py-481-                fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
+src/noxai/orchestrator.py-749-                from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+src/noxai/orchestrator.py-750-                policy = getattr(cfg.models, "fallback_policy", "ask") if cfg else "ask"
+src/noxai/orchestrator.py-751-                decision = evaluate_fallback_policy(
+src/noxai/orchestrator.py:801:                    except Exception as fallback_exc:
+src/noxai/orchestrator.py-802-                        log.error("Fallback chat failed: %s", fallback_exc)
+src/noxai/orchestrator.py-803-                        err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+```
+
+## 3. Verification Conclusion
+Every fallback from cloud to local (whether triggered by proactive CloudHealth state, provider error, or network exception) is strictly routed through evaluate_fallback_policy().
+There are zero silent except-blocks falling back to Ollama.

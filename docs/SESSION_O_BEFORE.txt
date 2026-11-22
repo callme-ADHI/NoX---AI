@@ -1,0 +1,35 @@
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+N-1        Security             FAIL            NOT-DONE           Forbidden credential extraction strings 
+N-2        Security             FAIL            NOT-DONE           Error checking connector states: No modu
+N-3        Security             FAIL            NOT-DONE           Audit log has only 3 events; guarded act
+N-4        Security             FAIL            NOT-DONE           SecretStore text needs alignment to accu
+N-5        Security             FAIL            NOT-DONE           Skill scanner not yet upgraded to multi-
+N-6        Security             FAIL            NOT-DONE           OpenJarvis parity matrix not yet rebuilt
+N-7        Security             FAIL            NOT-DONE           Missing component tests for: ['Connector
+N-8        Security             FAIL            NOT-DONE           scripts/ci-local.sh does not exist.
+C-1        Core Runtime         FAIL            NOT-DONE           PersistentScheduler contains duplicate b
+C-2        Core Runtime         FAIL            NOT-DONE           Requires temp-instance automated proof w
+C-3        Core Runtime         FAIL            NOT-DONE           Requires live SIGKILL subprocess test ag
+C-4        Core Runtime         FAIL            NOT-DONE           NvidiaProvider references old key_pool.p
+C-5        Core Runtime         FAIL            NOT-DONE           Requires temp instance recording transpo
+C-6        Core Runtime         FAIL            NOT-DONE           Requires real model execution without 80
+C-7        Core Runtime         FAIL            NOT-DONE           Requires converging migration and upgrad
+C-8        Core Runtime         FAIL            NOT-DONE           Requires recorded-transport egress check
+T-1        Content              FAIL            NOT-DONE           Briefing content live proof with real ne
+T-2        Content              FAIL            NOT-DONE           Playwright test has ReferenceError: __di
+L-1        Jobs                 FAIL            NOT-DONE           Audit and repair of stuck job not comple
+L-2        Jobs                 FAIL            NOT-DONE           Requires live bare-repo proofs in temp H
+D-1        Desktop & Packaging  FAIL            NOT-DONE           Desktop tray endpoints not yet verified.
+D-2        Desktop & Packaging  FAIL            NOT-DONE           Vault path in desktop app must be dynami
+D-3        Desktop & Packaging  FAIL            NOT-DONE           Tray labels are static; need live state 
+D-4        Desktop & Packaging  FAIL            NOT-DONE           Token flow must avoid argv and cross-ori
+D-5        Desktop & Packaging  FAIL            NOT-DONE           Navigation allowlist and path allowlist 
+D-6        Desktop & Packaging  FAIL            NOT-DONE           Check app-id across desktop entry, Hyprl
+D-7        Desktop & Packaging  FAIL            NOT-DONE           Requires extended cargo unit tests and l
+P-1        Desktop & Packaging  FAIL            NOT-DONE           PKGBUILD uses SKIP checksums and lacks t
+P-2        Desktop & Packaging  FAIL            NOT-DONE           nx setup must not edit Hyprland config w
+F-1        Features             FAIL            NOT-DONE           Requires protocol-level fakes and USER-R
+F-2        Features             FAIL            NOT-DONE           Requires protocol-level fakes and USER-R
+F-3        Features             FAIL            NOT-DONE           Requires gh-first refactor and live read
+F-4        Features             FAIL            NOT-DONE           Requires held-out evaluation and auto-ro

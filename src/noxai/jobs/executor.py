@@ -342,6 +342,43 @@ async def execute_planned_job(
         )
         await db.commit()
 
+    # Record trace in traces table (Workstream C)
+    try:
+        tr_id = f"tr_{run_id.replace('run_', '')}"
+        async with get_db() as tr_db:
+            step_rows = await fetch_all(
+                tr_db,
+                "SELECT kind, folder_alias, state FROM job_run_steps WHERE run_id = ? ORDER BY step_index ASC",
+                (run_id,),
+            )
+            tr_steps = [
+                {"name": f"{r['kind']}:{r['folder_alias']}", "status": r["state"]}
+                for r in step_rows
+            ]
+            await execute(
+                tr_db,
+                """
+                INSERT INTO traces (
+                    id, started_at, finished_at, source, schedule_run_id, request_text,
+                    intent, engine, model, steps, final_status
+                ) VALUES (?, datetime('now'), datetime('now'), 'job', ?, ?, 'job_backup', 'local', 'script', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    finished_at = excluded.finished_at,
+                    final_status = excluded.final_status,
+                    steps = excluded.steps
+                """,
+                (
+                    tr_id,
+                    run_id,
+                    f"Execute planned backup job {job_id}",
+                    json.dumps(tr_steps),
+                    "success" if final_status in ("succeeded", "partial") else "failed",
+                ),
+            )
+            await tr_db.commit()
+    except Exception as exc:
+        log.warning("Failed to record job trace: %s", exc)
+
     await step_notify(summary_text[:120], is_error=(final_status in ("failed", "needs_setup")))
     return final_status
 

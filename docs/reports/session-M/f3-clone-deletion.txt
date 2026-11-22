@@ -1,0 +1,4 @@
+OJ_MATCHES: 
+NO CLONE FOUND IN /tmp/openjarvis-study.* (Already clean or pruned)
+Checking root for openjarvis:
+/home/boss/.openjarvis

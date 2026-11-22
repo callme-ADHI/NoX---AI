@@ -24,6 +24,7 @@ SEED_JOBS: list[dict[str, Any]] = [
         "schedule_type": "cron",
         "schedule_expr": "30 7 * * *",
         "timezone": "Asia/Kolkata",
+        "enabled": False,  # Gate A: BriefingScheduler is the sole authority for briefings
         "instruction": (
             "Produce an executive intelligence morning briefing for {today}.\n"
             "Format strictly with rich markdown sections, bold headlines, bullet points, "
@@ -197,7 +198,7 @@ async def seed_database_if_needed(db: aiosqlite.Connection) -> bool:
                 id, name, description, schedule_type, schedule_expr, timezone,
                 instruction, config_json, enabled, created_by, version, next_run_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'seed', 1, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'seed', 1, ?)
             ON CONFLICT(name) DO UPDATE SET
                 instruction = excluded.instruction,
                 description = excluded.description,
@@ -212,6 +213,7 @@ async def seed_database_if_needed(db: aiosqlite.Connection) -> bool:
                 job_def["timezone"],
                 job_def["instruction"],
                 cfg_json,
+                1 if job_def.get("enabled", True) and job_def["name"] != "daily-briefing" else 0,
                 next_run_iso,
             ),
         )

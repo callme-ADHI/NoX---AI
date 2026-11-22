@@ -227,6 +227,130 @@ def check_nvidia_key_source(secrets_file: Path = SECRETS_FILE) -> tuple[DoctorCh
     ), False
 
 
+def check_engine_health(engine_name: str, cfg: Any) -> DoctorCheck:
+    """Evaluate typed health and latency for an engine."""
+    import asyncio
+    import concurrent.futures
+    from noxai.models.engine import get_engine
+
+    try:
+        engine = get_engine(engine_name, config=cfg)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                health = pool.submit(asyncio.run, engine.health()).result()
+        else:
+            health = asyncio.run(engine.health())
+
+        if health.status == "ok":
+            return DoctorCheck(f"Engine {engine_name} (ok, {health.latency_ms:.0f}ms)", "PASS", "")
+        if health.status == "degraded":
+            return DoctorCheck(f"Engine {engine_name} (degraded: {health.reason})", "WARN", health.message)
+        return DoctorCheck(f"Engine {engine_name} (down: {health.reason})", "FAIL", health.message)
+    except Exception as exc:
+        return DoctorCheck(f"Engine {engine_name} (down: unknown)", "FAIL", str(exc))
+
+
+def check_key_pool_state(cfg: Any) -> DoctorCheck:
+    """Report key pool counts (active, cooling down) without revealing secrets."""
+    from noxai.models.keypool import get_default_keypool
+
+    try:
+        kp = get_default_keypool()
+        total = kp.total_keys
+        healthy = kp.healthy_keys_count
+        cooling = total - healthy
+        if total == 0:
+            if getattr(getattr(cfg, "models", None), "nvidia", None) and getattr(cfg.models.nvidia, "enabled", True):
+                return DoctorCheck("NVIDIA KeyPool (0 keys)", "WARN", "No keys configured; cloud will be disabled.")
+            return DoctorCheck("NVIDIA KeyPool (0 keys, disabled)", "PASS", "")
+        if cooling > 0:
+            return DoctorCheck(f"NVIDIA KeyPool ({healthy}/{total} active, {cooling} cooling down)", "WARN", f"{cooling} key(s) in cooldown")
+        return DoctorCheck(f"NVIDIA KeyPool ({total} keys active, 0 cooling down)", "PASS", "")
+    except Exception as exc:
+        return DoctorCheck("NVIDIA KeyPool", "WARN", str(exc))
+
+
+def check_configured_models(cfg: Any) -> list[DoctorCheck]:
+    """Verify each configured model appears in list_models() for its engine."""
+    import asyncio
+    import concurrent.futures
+    from noxai.models.engine import get_engine, validate_configured_models
+
+    checks: list[DoctorCheck] = []
+    roles = getattr(cfg.models, "roles", {}) if (cfg and hasattr(cfg, "models")) else {}
+
+    by_engine: dict[str, list[str]] = {}
+    for rname, rcfg in roles.items():
+        prov = getattr(rcfg, "provider", "ollama")
+        m = getattr(rcfg, "model", "")
+        if m:
+            by_engine.setdefault(prov, []).append(m)
+
+    for prov, models in by_engine.items():
+        try:
+            engine = get_engine(prov, config=cfg)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    valid, missing, h = pool.submit(asyncio.run, validate_configured_models(engine, models)).result()
+            else:
+                valid, missing, h = asyncio.run(validate_configured_models(engine, models))
+
+            for m in sorted(set(models)):
+                if not valid and missing == m:
+                    checks.append(DoctorCheck(f"Model {m} on {prov}", "FAIL", f"model_gone: not found in {prov} list_models()"))
+                elif h.status == "down":
+                    checks.append(DoctorCheck(f"Model {m} on {prov}", "FAIL", f"engine down ({h.reason}): {h.message}"))
+                elif not valid and not missing:
+                    checks.append(DoctorCheck(f"Model {m} on {prov}", "FAIL", f"model_gone: {h.message}"))
+                else:
+                    checks.append(DoctorCheck(f"Model {m} on {prov}", "PASS", ""))
+        except Exception as exc:
+            for m in sorted(set(models)):
+                checks.append(DoctorCheck(f"Model {m} on {prov}", "FAIL", f"Validation error: {exc}"))
+
+    return checks
+
+
+def check_persistent_scheduler_state() -> DoctorCheck:
+    """Report persistent scheduler state and active schedules."""
+    import sqlite3
+    from noxai.db import get_db_path
+
+    path = get_db_path()
+    if not path.exists():
+        return DoctorCheck("Persistent scheduler", "WARN", "Database not found")
+
+    try:
+        conn = sqlite3.connect(path)
+        cur = conn.cursor()
+        rows = cur.execute(
+            "SELECT name, enabled, next_run_at FROM schedules WHERE enabled = 1"
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return DoctorCheck("Persistent scheduler", "WARN", "No active schedules configured")
+
+        names = [r[0] for r in rows]
+        return DoctorCheck(
+            f"Persistent scheduler ({len(rows)} active: {', '.join(names)})",
+            "PASS",
+            "",
+        )
+    except Exception as exc:
+        return DoctorCheck("Persistent scheduler", "WARN", str(exc))
+
+
 def check_nvidia_models_endpoint(cfg: Any, has_key: bool) -> DoctorCheck:
     if not has_key:
         return DoctorCheck("NVIDIA API endpoint", "WARN", "Cloud disabled; skipping endpoint check")
@@ -239,7 +363,7 @@ def check_nvidia_models_endpoint(cfg: Any, has_key: bool) -> DoctorCheck:
         return DoctorCheck("NVIDIA API endpoint", "WARN", "API key missing in loaded config")
 
     heavy_id = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-    if cfg and "heavy" in cfg.models.roles:
+    if cfg and hasattr(cfg, "models") and hasattr(cfg.models, "roles") and "heavy" in cfg.models.roles:
         heavy_id = cfg.models.roles["heavy"].model
 
     try:
@@ -267,6 +391,7 @@ def check_nvidia_models_endpoint(cfg: Any, has_key: bool) -> DoctorCheck:
         )
     except Exception as exc:
         return DoctorCheck("NVIDIA API endpoint", "WARN", f"NVIDIA error: {exc}")
+
 
 
 def check_cloud_health_state(has_key: bool = True) -> DoctorCheck:
@@ -797,15 +922,18 @@ def check_ram_budget(
     )
 
 
-def run_all_checks() -> list[DoctorCheck]:
+def run_all_checks(cfg: Any = None) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
 
     # 1. Python version
     checks.append(check_python_version())
 
     # 2. Config loads
-    cfg_check, cfg = check_config_loads()
-    checks.append(cfg_check)
+    if cfg is None:
+        cfg_check, cfg = check_config_loads()
+        checks.append(cfg_check)
+    else:
+        checks.append(DoctorCheck("Configuration loads cleanly", "PASS", ""))
 
     # 3. Ollama
     ollama_check, ollama_models = check_ollama()
@@ -830,9 +958,14 @@ def run_all_checks() -> list[DoctorCheck]:
     nv_key_check, has_key = check_nvidia_key_source()
     checks.append(nv_key_check)
 
-    # 9. NVIDIA models API
-    checks.append(check_nvidia_models_endpoint(cfg, has_key))
+    # 9. Engine health, configured models, and KeyPool checks (Workstream A)
+    checks.append(check_engine_health("ollama", cfg))
+    checks.append(check_engine_health("nvidia", cfg))
+    checks.extend(check_configured_models(cfg))
+    checks.append(check_key_pool_state(cfg))
     checks.append(check_cloud_health_state(has_key=has_key))
+    checks.append(check_persistent_scheduler_state())
+
 
     # 10. Server port
     checks.append(check_server_port(cfg))
@@ -882,8 +1015,8 @@ def run_all_checks() -> list[DoctorCheck]:
     return checks
 
 
-def run_doctor(console: Console, json_output: bool = False) -> None:
-    checks = run_all_checks()
+def run_doctor(console: Console, json_output: bool = False, cfg: Any = None) -> None:
+    checks = run_all_checks(cfg=cfg)
 
     failed = [c for c in checks if c.status == "FAIL"]
     warned = [c for c in checks if c.status == "WARN"]

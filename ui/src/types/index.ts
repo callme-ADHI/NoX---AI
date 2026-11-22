@@ -276,3 +276,128 @@ export interface NotificationItem {
   created_at: string;
 }
 
+export interface ConnectorInfo {
+  name: string;
+  type: string;
+  status: string;
+  healthy: boolean;
+  last_sync_at?: string | null;
+  error?: string | null;
+  item_count: number;
+}
+
+export interface MailItem {
+  id: string;
+  connector_id: string;
+  thread_id: string;
+  sender: string;
+  subject: string;
+  date: string;
+  category: string;
+  is_phishing: boolean;
+  snippet: string;
+  created_at: string;
+}
+
+export interface GitHubRepo {
+  repo_name: string;
+  is_private: boolean;
+  watch_actions: boolean;
+  watch_prs: boolean;
+  last_checked_at?: string | null;
+  created_at: string;
+}
+
+export interface GitHubRun {
+  id: string;
+  repo_name: string;
+  workflow_name: string;
+  head_branch: string;
+  head_sha: string;
+  status: string;
+  conclusion: string;
+  html_url: string;
+  failure_step?: string | null;
+  triage_summary?: string | null;
+  run_started_at: string;
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  mode: 'on_demand' | 'scheduled' | 'continuous' | string;
+  cron_expression?: string;
+  enabled: boolean;
+  budget_tokens: number;
+  budget_cost_usd: number;
+  status: string;
+  prompt_template: string;
+  last_run_at?: string;
+  last_error?: string;
+}
+
+export interface PresetInfo {
+  name: string;
+  description: string;
+  active_agents: string[];
+  active_connectors: string[];
+  schedules?: Array<{ slot: string; cron: string }>;
+  is_active: boolean;
+}
+
+export interface ScopedApproval {
+  id: string;
+  action: string;
+  scope: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  expires_at: string;
+  status: 'pending' | 'approved' | 'denied' | 'consumed' | string;
+}
+
+export interface AuditChainEvent {
+  id: string;
+  sequence_num: number;
+  prev_hash: string;
+  current_hash: string;
+  actor: string;
+  action: string;
+  target: string;
+  decision: string;
+  summary: string;
+  created_at: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  version: string;
+  description: string;
+  enabled: boolean;
+  allow_scripts: boolean;
+  scripts?: string[];
+}
+
+export interface FullHealthDiagnostics {
+  status: 'healthy' | 'degraded' | string;
+  panic_engaged: boolean;
+  database: {
+    wal_mode: boolean;
+    path: string;
+    ok: boolean;
+  };
+  cloud: {
+    active_keys: number;
+    total_keys: number;
+  };
+  audit: {
+    verified: boolean;
+    total_events: number;
+    message: string;
+  };
+  tools: {
+    gh_installed: boolean;
+    git_installed: boolean;
+  };
+}
+
+

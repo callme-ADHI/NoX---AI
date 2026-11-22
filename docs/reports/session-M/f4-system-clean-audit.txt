@@ -1,0 +1,23 @@
+=== NOX SYSTEM CLEAN AUDIT ===
+Date: 2026-11-19T06:26:37Z
+
+1. pip list | grep -i jarvis:
+NONE
+
+2. uv pip list | grep -i jarvis:
+NONE
+
+3. ls ~/.cache | grep -i jarvis:
+NONE
+
+4. ls ~/.local/share | grep -i jarvis:
+NONE
+
+5. ollama list:
+NAME                       ID              SIZE      MODIFIED     
+qwen3.5:2b                 0689d44085e0    2.7 GB    4 days ago      
+nomic-embed-text:latest    0a109f422b47    274 MB    4 weeks ago     
+gemma4:e4b                 dc35e8d9c606    6.6 GB    6 weeks ago     
+whiterabbitneo:latest      5a9bb3665a89    4.7 GB    2 months ago    
+qwen2.5:14b                7cdf5a0187d5    9.0 GB    2 months ago    
+dolphin-mistral:latest     5dc8c5a2be65    4.1 GB    2 months ago    

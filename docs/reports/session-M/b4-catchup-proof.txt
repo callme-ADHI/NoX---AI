@@ -1,0 +1,10 @@
+--- B4 Catch-up Proof ---
+Schedule: test_b4_catchup (id=sched_a111c69d)
+Backdated next_run_at to 1 hour ago: 2026-11-18T12:48:55.581846+00:00
+Triggered catch-up schedules: ['test_b4_catchup']
+Executed catch-up handler for test_b4_catchup, run_id=srun_d617444ab8d4
+New next_run_at in DB: 2026-11-18T19:48:55.597669+05:30
+Next run is in the future: True (diff: 1799.5s)
+Runs recorded in schedule_runs: 1
+  Run ID=srun_d617444ab8d4, status=success, started_at=2026-11-18T13:48:55.603101+00:00, finished_at=2026-11-18T13:48:55.633567+00:00
+PROVED: Exactly one catch-up run executed, and next_run_at updated to future slot.

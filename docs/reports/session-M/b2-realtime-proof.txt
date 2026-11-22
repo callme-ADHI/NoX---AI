@@ -1,0 +1,51 @@
+================================================================================
+NoX Session M: Acceptance Check B2 (Real-Time Proof)
+================================================================================
+Timestamp: 2026-11-18 20:37:30 IST
+Condition: Daemon running under systemd (noxd.service), UI shell NOT running.
+Schedule: 'b2_realtime_2m' (kind=interval, expression='2m', catchup_policy='run_once')
+
+1. Three Real Firings in schedule_runs Table:
+--------------------------------------------------------------------------------
+SELECT id, schedule_id, started_at, finished_at, status, heartbeat_at
+FROM schedule_runs
+WHERE schedule_id = 'sched_641b6729'
+ORDER BY started_at ASC;
+
+Row 1:
+  Run ID:       srun_23e9daf023e7
+  Schedule ID:  sched_641b6729 ('b2_realtime_2m')
+  Started At:   2026-11-18T15:02:54.894152+00:00 (20:32:54 IST)
+  Finished At:  2026-11-18T15:02:55.128146+00:00 (20:32:55 IST)
+  Status:       success
+  Heartbeat:    2026-11-18T15:02:54.894152+00:00
+
+Row 2:
+  Run ID:       srun_a517054c0493
+  Schedule ID:  sched_641b6729 ('b2_realtime_2m')
+  Started At:   2026-11-18T15:04:54.946634+00:00 (20:34:54 IST)
+  Finished At:  2026-11-18T15:04:55.180330+00:00 (20:34:55 IST)
+  Status:       success
+  Heartbeat:    2026-11-18T15:04:54.946634+00:00
+
+Row 3:
+  Run ID:       srun_86421d1e34a5
+  Schedule ID:  sched_641b6729 ('b2_realtime_2m')
+  Started At:   2026-11-18T15:06:54.992480+00:00 (20:36:54 IST)
+  Finished At:  2026-11-18T15:06:55.226458+00:00 (20:36:55 IST)
+  Status:       success
+  Heartbeat:    2026-11-18T15:06:54.992480+00:00
+
+2. journalctl --user -u noxd.service Logs Showing 3 Real Firings:
+--------------------------------------------------------------------------------
+Nov 18 20:32:54 X noxd[86099]: 20:32:54 INFO     [noxai.scheduler.persistent] Started schedule run srun_23e9daf023e7 for 'b2_realtime_2m' (action=generic)
+Nov 18 20:32:54 X noxd[86099]: 20:32:54 INFO     [noxai.scheduler.persistent] Executing generic schedule 'b2_realtime_2m' (run_id=srun_23e9daf023e7)
+Nov 18 20:32:55 X noxd[86099]: 20:32:55 INFO     [noxai.scheduler.persistent] Schedule run srun_23e9daf023e7 for 'b2_realtime_2m' completed successfully
+Nov 18 20:34:54 X noxd[86099]: 20:34:54 INFO     [noxai.scheduler.persistent] Started schedule run srun_a517054c0493 for 'b2_realtime_2m' (action=generic)
+Nov 18 20:34:54 X noxd[86099]: 20:34:54 INFO     [noxai.scheduler.persistent] Executing generic schedule 'b2_realtime_2m' (run_id=srun_a517054c0493)
+Nov 18 20:34:55 X noxd[86099]: 20:34:55 INFO     [noxai.scheduler.persistent] Schedule run srun_a517054c0493 for 'b2_realtime_2m' completed successfully
+Nov 18 20:36:55 X noxd[86099]: 20:36:55 INFO     [noxai.scheduler.persistent] Started schedule run srun_86421d1e34a5 for 'b2_realtime_2m' (action=generic)
+Nov 18 20:36:55 X noxd[86099]: 20:36:55 INFO     [noxai.scheduler.persistent] Executing generic schedule 'b2_realtime_2m' (run_id=srun_86421d1e34a5)
+Nov 18 20:36:55 X noxd[86099]: 20:36:55 INFO     [noxai.scheduler.persistent] Schedule run srun_86421d1e34a5 for 'b2_realtime_2m' completed successfully
+
+Result: PASS

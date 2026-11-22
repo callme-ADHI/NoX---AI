@@ -98,8 +98,42 @@ async def _gate_recheck_task(cfg: Settings, app: FastAPI) -> None:
                 log.debug("Gate re-check passed.")
         except asyncio.CancelledError:
             break
+async def _model_validator_loop(cfg: Settings) -> None:
+    """Validate configured models on startup and every 10 minutes (600s).
+
+    Checks that configured models appear in list_models() for their engines.
+    Marks engine down with reason 'model_gone' if a configured model is missing.
+    """
+    from noxai.models.engine import get_engine, validate_configured_models
+
+    while True:
+        try:
+            by_prov: dict[str, set[str]] = {}
+            roles = getattr(cfg.models, "roles", {}) if hasattr(cfg, "models") else {}
+            for role_name, role_cfg in roles.items():
+                if role_name == "vision":
+                    continue
+                prov = getattr(role_cfg, "provider", "")
+                m = getattr(role_cfg, "model", "")
+                if prov and m:
+                    by_prov.setdefault(prov, set()).add(m)
+
+            for prov, models in by_prov.items():
+                try:
+                    engine = get_engine(prov, config=cfg)
+                    await validate_configured_models(engine, sorted(models))
+                except Exception as exc:
+                    log.debug("Model validation error for %s: %s", prov, exc)
+
+        except asyncio.CancelledError:
+            break
         except Exception as exc:
-            log.warning("Gate re-check error: %s", exc)
+            log.debug("Model validation loop error: %s", exc)
+
+        try:
+            await asyncio.sleep(600)  # 10 minutes
+        except asyncio.CancelledError:
+            break
 
 
 def create_app(
@@ -167,6 +201,12 @@ def create_app(
                     "Reconciled %d orphaned/stalled planned job runs on startup.",
                     len(repaired_runs),
                 )
+
+            from noxai.tracing.recorder import recover_interrupted_traces
+
+            recovered_traces = await recover_interrupted_traces(db=db)
+            if recovered_traces:
+                log.info("Recovered %d interrupted traces on startup.", recovered_traces)
 
 
         # 6. Build model router
@@ -298,8 +338,16 @@ def create_app(
             app.state.briefing_scheduler = briefing_sched
             await briefing_sched.start()
             log.info("BriefingScheduler started in daemon.")
+
+            log.info("8c. Starting PersistentScheduler (Workstream B)...")
+            from noxai.scheduler.persistent import get_persistent_scheduler
+            persistent_sched = get_persistent_scheduler(config=cfg)
+            app.state.persistent_scheduler = persistent_sched
+            await persistent_sched.start()
+            log.info("PersistentScheduler active in daemon.")
         else:
-            log.info("8. JobScheduler & BriefingScheduler startup skipped.")
+            persistent_sched = None
+            log.info("8. JobScheduler, BriefingScheduler & PersistentScheduler startup skipped.")
 
         # 9. Start approval timeout sweeper
         log.info("9. Starting approval timeout sweeper...")
@@ -318,11 +366,15 @@ def create_app(
                 cfg.gate.mode,
             )
 
+        # 10b. Start periodic model validator loop (every 10 minutes)
+        model_val_task: asyncio.Task[None] | None = None
+        if not test_mode:
+            log.info("10b. Starting periodic model validator loop (10-min interval)...")
+            model_val_task = asyncio.create_task(_model_validator_loop(cfg))
+
         # 11. Initialize session token
         log.info("11. Initializing daemon session token...")
-        token = load_session_token()
-        if not token:
-            token = generate_session_token()
+        token = generate_session_token()
         app.state.session_token = token
         log.info("Session token initialized: %s...", token[:8])
 
@@ -346,6 +398,8 @@ def create_app(
         sweeper_task.cancel()
         if gate_task is not None:
             gate_task.cancel()
+        if model_val_task is not None:
+            model_val_task.cancel()
 
         # 1b. Stop TaskSupervisor
         if hasattr(app.state, "supervisor") and app.state.supervisor is not None:
@@ -354,6 +408,9 @@ def create_app(
             set_task_supervisor(None)
 
         # 2. Stop schedulers
+        if persistent_sched is not None:
+            log.info("Stopping PersistentScheduler...")
+            await persistent_sched.stop()
         if briefing_sched is not None:
             log.info("Stopping BriefingScheduler...")
             await briefing_sched.stop()

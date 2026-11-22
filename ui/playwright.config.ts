@@ -18,7 +18,7 @@ export default defineConfig({
     cwd: path.resolve('..'),
     url: 'http://127.0.0.1:7777/api/status',
     timeout: 25000,
-    reuseExistingServer: false,
+    reuseExistingServer: true,
   },
   projects: [
     {

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -28,7 +29,7 @@ from typing import Any
 import aiosqlite
 
 from noxai.config import Settings, get_config
-from noxai.db import execute
+from noxai.db import execute, get_db
 from noxai.events import EventBus, global_event_bus, make_event
 from noxai.models.base import Message, ToolCall, ToolSpec
 from noxai.models.cloud_health import CloudHealthState, get_cloud_health
@@ -139,9 +140,15 @@ class ChatTurnResult:
     trace: dict[str, Any]
     citations: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
+    served_by: str = ""
+    fallback_banner: bool = False
+    fallback_offered: bool = False
 
 
-def _build_cloud_system_prompt() -> Message:
+def _build_cloud_system_prompt(
+    active_skill_body: str | None = None,
+    skill_catalog_summary: str | None = None,
+) -> Message:
     """Construct a slim, privacy-safe system prompt for the cloud front desk (§G3.7).
 
     Guarantees:
@@ -173,15 +180,26 @@ def _build_cloud_system_prompt() -> Message:
         "- Tool Execution Rules: Always formulate your answers from real tool outputs. "
         "Never repeat the same tool call with identical arguments in a single turn. "
         "Never output raw <tool_call> or <function=...> XML tags in your conversational text.\n"
+        "- Facts & Context: When answering questions where recalled facts or conversation history "
+        "already contain the answer, answer directly from that context without invoking tools.\n"
         "Provide direct, structured, and insightful answers."
     )
+    if active_skill_body:
+        prompt_text += f"\n\n[ACTIVE SKILL INSTRUCTIONS]\n{active_skill_body}"
+    elif skill_catalog_summary:
+        prompt_text += f"\n\n{skill_catalog_summary}"
+
     return Message(
         role="system",
         content=Content(text=prompt_text, data_class=DataClass.PUBLIC, taint=TaintFlag.NONE),
     )
 
 
-def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Message:
+def _build_local_system_prompt(
+    recalled_memories: list[str] | None = None,
+    active_skill_body: str | None = None,
+    skill_catalog_summary: str | None = None,
+) -> Message:
     """Construct the system prompt for local execution."""
     prompt_text = (
         "You are NoX, an advanced, highly capable personal AI assistant running locally.\n"
@@ -193,10 +211,17 @@ def _build_local_system_prompt(recalled_memories: list[str] | None = None) -> Me
         "jobs and memories.\n"
         "- System & Tools: Use get_time, system_info, list_files, read_file, run_shell, "
         "web_search, fetch_page.\n"
+        "- Facts & Context: When answering questions where recalled facts or conversation history "
+        "already contain the answer, answer directly from that context without invoking tools.\n"
         "Provide direct, structured, and helpful answers."
     )
     if recalled_memories:
         prompt_text += "\n\nRecalled Context:\n" + "\n".join(recalled_memories)
+    if active_skill_body:
+        prompt_text += f"\n\n[ACTIVE SKILL INSTRUCTIONS]\n{active_skill_body}"
+    elif skill_catalog_summary:
+        prompt_text += f"\n\n{skill_catalog_summary}"
+
     return Message(
         role="system",
         content=Content(
@@ -231,7 +256,6 @@ async def orchestrate_chat_turn(
     """
     start_time = time.perf_counter()
     actual_run_id = run_id or f"run_{uuid.uuid4().hex[:12]}"
-    actual_conv_id = conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
 
     rtr = router or get_default_router(config)
     cfg = config or (getattr(rtr, "config", None) or get_config())
@@ -240,12 +264,17 @@ async def orchestrate_chat_turn(
 
     db_ctx: Any | None = None
     if db is None:
-        from noxai.db import get_db
-
         db_ctx = get_db()
         active_db = await db_ctx.__aenter__()
     else:
         active_db = db
+
+    if not conversation_id and active_db is not None:
+        from noxai.memory.conversation import get_or_create_active_conversation
+
+        actual_conv_id = await get_or_create_active_conversation(active_db)
+    else:
+        actual_conv_id = conversation_id or f"conv_{uuid.uuid4().hex[:12]}"
 
     try:
         # 1. Reflex Router Intent Analysis (<50ms zero-LLM) (§1.4, §G3.1)
@@ -307,13 +336,15 @@ async def orchestrate_chat_turn(
                 """,
                 (actual_conv_id, message[:40]),
             )
-            await execute(
-                conn,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'user', ?, ?)
-                """,
-                (current_msg_id, actual_conv_id, message, user_taint.value),
+            from noxai.memory.conversation import record_conversation_turn
+
+            await record_conversation_turn(
+                db=conn,
+                conversation_id=actual_conv_id,
+                role="user",
+                text=message,
+                message_id=current_msg_id,
+                taint_flags=user_taint.value,
             )
     
         await _safe_db_write(_write_user_msg)
@@ -412,59 +443,87 @@ async def orchestrate_chat_turn(
         elif has_sensitive_topic:
             target_role = "resident"
             fallback_reason = "SENSITIVE"
-        elif not has_nvidia_key or ch.state == CloudHealthState.NO_KEY:
-            target_role = "resident"
-            fallback_reason = "NO_KEY"
-        elif ch.state == CloudHealthState.INVALID_KEY:
-            target_role = "resident"
-            fallback_reason = "INVALID_KEY"
-        elif ch.state == CloudHealthState.RATE_LIMITED:
-            target_role = "resident"
-            fallback_reason = "RATE_LIMITED"
-        elif ch.state == CloudHealthState.OFFLINE:
-            target_role = "resident"
-            fallback_reason = "OFFLINE"
-        elif ch.state == CloudHealthState.DEGRADED:
-            if not ch.circuit_breaker.can_attempt():
-                target_role = "resident"
-                fallback_reason = "DEGRADED"
-            else:
-                target_role = "front"
-        elif not ch.is_active():
-            target_role = "resident"
-            fallback_reason = "DEGRADED"
     
+        # 3b. Skills Discovery & Progressive Loading (Workstream E)
+        from noxai.skills.catalog import get_skills_catalog
+
+        skills_cat = get_skills_catalog()
+        if active_db is not None:
+            await skills_cat.sync_state(active_db)
+        else:
+            skills_cat.discover_skills()
+
+        matched_skill = None
+        skill_load_step: dict[str, Any] | None = None
+        t_skill_0 = time.perf_counter()
+
+        enabled_skills = [s for s in skills_cat.list_skills() if s.enabled]
+        msg_lower = message.lower()
+        for sk in enabled_skills:
+            if sk.name == "notes-search" and any(
+                k in msg_lower for k in ("note", "notes", "vault", "what did i write", "recall from")
+            ):
+                matched_skill = sk
+                break
+            elif sk.name == "briefing-format" and any(
+                k in msg_lower for k in ("briefing", "daily briefing", "format briefing")
+            ):
+                matched_skill = sk
+                break
+            elif sk.name.replace("-", " ") in msg_lower or sk.name in msg_lower:
+                matched_skill = sk
+                break
+
+        active_skill_body: str | None = None
+        if matched_skill:
+            active_skill_body = skills_cat.load_skill_body(matched_skill.name)
+            dur_ms = round((time.perf_counter() - t_skill_0) * 1000.0, 2)
+            skill_load_step = {
+                "name": "load_skill",
+                "tool_or_skill": f"skill:{matched_skill.name}",
+                "duration_ms": max(dur_ms, 0.1),
+                "status": "success",
+            }
+
+        skill_catalog_summary = skills_cat.get_prompt_catalog() if not matched_skill else None
+
         # 4. Prompt Assembly & Egress Filter Evaluation (§G3.2, §G3.7, CMS L0-L6)
         t_prompt_0 = time.perf_counter()
         all_specs = tools if tools is not None else reg.get_specs()
         front_desk_specs = [s for s in all_specs if s.name in FRONT_DESK_ALLOWED_TOOLS]
-    
-        from noxai.memory.context import build_context
-    
+
+        from noxai.memory.conversation import build_four_part_context
+
+        base_cloud_prompt = _build_cloud_system_prompt(
+            active_skill_body=active_skill_body,
+            skill_catalog_summary=skill_catalog_summary,
+        )
+        base_local_prompt = _build_local_system_prompt(
+            active_skill_body=active_skill_body,
+            skill_catalog_summary=skill_catalog_summary,
+        )
+
         if active_db is not None:
-            ctx_front = await build_context(
-                conversation_id=actual_conv_id,
-                current_user_message=user_msg,
-                db=active_db,
-                router=rtr,
-                allow_cloud=True,
-                base_system_prompt=_build_cloud_system_prompt(),
-                exclude_message_id=current_msg_id,
-            )
-            ctx_local = await build_context(
-                conversation_id=actual_conv_id,
-                current_user_message=user_msg,
-                db=active_db,
-                router=rtr,
-                allow_cloud=False,
-                base_system_prompt=_build_local_system_prompt(),
-                exclude_message_id=current_msg_id,
-            )
-            cloud_turn_messages = ctx_front.messages
-            local_turn_messages = ctx_local.messages
+            try:
+                cloud_turn_messages = await build_four_part_context(
+                    conversation_id=actual_conv_id,
+                    current_user_message=user_msg,
+                    db=active_db,
+                    base_system_prompt=base_cloud_prompt,
+                )
+                local_turn_messages = await build_four_part_context(
+                    conversation_id=actual_conv_id,
+                    current_user_message=user_msg,
+                    db=active_db,
+                    base_system_prompt=base_local_prompt,
+                )
+            except Exception as e_ctx:
+                log.warning("build_four_part_context failed (%s), using baseline context", e_ctx)
+                cloud_turn_messages = [base_cloud_prompt, user_msg]
+                local_turn_messages = [base_local_prompt, user_msg]
         else:
-            cloud_turn_messages = [_build_cloud_system_prompt(), user_msg]
-            local_turn_messages = [_build_local_system_prompt(), user_msg]
+            cloud_turn_messages = [base_cloud_prompt, user_msg]
+            local_turn_messages = [base_local_prompt, user_msg]
     
         if target_role == "front":
             selected_tools = front_desk_specs
@@ -495,10 +554,10 @@ async def orchestrate_chat_turn(
     
             if not egress_decision.allowed:
                 # Privacy policy v2 blocked cloud transmission
-                target_role = "resident"
                 fallback_reason = f"PRIVACY_BLOCKED:{egress_decision.reason}"
                 messages_to_send = local_turn_messages
                 selected_tools = all_specs
+                target_role = "brain" if selected_tools else "resident"
             else:
                 messages_to_send = (
                     egress_decision.sanitized_messages
@@ -538,6 +597,7 @@ async def orchestrate_chat_turn(
         first_token_time: float | None = None
         t_stream_0 = time.perf_counter()
         citations_collected: list[str] = []
+        executed_tool_steps: list[dict[str, Any]] = []
     
         try:
             max_tool_steps = 3
@@ -720,6 +780,12 @@ async def orchestrate_chat_turn(
                                 urls = re.findall(r"https?://[^\s)\]\"'>]+", tool_res_text)
                                 citations_collected.extend(urls)
                             t_call_dur = int((time.perf_counter() - t0_call) * 1000)
+                            executed_tool_steps.append({
+                                "name": "tool_call",
+                                "tool_or_skill": f"tool:{call.name}",
+                                "duration_ms": max(t_call_dur, 1),
+                                "status": "success" if tool_res.ok else "error",
+                            })
                             await bus.publish(
                                 make_event(
                                     "tool_result",
@@ -763,38 +829,68 @@ async def orchestrate_chat_turn(
     
         except Exception as exc:
             log.exception("Execution error during chat turn: %s", exc)
-            # Handle unexpected failure with safe local fallback if not already fallback
             if target_role == "front":
-                fallback_reason = "DEGRADED"
-                local_role = "resident"
-                local_chunks: list[str] = []
-                try:
-                    async for chunk in rtr.chat(
-                        role=local_role,
-                        messages=[_build_local_system_prompt(), user_msg],
-                        stream=True,
-                        on_notice=on_notice,
-                        on_model_used=_on_model_used_internal,
-                    ):
-                        if chunk.text:
-                            if first_token_time is None:
-                                first_token_time = time.perf_counter()
-                            local_chunks.append(chunk.text)
-                            if on_token:
-                                on_token(chunk.text)
-                            await bus.publish(
-                                make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
-                            )
-                    chunks = local_chunks
-                except Exception as fallback_exc:
-                    log.error("Fallback chat failed: %s", fallback_exc)
-                    err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                from noxai.models.engine import evaluate_fallback_policy, send_engine_desktop_notification
+                policy = getattr(cfg.models, "fallback_policy", "ask") if cfg else "ask"
+                decision = evaluate_fallback_policy(
+                    policy=policy,
+                    reason="degraded",
+                    human_msg=str(exc),
+                )
+                if decision.action == "abort":
+                    err_msg = f"Cloud engine failed: {exc}. Fallback policy is 'never'."
                     chunks.append(err_msg)
                     if on_token:
                         on_token(err_msg)
                     await bus.publish(
                         make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
                     )
+                elif decision.action == "ask_user":
+                    chunks.append(decision.message)
+                    model_used_record["fallback_offered"] = True
+                    model_used_record["fallback_reason"] = decision.reason
+                    model_used_record["served_by"] = "system"
+                    if on_token:
+                        on_token(decision.message)
+                    await bus.publish(
+                        make_event("token", {"chunk": decision.message}, run_id=actual_run_id)
+                    )
+                else:  # execute_local
+                    send_engine_desktop_notification("NoX Engine Fallback", decision.message)
+                    fallback_reason = decision.reason
+                    local_role = "resident"
+                    local_chunks: list[str] = []
+                    banner = f"[Notice: Cloud model is down ({decision.reason}); answered via local fallback]\n\n"
+                    local_chunks.append(banner)
+                    if on_token:
+                        on_token(banner)
+                    try:
+                        async for chunk in rtr.chat(
+                            role=local_role,
+                            messages=local_turn_messages,
+                            stream=True,
+                            on_notice=on_notice,
+                            on_model_used=_on_model_used_internal,
+                        ):
+                            if chunk.text:
+                                if first_token_time is None:
+                                    first_token_time = time.perf_counter()
+                                local_chunks.append(chunk.text)
+                                if on_token:
+                                    on_token(chunk.text)
+                                await bus.publish(
+                                    make_event("token", {"chunk": chunk.text}, run_id=actual_run_id)
+                                )
+                        chunks = local_chunks
+                    except Exception as fallback_exc:
+                        log.error("Fallback chat failed: %s", fallback_exc)
+                        err_msg = f"I encountered an error while processing your request: {fallback_exc}"
+                        chunks.append(err_msg)
+                        if on_token:
+                            on_token(err_msg)
+                        await bus.publish(
+                            make_event("token", {"chunk": err_msg}, run_id=actual_run_id)
+                        )
             else:
                 err_msg = f"I encountered an error while processing your request: {exc}"
                 chunks.append(err_msg)
@@ -826,9 +922,16 @@ async def orchestrate_chat_turn(
         actual_provider_name = str(model_used_record.get("provider", "unknown"))
         actual_is_local = bool(model_used_record.get("is_local", target_role in ("resident", "brain")))
         actual_fallback_reason = model_used_record.get("fallback_reason") or fallback_reason
-    
+        actual_served_by = str(
+            model_used_record.get(
+                "served_by", "ollama" if actual_is_local else actual_provider_name
+            )
+        )
+        actual_fallback_banner = bool(model_used_record.get("fallback_banner", False))
+        actual_fallback_offered = bool(model_used_record.get("fallback_offered", False))
+
         prompt_tokens_est = sum(len(m.get_text()) for m in messages_to_send) // 4
-    
+
         trace_data: dict[str, Any] = {
             "route": round(t_route, 2),
             "prompt_build": round(t_prompt, 2),
@@ -842,19 +945,23 @@ async def orchestrate_chat_turn(
             "role": model_used_record.get("role", target_role),
             "intent": intent_res.intent.value,
             "fallback_reason": actual_fallback_reason,
+            "served_by": actual_served_by,
+            "fallback_banner": actual_fallback_banner,
+            "fallback_offered": actual_fallback_offered,
         }
-    
+
         lane_info = "cloud" if not actual_is_local else "local_resident"
-    
+
         # Persist assistant response to DB
         async def _write_assistant_msg(conn: Any) -> None:
-            await execute(
-                conn,
-                """
-                INSERT INTO messages (id, conversation_id, role, content, taint_flags)
-                VALUES (?, ?, 'assistant', ?, 0)
-                """,
-                (f"msg_{uuid.uuid4().hex[:12]}", actual_conv_id, final_text),
+            from noxai.memory.conversation import record_conversation_turn
+
+            await record_conversation_turn(
+                db=conn,
+                conversation_id=actual_conv_id,
+                role="assistant",
+                text=final_text,
+                taint_flags=0,
             )
             await execute(
                 conn,
@@ -873,9 +980,52 @@ async def orchestrate_chat_turn(
                     json.dumps(trace_data),
                 ),
             )
-    
+
         await _safe_db_write(_write_assistant_msg)
-    
+
+        # Persist to traces table (Workstream C)
+        try:
+            tr_id = f"tr_{actual_run_id.replace('run_', '')}"
+            steps_list: list[dict[str, Any]] = [
+                {"name": "intent_analysis", "duration_ms": round(t_route, 2), "status": "success"},
+            ]
+            if skill_load_step:
+                steps_list.append(skill_load_step)
+            steps_list.append({"name": "prompt_assembly", "duration_ms": round(t_prompt, 2), "status": "success"})
+            for ts in executed_tool_steps:
+                steps_list.append(ts)
+            steps_list.append({"name": "generation", "duration_ms": round(t_generation, 2), "status": "success"})
+            async with get_db() as tr_db:
+                await execute(
+                    tr_db,
+                    """
+                    INSERT INTO traces (
+                        id, started_at, finished_at, source, schedule_run_id, request_text,
+                        intent, engine, model, steps, token_counts, final_status
+                    ) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                              'chat', ?, ?, ?, ?, ?, ?, ?, 'success')
+                    ON CONFLICT(id) DO UPDATE SET
+                        finished_at = excluded.finished_at,
+                        final_status = 'success',
+                        engine = excluded.engine,
+                        model = excluded.model,
+                        steps = excluded.steps
+                    """,
+                    (
+                        tr_id,
+                        actual_run_id,
+                        (message or "")[:4000],
+                        intent_res.intent.value,
+                        actual_provider_name,
+                        actual_model_name,
+                        json.dumps(steps_list),
+                        json.dumps({"prompt_tokens": prompt_tokens_est, "completion_tokens": 0, "total_tokens": prompt_tokens_est}),
+                    ),
+                )
+                await tr_db.commit()
+        except Exception as exc:
+            log.warning("Failed to record chat trace: %s", exc)
+
         # Trigger background CMS post-turn processing (chunks, facts, state, rolling fold)
         if actual_conv_id:
             async def _bg_cms() -> None:
@@ -886,11 +1036,11 @@ async def orchestrate_chat_turn(
                         await process_conversation_turn(actual_conv_id, bg_db, router=rtr)
                 except Exception as exc:
                     log.debug("Background CMS post-process error: %s", exc)
-    
+
             t_bg = asyncio.create_task(_bg_cms())
             _background_tasks.add(t_bg)
             t_bg.add_done_callback(_background_tasks.discard)
-    
+
         # Publish completion events
         await bus.publish(
             make_event("trace", trace_data, run_id=actual_run_id),
@@ -906,6 +1056,9 @@ async def orchestrate_chat_turn(
                     "is_cloud": not actual_is_local,
                     "latency_ms": int(total_elapsed_ms),
                     "fallback_reason": actual_fallback_reason,
+                    "served_by": actual_served_by,
+                    "fallback_banner": actual_fallback_banner,
+                    "fallback_offered": actual_fallback_offered,
                     "trace": trace_data,
                 },
                 run_id=actual_run_id,
@@ -916,8 +1069,7 @@ async def orchestrate_chat_turn(
             make_event("run_done", {"status": "done"}, run_id=actual_run_id),
             db=active_db,
         )
-    
-    
+
         return ChatTurnResult(
             run_id=actual_run_id,
             conversation_id=actual_conv_id,
@@ -930,6 +1082,9 @@ async def orchestrate_chat_turn(
             trace=trace_data,
             citations=citations_collected,
             duration_seconds=total_elapsed,
+            served_by=actual_served_by,
+            fallback_banner=actual_fallback_banner,
+            fallback_offered=actual_fallback_offered,
         )
     finally:
         if db_ctx is not None:

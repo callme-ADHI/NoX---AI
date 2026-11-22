@@ -1,0 +1,18 @@
+================================================================================
+NoX Session M: Acceptance Check D2-d (Chat Document Recall with Citation)
+================================================================================
+Timestamp: 2026-11-19T05:26:10.978961+00:00
+
+User Query: What did I write about dignity of workers in my notes?
+Model: nvidia/nemotron-3.5-lightning-30b-a3b (served by nvidia)
+
+NoX Response:
+In your notes at **`/home/boss/Documents/Obsidian Vault/sahayak minutes.md`** you wrote:
+
+> **dont call the worker worker, give them dignity**
+
+Verification:
+- Cites 'sahayak minutes.md': True
+- Quotes 'dignity': True
+
+Result: PASS

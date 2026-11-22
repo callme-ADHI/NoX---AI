@@ -4,6 +4,13 @@ import { NavRail, TabType } from './components/NavRail';
 import { CommandPalette } from './components/CommandPalette';
 import { ChatPage } from './pages/ChatPage';
 import { BriefingsPage } from './pages/BriefingsPage';
+import { ConnectorsPage } from './pages/ConnectorsPage';
+import { MailPage } from './pages/MailPage';
+import { GitHubPage } from './pages/GitHubPage';
+import { AgentsPage } from './pages/AgentsPage';
+import { ApprovalsPage } from './pages/ApprovalsPage';
+import { AuditPage } from './pages/AuditPage';
+import { SkillsPage } from './pages/SkillsPage';
 import { JobsPage } from './pages/JobsPage';
 import { TasksPage } from './pages/TasksPage';
 import { KeysPage } from './pages/KeysPage';
@@ -115,6 +122,20 @@ export const App: React.FC = () => {
         return <ChatPage />;
       case 'briefings':
         return <BriefingsPage />;
+      case 'mail':
+        return <MailPage />;
+      case 'connectors':
+        return <ConnectorsPage />;
+      case 'github':
+        return <GitHubPage />;
+      case 'agents':
+        return <AgentsPage />;
+      case 'approvals':
+        return <ApprovalsPage />;
+      case 'audit':
+        return <AuditPage />;
+      case 'skills':
+        return <SkillsPage />;
       case 'jobs':
         return <JobsPage />;
       case 'tasks':
@@ -150,10 +171,12 @@ export const App: React.FC = () => {
           <div className="bg-danger/20 border-b border-danger/40 px-4 py-1.5 flex items-center justify-between text-xs text-danger select-none z-30">
             <div className="flex items-center gap-2">
               <WifiOff className="w-3.5 h-3.5 animate-pulse" />
-              <span>Connecting to NoX Daemon... Events will sync upon reconnection.</span>
+              <span>Connecting to NoX Daemon... If restarted, run <code>nx open</code> in terminal or reload.</span>
             </div>
             <button
-              onClick={() => wsService.connect()}
+              onClick={() => {
+                wsService.connect();
+              }}
               className="flex items-center gap-1 font-semibold hover:underline"
             >
               <RefreshCw className="w-3 h-3" />

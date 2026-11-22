@@ -1,0 +1,75 @@
+=== git status --short ===
+?? docs/prompts/session-M.md
+?? docs/reports/
+=== git branch --show-current ===
+main
+=== git log --oneline -15 ===
+38f335a fix(briefing): resolve pyexpat symbol mismatch, row attribute errors, and total_steps query
+2d7f9ef fix(api): recompute next_run_at on schedule update in jobs PATCH endpoint
+d8798f7 docs: add static typing and hygiene verification to evidence log
+32e8f9b fix(jobs): resolve mypy typing issues and format planned jobs codebase
+861cb20 test(planned-jobs): e2e verification, UI tests, decisions, and evidence logs (Phase 5)
+88cdf26 feat(delete-controls): soft delete, cancellation, purge, and undo across CLI, API, UI (Phase 4)
+45d684d feat(notifications): desktop notify-send and in-app notification center (Phase 3)
+18ad93c feat(jobs): deterministic backup template, privacy sanitization, and 20:00 slot catch-up (Phase 2)
+e4dbd45 feat(jobs): plan-first job engine, migration 012, step runner, and watchdog (Phase 1)
+c3aabb5 docs(audit): phase 0 stuck job audit with verified live evidence
+0a5c396 fix(concurrency): commit SQLite transactions on memory folding, relax TTFT threshold, fix desktop WS auth
+9423596 fix(models): support reasoning models, fix TTFT measurement and session preservation
+dd336a1 fix(desktop): resolve unauthorized webview error with direct auth handshake and Tauri v2 ACL capabilities
+f53f61b fix(desktop): enable withGlobalTauri and add connect-src to CSP
+9a8dbd7 fix(desktop): bypass browser CORS via native IPC health check and perform token exchange
+=== python --version ===
+Python 3.14.10
+=== uv --version ===
+uv 0.13.1 (x86_64-unknown-linux-gnu)
+=== ollama list ===
+NAME                       ID              SIZE      MODIFIED     
+qwen3.5:2b                 0689d44085e0    2.7 GB    24 hours ago    
+nomic-embed-text:latest    0a109f422b47    274 MB    4 weeks ago     
+gemma4:e4b                 dc35e8d9c606    6.6 GB    5 weeks ago     
+whiterabbitneo:latest      5a9bb3665a89    4.7 GB    2 months ago    
+qwen2.5:14b                7cdf5a0187d5    9.0 GB    2 months ago    
+dolphin-mistral:latest     5dc8c5a2be65    4.1 GB    2 months ago    
+=== systemctl --user list-units nox* ===
+  UNIT         LOAD   ACTIVE SUB     DESCRIPTION
+  noxd.service loaded active running NoX personal AI agent daemon
+
+Legend: LOAD   → Reflects whether the unit definition was properly loaded.
+        ACTIVE → The high-level unit activation state, i.e. generalization of SUB.
+        SUB    → The low-level unit activation state, values depend on unit type.
+
+1 loaded units listed. Pass --all to see loaded but inactive units, too.
+To show all installed unit files use 'systemctl list-unit-files'.
+=== systemctl --user status nox* ===
+● noxd.service - NoX personal AI agent daemon
+     Loaded: loaded (/home/boss/.config/systemd/user/noxd.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-11-15 19:29:54 IST; 10min ago
+ Invocation: ea9630a2cb8142d39801096d5cfdfd68
+       Docs: file:///home/boss/Documents/Projects/NoX/docs/ARCHITECTURE.md
+   Main PID: 1907 (noxd)
+      Tasks: 11 (limit: 28464)
+     Memory: 248.9M (peak: 259.7M)
+        CPU: 30.898s
+     CGroup: /user.slice/user-1000.slice/user@1000.service/app.slice/noxd.service
+             └─1907 /home/boss/Documents/Projects/NoX/.venv/bin/python /home/boss/Documents/Projects/NoX/.venv/bin/noxd run
+
+Nov 15 19:36:01 X noxd[1907]: 19:36:01 WARNING  [noxai.models.cloud_health] Circuit breaker tripped OPEN (3 consecutive failures, cooldown=60.0s)
+Nov 15 19:36:01 X noxd[1907]: 19:36:01 INFO     [noxai.models.cloud_health] CloudHealth transition: active -> degraded (Repeated failures: )
+Nov 15 19:38:15 X noxd[1907]: 19:38:15 INFO     [noxai.models.cloud_health] CloudHealth transition: degraded -> degraded (Repeated failures: NVIDIA API request failed after 4 retries: )
+Nov 15 19:38:15 X noxd[1907]: 19:38:15 WARNING  [noxai.models.router] Cloud role 'heavy' failed (NVIDIA API request failed after 4 retries: ). Falling back to local resident role.
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 ERROR    [noxai.scheduler.scheduler] Job 'daily-briefing' cancelled: exceeded max_runtime_seconds (600.0s)
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 INFO     [noxai.scheduler.scheduler] Catching up missed job 'opportunities-digest' (due slot: 2026-11-15T02:30:00+00:00)
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 INFO     [noxai.models.cloud_health] Circuit breaker cooldown elapsed (101.8s); entering HALF_OPEN probe.
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 WARNING  [noxai.models.cloud_health] Circuit breaker tripped OPEN (7 consecutive failures, cooldown=60.0s)
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 INFO     [noxai.models.cloud_health] CloudHealth transition: degraded -> degraded (Repeated failures: NVIDIA cloud circuit breaker is half_open (Repeated failures: NVIDIA API request)
+Nov 15 19:39:57 X noxd[1907]: 19:39:57 WARNING  [noxai.models.router] Cloud role 'heavy' failed (NVIDIA cloud circuit breaker is half_open (Repeated failures: NVIDIA API request failed after 4 retries: )). Falling back to local resident role.
+=== df -h ~ ===
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p2  238G  183G   55G  78% /
+=== free -h ===
+               total        used        free      shared  buff/cache   available
+Mem:            23Gi        18Gi       464Mi       1.7Gi       6.0Gi       4.4Gi
+Swap:             0B          0B          0B
+=== nproc ===
+8

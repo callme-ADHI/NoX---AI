@@ -450,3 +450,63 @@ async def test_repro_route_7_nx_chat(repro_db: aiosqlite.Connection) -> None:
         expected_assistant="Retrieval-Augmented Generation",
         route_name="nx_chat",
     )
+
+
+@pytest.mark.asyncio
+async def test_repro_15_turns_amnesia_failure(repro_db: aiosqlite.Connection) -> None:
+    """Reproduction: Tell NoX three distinct facts, ask 15 turns later.
+
+    Demonstrates amnesia on the legacy context manager when conversations exceed
+    the recent verbatim window.
+    """
+    cloud_rec = RecordingProvider("nvidia", is_local=False)
+    local_rec = RecordingProvider("ollama", is_local=True)
+    router, cfg = build_recording_router(cloud_rec, local_rec)
+
+    conv_id = "conv_15_turns_repro"
+
+    # Turns 1 to 3: 3 distinct facts
+    facts = [
+        "Fact 1: The database port is 7777.",
+        "Fact 2: My project codename is Project Orion.",
+        "Fact 3: The deployment target is staging-node-4.",
+    ]
+    for f in facts:
+        await orchestrate_chat_turn(
+            message=f,
+            conversation_id=conv_id,
+            allow_cloud=True,
+            db=repro_db,
+            router=router,
+            config=cfg,
+        )
+
+    # Turns 4 to 18: 15 filler turns
+    for i in range(15):
+        await orchestrate_chat_turn(
+            message=f"Filler question {i + 1}: How does distributed caching work in general?",
+            conversation_id=conv_id,
+            allow_cloud=True,
+            db=repro_db,
+            router=router,
+            config=cfg,
+        )
+
+    # Turn 19: Recall test
+    await orchestrate_chat_turn(
+        message="What was the database port and project codename I mentioned earlier?",
+        conversation_id=conv_id,
+        allow_cloud=True,
+        db=repro_db,
+        router=router,
+        config=cfg,
+    )
+
+    assert len(cloud_rec.recorded_calls) == 19
+    turn_19_call = cloud_rec.recorded_calls[18]
+    full_turn_19_text = " ".join(m.get_text() for m in turn_19_call)
+
+    # Must contain the facts either in verbatim turns, rolling summary, or recalled snippets
+    assert "7777" in full_turn_19_text, "Fact '7777' was lost after 15 turns (Amnesia bug)!"
+    assert "Project Orion" in full_turn_19_text, "Fact 'Project Orion' was lost after 15 turns (Amnesia bug)!"
+

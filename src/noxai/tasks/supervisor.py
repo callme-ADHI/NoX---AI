@@ -119,7 +119,7 @@ class TaskSupervisor:
 
         try:
             async with get_db() as db:
-                await self.recover_interrupted_tasks(db)
+                await self.recover_interrupted_tasks(db, on_startup=True)
         except Exception as exc:
             log.warning("TaskSupervisor recovery error on startup: %s", exc)
 
@@ -167,29 +167,53 @@ class TaskSupervisor:
         self._cancel_events.clear()
         log.info("TaskSupervisor shutdown complete.")
 
-    async def recover_interrupted_tasks(self, db: aiosqlite.Connection) -> int:
+    async def recover_interrupted_tasks(
+        self, db: aiosqlite.Connection, on_startup: bool = False
+    ) -> int:
         """Find tasks left in 'interrupted' or 'running' with stale heartbeat and queue for resume."""
         now_utc = datetime.now(UTC)
         cutoff_iso = (now_utc - timedelta(seconds=self.stale_threshold_sec)).isoformat()
 
-        rows = await fetch_all(
-            db,
-            """
-            SELECT id, kind, parent_id, attempts, max_attempts FROM tasks
-            WHERE status = 'interrupted' OR (status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at <= ?))
-            """,
-            (cutoff_iso,),
-        )
+        if on_startup:
+            rows = await fetch_all(
+                db,
+                """
+                SELECT id, kind, parent_id, attempts, max_attempts FROM tasks
+                WHERE status IN ('interrupted', 'running')
+                """,
+            )
+        else:
+            rows = await fetch_all(
+                db,
+                """
+                SELECT id, kind, parent_id, attempts, max_attempts FROM tasks
+                WHERE status = 'interrupted' OR (status = 'running' AND (heartbeat_at IS NULL OR heartbeat_at <= ?))
+                """,
+                (cutoff_iso,),
+            )
         if not rows:
             return 0
 
         recovered = 0
         for r in rows:
             t_id = str(r["id"])
+            kind = str(r["kind"] or "")
             attempts = int(r["attempts"] or 0)
             max_att = int(r["max_attempts"] or 3)
 
-            if attempts < max_att:
+            # For briefing tasks, BriefingScheduler.repair_runs is the authoritative manager
+            # of briefing_runs and will submit a fresh resume task with the same run_id.
+            if kind == "briefing":
+                await execute(
+                    db,
+                    """
+                    UPDATE tasks
+                    SET status = 'interrupted', error = 'Interrupted: daemon restart / crash'
+                    WHERE id = ?
+                    """,
+                    (t_id,),
+                )
+            elif attempts < max_att:
                 await execute(
                     db,
                     """

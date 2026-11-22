@@ -148,6 +148,7 @@ class NvidiaModelConfig(_StrictModel):
     base_url: str = "https://integrate.api.nvidia.com/v1"
     requests_per_minute: int = 30
     max_retries: int = 4
+    timeout: float = 120.0
 
 
 class ModelsConfig(_StrictModel):
@@ -156,9 +157,19 @@ class ModelsConfig(_StrictModel):
     ollama: OllamaModelConfig = OllamaModelConfig()
     nvidia: NvidiaModelConfig = NvidiaModelConfig()
     roles: dict[str, ModelRoleConfig] = {}
+    fallback_policy: str = "ask"  # "ask" | "auto_notify" | "never"
     # Note: roles validation is done in Settings.validate_models_roles so that
     # the default empty dict used by Settings' field default does not trigger
     # the validator during class body execution.
+
+    @field_validator("fallback_policy")
+    @classmethod
+    def fallback_policy_must_be_valid(cls, v: str) -> str:
+        valid = {"ask", "auto_notify", "never"}
+        if v not in valid:
+            raise ValueError(f"models.fallback_policy must be one of {sorted(valid)}, got '{v}'")
+        return v
+
 
 
 class AgentConfig(_StrictModel):
@@ -172,6 +183,13 @@ class AgentConfig(_StrictModel):
     tool_timeout_seconds: int = 60
 
 
+class MemoryEmbeddingsConfig(_StrictModel):
+    """Optional embedding configuration for document memory."""
+
+    enabled: bool = False
+    model: str = "nomic-embed-text"
+
+
 class MemoryConfig(_StrictModel):
     """Memory system parameters."""
 
@@ -181,6 +199,15 @@ class MemoryConfig(_StrictModel):
     token_budget: int = 1200
     half_life_days: float = 30.0
     archive_after_days: int = 90
+
+    roots: list[str] = [
+        "~/Documents/Obsidian Vault",
+        "~/Documents/Study",
+    ]
+    ignored_roots: list[str] = [
+        "~/Documents/Certificates",
+    ]
+    embeddings: MemoryEmbeddingsConfig = MemoryEmbeddingsConfig()
 
 
 class SafetyConfig(_StrictModel):

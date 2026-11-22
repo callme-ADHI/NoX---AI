@@ -26,7 +26,6 @@ from noxai.models.base import (
 )
 from noxai.models.budget import RequestBudget
 from noxai.models.cloud_health import CloudHealth
-from noxai.models.key_pool import NvidiaKeyPool
 from noxai.models.keypool import AllocationMode, KeyPool, get_default_keypool
 
 log = logging.getLogger(__name__)
@@ -104,11 +103,11 @@ class NvidiaProvider(Provider):
         self,
         api_key: str | None = None,
         api_keys: list[str] | None = None,
-        key_pool: NvidiaKeyPool | None = None,
+        key_pool: KeyPool | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         requests_per_minute: int = 30,
         max_retries: int = 4,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
         cloud_health: CloudHealth | None = None,
         budget: RequestBudget | None = None,
@@ -248,251 +247,161 @@ class NvidiaProvider(Provider):
             )
             raise RateLimitError("NVIDIA request budget exhausted")
 
+        try:
+            from noxai.security.audit import log_audit_event
+            target_model = payload.get("model", "nvidia")
+            await log_audit_event(
+                actor="router",
+                action="cloud_egress",
+                target=f"nvidia:{target_model}",
+                decision="allow",
+                summary_redacted=f"Cloud LLM request to {target_model}",
+            )
+        except Exception as exc:
+            log.debug("cloud_egress_audit_log_failed error=%s", exc)
+
         attempt = 0
         backoff = 1.0
-        use_unified_pool = hasattr(self.key_pool, "lease")
-
         while True:
             attempt += 1
             await self.rate_limiter.acquire()
 
-            if use_unified_pool:
-                try:
-                    async with self.key_pool.lease(
-                        job_id=getattr(self, "_current_job_id", None),
-                        priority=0 if is_interactive else 2,
-                        mode=AllocationMode.INTERACTIVE if is_interactive else AllocationMode.PINNED,
-                    ) as lease:
-                        headers = self._headers(lease.api_key)
-                        req = client.build_request(
-                            "POST",
-                            f"{self.base_url}/chat/completions",
-                            headers=headers,
-                            json=payload,
-                        )
-                        resp = await client.send(req, stream=stream)
-
-                        if resp.status_code == 429:
-                            retry_after_header = resp.headers.get("Retry-After")
-                            wait_sec = _parse_retry_after(retry_after_header, backoff)
-                            jitter = random.uniform(0.1, 0.5)
-                            total_wait = wait_sec + jitter
-                            await self.key_pool.report_outcome(
-                                lease.key_id, status_code=429, retry_after=wait_sec
-                            )
-                            self.cloud_health.record_failure(
-                                error=f"HTTP 429 on {lease.key_id}",
-                                status_code=429,
-                                retry_after=wait_sec,
-                            )
-                            await resp.aclose()
-                            if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
-                                log.info("NVIDIA %s hit 429; immediate failover", lease.key_id)
-                                continue
-                            if attempt > self.max_retries:
-                                raise RateLimitError(
-                                    f"NVIDIA rate limit exceeded across key pool after {self.max_retries} retries."
-                                )
-                            await asyncio.sleep(total_wait)
-                            backoff *= 2.0
-                            continue
-
-                        if resp.status_code in (401, 403):
-                            error_text = await resp.aread()
-                            await resp.aclose()
-                            decoded = error_text.decode("utf-8", errors="replace")
-                            await self.key_pool.report_outcome(
-                                lease.key_id, status_code=resp.status_code, error_msg=decoded
-                            )
-                            self.cloud_health.record_failure(
-                                error=decoded, status_code=resp.status_code
-                            )
-                            if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 0:
-                                log.warning(
-                                    "NVIDIA %s auth failed (%d); switching to another key",
-                                    lease.key_id,
-                                    resp.status_code,
-                                )
-                                continue
-                            raise ProviderUnavailable(
-                                f"NVIDIA API authorization error ({resp.status_code}): {decoded}"
-                            )
-
-                        if resp.status_code in (404, 410):
-                            error_text = await resp.aread()
-                            await resp.aclose()
-                            decoded = error_text.decode("utf-8", errors="replace")
-                            await self.key_pool.report_outcome(
-                                lease.key_id, status_code=resp.status_code, error_msg=decoded
-                            )
-                            raise ProviderUnavailable(
-                                f"NVIDIA model endpoint not found ({resp.status_code}): {decoded}"
-                            )
-
-                        if resp.status_code >= 500:
-                            await resp.aclose()
-                            await self.key_pool.report_outcome(
-                                lease.key_id, status_code=resp.status_code
-                            )
-                            self.cloud_health.record_failure(
-                                error=f"Server error {resp.status_code}", status_code=resp.status_code
-                            )
-                            if attempt > self.max_retries:
-                                raise ProviderUnavailable(
-                                    f"NVIDIA API server error ({resp.status_code}) after {self.max_retries} retries."
-                                )
-                            jitter = random.uniform(0.1, 0.4)
-                            await asyncio.sleep(backoff + jitter)
-                            backoff *= 2.0
-                            continue
-
-                        if resp.is_error:
-                            error_text = await resp.aread()
-                            await resp.aclose()
-                            decoded = error_text.decode("utf-8", errors="replace")
-                            await self.key_pool.report_outcome(
-                                lease.key_id, status_code=resp.status_code, error_msg=decoded
-                            )
-                            raise ProviderUnavailable(f"NVIDIA API error ({resp.status_code}): {decoded}")
-
-                        await self.key_pool.report_outcome(lease.key_id, status_code=200)
-                        self.cloud_health.record_success()
-                        return resp
-
-                except (httpx.TimeoutException, httpx.ConnectError) as exc:
-                    self.cloud_health.record_failure(error=exc)
-                    if attempt > self.max_retries:
-                        raise ProviderUnavailable(
-                            f"NVIDIA API request failed after {self.max_retries} retries: {exc}"
-                        ) from exc
-                    jitter = random.uniform(0.1, 0.3)
-                    await asyncio.sleep(backoff + jitter)
-                    backoff *= 2.0
-                    continue
-            else:
-                active_key_entry = self.key_pool.acquire_best_key()
-
+            current_key_id: str | None = None
             try:
-                headers = self._headers(active_key_entry.api_key)
-                req = client.build_request(
-                    "POST",
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
+                alloc_mode = (
+                    AllocationMode.INTERACTIVE if is_interactive else AllocationMode.PINNED
                 )
-                resp = await client.send(req, stream=stream)
-
-                if resp.status_code == 429:
-                    retry_after_header = resp.headers.get("Retry-After")
-                    wait_sec = _parse_retry_after(retry_after_header, backoff)
-                    jitter = random.uniform(0.1, 0.5)  # noqa: S311
-                    total_wait = wait_sec + jitter
-                    self.key_pool.mark_rate_limited(
-                        active_key_entry.api_key, cooldown_seconds=wait_sec
+                async with self.key_pool.lease(
+                    job_id=getattr(self, "_current_job_id", None),
+                    priority=0 if is_interactive else 2,
+                    mode=alloc_mode,
+                ) as lease:
+                    current_key_id = lease.key_id
+                    headers = self._headers(lease.api_key)
+                    req = client.build_request(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
                     )
-                    self.cloud_health.record_failure(
-                        error=f"HTTP 429 on {active_key_entry.label}",
-                        status_code=429,
-                        retry_after=wait_sec,
-                    )
-                    await resp.aclose()
+                    resp = await client.send(req, stream=stream)
 
-                    # Transparent failover: check if another key is available right now
-                    now = time.monotonic()
-                    alts = [
-                        e
-                        for e in self.key_pool._entries
-                        if e.api_key != active_key_entry.api_key and e.is_available(now)
-                    ]
-                    if alts and attempt <= self.max_retries:
-                        log.info(
-                            "NVIDIA %s hit 429; immediate failover to %s",
-                            active_key_entry.label,
-                            alts[0].label,
+                    if resp.status_code == 429:
+                        retry_after_header = resp.headers.get("Retry-After")
+                        wait_sec = _parse_retry_after(retry_after_header, backoff)
+                        jitter = random.uniform(0.1, 0.5)  # noqa: S311
+                        total_wait = wait_sec + jitter
+                        await self.key_pool.report_outcome(
+                            lease.key_id, status_code=429, retry_after=wait_sec
                         )
+                        self.cloud_health.record_failure(
+                            error=f"HTTP 429 on {lease.key_id}",
+                            status_code=429,
+                            retry_after=wait_sec,
+                        )
+                        await resp.aclose()
+                        if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
+                            log.info("NVIDIA %s hit 429; immediate failover", lease.key_id)
+                            continue
+                        if attempt > self.max_retries:
+                            raise RateLimitError(
+                                f"NVIDIA rate limit exceeded after {self.max_retries} retries."
+                            )
+                        await asyncio.sleep(total_wait)
+                        backoff *= 2.0
                         continue
 
-                    log.warning(
-                        "All available keys rate limited. Attempt %d/%d, waiting %.2fs",
-                        attempt,
-                        self.max_retries,
-                        total_wait,
-                    )
-                    if attempt > self.max_retries:
-                        raise RateLimitError(
-                            "NVIDIA rate limit exceeded across key pool after "
-                            f"{self.max_retries} retries."
+                    if resp.status_code in (401, 403):
+                        error_text = await resp.aread()
+                        await resp.aclose()
+                        decoded = error_text.decode("utf-8", errors="replace")
+                        await self.key_pool.report_outcome(
+                            lease.key_id, status_code=resp.status_code, error_msg=decoded
                         )
-                    await asyncio.sleep(total_wait)
-                    backoff *= 2.0
-                    continue
-
-                if resp.status_code in (401, 403):
-                    error_text = await resp.aread()
-                    await resp.aclose()
-                    decoded = error_text.decode("utf-8", errors="replace")
-                    self.key_pool.mark_error(active_key_entry.api_key, cooldown_seconds=300.0)
-                    self.cloud_health.record_failure(
-                        error=decoded,
-                        status_code=resp.status_code,
-                    )
-                    # Transparent failover if another key exists
-                    now = time.monotonic()
-                    alts = [
-                        e
-                        for e in self.key_pool._entries
-                        if e.api_key != active_key_entry.api_key and not e.is_cooling_down(now)
-                    ]
-                    if alts and attempt <= self.max_retries:
-                        log.warning(
-                            "NVIDIA %s auth failed (%d); switching to %s",
-                            active_key_entry.label,
-                            resp.status_code,
-                            alts[0].label,
+                        self.cloud_health.record_failure(
+                            error=decoded, status_code=resp.status_code
                         )
-                        continue
-                    raise ProviderUnavailable(
-                        f"NVIDIA API authorization error ({resp.status_code}): {decoded}"
-                    )
-
-                if resp.status_code >= 500:
-                    await resp.aclose()
-                    self.cloud_health.record_failure(
-                        error=f"Server error {resp.status_code}",
-                        status_code=resp.status_code,
-                    )
-                    if attempt > self.max_retries:
+                        if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 0:
+                            log.warning(
+                                "NVIDIA %s auth failed (%d); switching to another key",
+                                lease.key_id,
+                                resp.status_code,
+                            )
+                            continue
                         raise ProviderUnavailable(
-                            f"NVIDIA API server error ({resp.status_code}) "
-                            f"after {self.max_retries} retries."
+                            f"NVIDIA API authorization error ({resp.status_code}): {decoded}"
                         )
-                    jitter = random.uniform(0.1, 0.4)  # noqa: S311
-                    await asyncio.sleep(backoff + jitter)
-                    backoff *= 2.0
-                    continue
 
-                if resp.is_error:
-                    error_text = await resp.aread()
-                    await resp.aclose()
-                    decoded = error_text.decode("utf-8", errors="replace")
-                    self.cloud_health.record_failure(
-                        error=decoded,
-                        status_code=resp.status_code,
-                    )
-                    raise ProviderUnavailable(f"NVIDIA API error ({resp.status_code}): {decoded}")
+                    if resp.status_code in (404, 410):
+                        error_text = await resp.aread()
+                        await resp.aclose()
+                        decoded = error_text.decode("utf-8", errors="replace")
+                        await self.key_pool.report_outcome(
+                            lease.key_id, status_code=resp.status_code, error_msg=decoded
+                        )
+                        raise ProviderUnavailable(
+                            f"NVIDIA model endpoint not found ({resp.status_code}): {decoded}"
+                        )
 
-                self.key_pool.mark_success(active_key_entry.api_key)
-                return resp
+                    if resp.status_code >= 500:
+                        await resp.aclose()
+                        await self.key_pool.report_outcome(
+                            lease.key_id, status_code=resp.status_code
+                        )
+                        self.cloud_health.record_failure(
+                            error=f"Server error {resp.status_code}",
+                            status_code=resp.status_code,
+                        )
+                        if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
+                            log.info("NVIDIA %s hit %d; failover", lease.key_id, resp.status_code)
+                            continue
+                        if attempt > self.max_retries:
+                            raise ProviderUnavailable(
+                                f"NVIDIA server error ({resp.status_code}) after retries."
+                            )
+                        jitter = random.uniform(0.1, 0.4)  # noqa: S311
+                        await asyncio.sleep(backoff + jitter)
+                        backoff *= 2.0
+                        continue
+
+                    if resp.is_error:
+                        error_text = await resp.aread()
+                        await resp.aclose()
+                        decoded = error_text.decode("utf-8", errors="replace")
+                        await self.key_pool.report_outcome(
+                            lease.key_id, status_code=resp.status_code, error_msg=decoded
+                        )
+                        raise ProviderUnavailable(
+                            f"NVIDIA API error ({resp.status_code}): {decoded}"
+                        )
+
+                    await self.key_pool.report_outcome(lease.key_id, status_code=200)
+                    self.cloud_health.record_success()
+                    return resp
 
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                err_msg = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                if current_key_id is not None:
+                    status = 504 if isinstance(exc, httpx.TimeoutException) else 503
+                    await self.key_pool.report_outcome(
+                        current_key_id, status_code=status, error_msg=err_msg
+                    )
                 self.cloud_health.record_failure(error=exc)
+                if attempt <= self.max_retries and self.key_pool.healthy_keys_count > 1:
+                    log.info(
+                        "NVIDIA %s encountered %s; failover to another key",
+                        current_key_id or "unknown",
+                        err_msg,
+                    )
                 if attempt > self.max_retries:
                     raise ProviderUnavailable(
-                        f"NVIDIA API request failed after {self.max_retries} retries: {exc}"
+                        f"NVIDIA API request failed after {self.max_retries} retries: {err_msg}"
                     ) from exc
                 jitter = random.uniform(0.1, 0.3)  # noqa: S311
                 await asyncio.sleep(backoff + jitter)
                 backoff *= 2.0
+                continue
+
 
     async def chat(
         self,
@@ -560,7 +469,9 @@ class NvidiaProvider(Provider):
                         choice = choices[0]
                         delta = choice.get("delta", {})
                         delta_text = delta.get("content") or ""
-                        reasoning_text = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                        reasoning_text = (
+                            delta.get("reasoning_content") or delta.get("reasoning") or ""
+                        )
                         finish_reason = choice.get("finish_reason")
                         raw_tcs = delta.get("tool_calls")
 
@@ -638,7 +549,8 @@ class NvidiaProvider(Provider):
                     msg = c.get("message", {})
                     delta_text = msg.get("content") or ""
                     if not delta_text and (msg.get("reasoning_content") or msg.get("reasoning")):
-                        delta_text = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
+                        reason_val = msg.get("reasoning_content") or msg.get("reasoning") or ""
+                        delta_text = reason_val.strip()
                     raw_tcs = msg.get("tool_calls")
                     if raw_tcs and isinstance(raw_tcs, list):
                         for tc in raw_tcs:
