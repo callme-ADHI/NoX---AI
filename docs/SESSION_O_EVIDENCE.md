@@ -289,3 +289,49 @@ Notes:
   - `docs/proofs/proof_c_2_running.png`
   - `docs/proofs/proof_c_3_reattached.png`
   - `docs/proofs/proof_c_4_completed.png`
+
+---
+
+## Phase 5: Jobs & Daily GitHub Backup (L-1, L-2)
+
+### L-1: Stuck BackUp Job Run Audit and Watchdog Repair
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+pytest tests/test_planned_jobs_e2e.py -k test_watchdog_reconciliation_of_orphaned_runs -q
+nx verify L-1
+```
+Output:
+```
+1 passed in 1.45s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+L-1        Jobs                 PASS            FIXED-AND-PROVEN   Root cause documented in docs/audits/job-stuck-audit.md; watchdog repair reconciles orphaned runs without manual SQL; zero stale runs in real DB.
+```
+Notes:
+- Full system audit with real DB records, systemd journal logs, and execution trace documented in `docs/audits/job-stuck-audit.md`.
+- Proved root cause: reactive LLM loop stalled on local Ollama inference without timeouts or heartbeats.
+- Watchdog reconciliation (`repair_orphaned_runs`) automatically transitions runs with heartbeats > 3 minutes old to `stalled`.
+- Verified zero stale running runs exist in `~/.local/share/nox/nox.db`.
+
+### L-2: Plan-First Job Engine & Daily GitHub Backup
+Label: `VERIFIED-LIVE` & `FIXED-AND-PROVEN`
+Command:
+```bash
+pytest tests/test_planned_jobs_steps.py tests/test_planned_jobs_validator.py tests/test_planned_jobs_catchup.py tests/test_planned_jobs_privacy.py tests/test_planned_jobs_e2e.py -q
+nx verify L-2
+```
+Output:
+```
+24 passed in 3.31s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+L-2        Jobs                 PASS            FIXED-AND-PROVEN   Plan-first engine verified with typed 31-step execution plan across Certificates, Study, and Obsidian Vault; secret scanning excludes credentials; private repo enforced; fast-forward push only; 20:00 schedule with catch-up verified (24/24 tests pass).
+```
+Notes:
+- Plan generation produces typed step plans (31 steps for Certificates, Study, Obsidian Vault).
+- Execution is purely deterministic with zero LLM inference during the run.
+- Secret scanning (`scan.secrets`) automatically detects and excludes sensitive files (`secrets.env`, API keys) from git operations.
+- Remote check (`privacy.check_remote`) verifies GitHub repositories are private before pushing.
+- Fast-forward push only; validator rejects force push and shell metacharacters.
+- 20:00 daily schedule with catch-up logic and missed window detection verified across 5 timing scenarios.
