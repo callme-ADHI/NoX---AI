@@ -98,3 +98,15 @@ Per Rule 6 of Session O, every change to an existing test file, or to auth, priv
 ### `src/noxai/api/routes.py`
 - **Change**: Added `log_audit_event` on data deletion routes (`disconnect_connector_endpoint`, `delete_mail_endpoint`, `remove_github_repo_endpoint`). Updated `list_connectors_endpoint` to only report `healthy: true` when status is `HEALTHY` or `ok`.
 - **Reason**: Fulfills N-2 (honest API reporting) and N-3 (audit log on data deletion).
+
+### `src/noxai/tools/builtin/web.py`
+- **Change**: Removed test mode synthetic search snippets (`NOX_TEST_MODE`) from production `DuckDuckGoSearch.search()`.
+- **Reason**: Fulfills T-1 requirement to keep production web search clean of test mocks.
+
+### `tests/test_t1_live_briefing.py`
+- **Change**: Created new comprehensive verification test suite for T-1 (link policy, verbatim <=25-word evidence snippets, CTF cap <= 3, drop reasons, live model proof).
+- **Reason**: Proves T-1 defect resolution without regressions.
+
+### `ui/e2e/briefing_single_button.spec.ts`
+- **Change**: Fixed ESM `__dirname` ReferenceError by adopting standard `fileURLToPath(import.meta.url)`. Verified live execution generating all 4 screenshots.
+- **Reason**: Proves T-2 single button reload/navigation/close survival cleanly.

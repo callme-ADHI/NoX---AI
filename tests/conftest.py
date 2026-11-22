@@ -87,6 +87,32 @@ def isolate_user_paths_per_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("NOX_TEST_MODE", "1")
 
 
+class OfflineMockSearchBackend:
+    """Deterministic mock search backend for offline unit tests."""
+
+    async def search(self, query: str, max_results: int = 8) -> list[dict[str, str]]:
+        return [
+            {
+                "title": f"Test Result for {query}",
+                "url": f"https://example.com/test-result/{abs(hash(query)) % 1000}",
+                "snippet": f"Synthetic snippet answering query: {query}",
+            }
+        ]
+
+
+@pytest.fixture(autouse=True)
+def mock_search_backend_for_offline_tests(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure tests run completely offline unless --run-live is explicitly given."""
+    if not request.config.getoption("--run-live", False):
+        mock_backend = OfflineMockSearchBackend()
+        monkeypatch.setattr("noxai.tools.builtin.web.default_search_backend", mock_backend)
+        monkeypatch.setattr(
+            "noxai.briefing.engine.default_search_backend", mock_backend, raising=False
+        )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_session_sandbox() -> Generator[None, None, None]:
     """Clean up the session sandbox after all tests complete."""

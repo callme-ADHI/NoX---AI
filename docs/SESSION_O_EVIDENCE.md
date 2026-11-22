@@ -236,3 +236,56 @@ Defect ID  Category             Status          Label              Details
 ------------------------------------------------------------------------------------------
 C-8        Core Runtime         PASS            FIXED-AND-PROVEN   Notes chunks tagged local_only in DB, ChunkMatch, and retrieval.
 ```
+
+---
+
+## Phase 4: Briefing Content (T-1, T-2)
+
+### T-1: Briefing Content Quality, Evidence Verification & Clean Web Tools
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+pytest tests/test_t1_live_briefing.py tests/test_briefing_opportunities.py -q
+nx verify T-1
+```
+Output:
+```
+10 passed, 1 skipped in 3.65s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+T-1        Content              PASS            FIXED-AND-PROVEN   Production web tools cleaned of test mocks; verbatim evidence snippets (<=25 words) validated; CTFs capped at 3; strict link checks (2xx/3xx pass, 401/403/429 kept if known_fetched, 404/410/5xx dropped, soft-404 dropped) verified.
+```
+Notes:
+- Removed synthetic mock search snippet from production code (`src/noxai/tools/builtin/web.py`).
+- Added `OfflineMockSearchBackend` fixture to `tests/conftest.py` so offline unit tests isolate safely without hitting DuckDuckGo or polluting production code.
+- Verified evidence snippet rules (<= 25 words verbatim from page text; fabricated claims forced to 'unknown').
+- Verified CTFs are hard-capped at 3; hackathons retained with deadlines, prizes, and application URLs.
+- Verified link check status transitions: 2xx/3xx pass, 401/403/429 kept only if known_fetched is true, 404/410/5xx and soft-404 dropped.
+
+### T-2: Single Run Briefing Button Survives Refresh/Nav/Close
+Label: `VERIFIED-LIVE` & `FIXED-AND-PROVEN`
+Command:
+```bash
+npx playwright test briefing_single_button.spec.ts
+nx verify T-2
+```
+Output:
+```
+Running 1 test using 1 worker
+  ✓  1 … exhibits progress, re-attaches on reload, and completes cleanly (37.9s)
+  1 passed (39.5s)
+
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+T-2        Content              PASS            FIXED-AND-PROVEN   Single Run briefing button verified with Playwright E2E test. Survives page reload, mid-run navigation to Chat and back, and completes cleanly with all 4 proof screenshots generated.
+```
+Notes:
+- UI contains a single `data-testid="run-briefing-button"`.
+- Fixed ESM `__dirname` ReferenceError in `ui/e2e/briefing_single_button.spec.ts` using `fileURLToPath(import.meta.url)`.
+- Executed real browser run against live running daemon on port 7777 on Arch Linux / Hyprland.
+- Verified button transitions to disabled state with active spinner and elapsed seconds, navigates to Chat and back while maintaining progress, survives page reload, and completes cleanly.
+- Generated all 4 live proof screenshots in `docs/proofs/`:
+  - `docs/proofs/proof_c_1_idle.png`
+  - `docs/proofs/proof_c_2_running.png`
+  - `docs/proofs/proof_c_3_reattached.png`
+  - `docs/proofs/proof_c_4_completed.png`

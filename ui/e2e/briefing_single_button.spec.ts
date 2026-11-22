@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const PROOFS_DIR = path.resolve(__dirname, '../../docs/proofs');
 
 function getSessionToken(): string {

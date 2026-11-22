@@ -1884,7 +1884,12 @@ class BriefingPipeline:
                 continue
 
             if it.get("verified_link") is False or it.get("link_status") == "unverified":
-                ok, code, reason = await self.researcher.verify_link(u, known_fetched=bool(it.get("summary")))
+                known_fetched = bool(
+                    it.get("page_text") or it.get("evidence") or it.get("summary")
+                )
+                ok, code, reason = await self.researcher.verify_link(
+                    u, known_fetched=known_fetched
+                )
                 if not ok:
                     if reason == "soft_404":
                         drop_reasons["soft_404"] += 1
