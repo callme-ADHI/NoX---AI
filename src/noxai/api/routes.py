@@ -1330,6 +1330,7 @@ async def list_briefings(
         return results
 
 
+@api_router.post("/briefing/run", dependencies=WRITE_DEPS)
 @api_router.post("/briefings/run", dependencies=WRITE_DEPS)
 async def run_briefing_slot(request: Request, req: RunBriefingRequest | None = None) -> Any:
     """Trigger an on-demand briefing pipeline run through the TaskSupervisor."""
@@ -2249,6 +2250,46 @@ async def update_settings_endpoint(body: dict[str, Any]) -> dict[str, bool]:
             )
         await db.commit()
     return {"ok": True}
+
+
+@api_router.post("/cloud/toggle", dependencies=WRITE_DEPS)
+async def toggle_cloud_endpoint() -> dict[str, Any]:
+    """Toggle cloud.enabled setting between true and false."""
+    async with get_db() as db:
+        row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+        current = True
+        if row:
+            try:
+                current = json.loads(row["value"]) is True
+            except Exception:
+                current = str(row["value"]).lower() in ("true", "1")
+        new_val = not current
+        new_str = "true" if new_val else "false"
+        await execute(
+            db,
+            """
+            INSERT INTO settings (key, value, updated_at)
+            VALUES ('cloud.enabled', ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+            """,
+            (new_str,),
+        )
+        await db.commit()
+        return {"cloud_enabled": new_val}
+
+
+@api_router.get("/cloud/status", dependencies=READ_DEPS)
+async def get_cloud_status_endpoint() -> dict[str, Any]:
+    """Retrieve current cloud.enabled setting."""
+    async with get_db() as db:
+        row = await fetch_one(db, "SELECT value FROM settings WHERE key = 'cloud.enabled'")
+        current = True
+        if row:
+            try:
+                current = json.loads(row["value"]) is True
+            except Exception:
+                current = str(row["value"]).lower() in ("true", "1")
+        return {"cloud_enabled": current}
 
 
 # ---------------------------------------------------------------------------

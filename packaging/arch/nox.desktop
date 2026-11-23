@@ -6,4 +6,4 @@ Icon=nox
 Terminal=false
 Type=Application
 Categories=Science;ArtificialIntelligence;
-StartupWMClass=NoX
+StartupWMClass=nox-desktop

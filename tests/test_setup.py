@@ -64,12 +64,15 @@ def test_setup_hyprland_lua(tmp_path: Path) -> None:
     with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup), patch.object(
         setup, "HYPRLAND_LUA_WINDOWRULES", fake_rules
     ):
-        result = runner.invoke(app, ["setup", "--hyprland"])
+        result = runner.invoke(app, ["setup", "--hyprland", "--apply"])
         assert result.exit_code == 0
         content = fake_startup.read_text()
         assert "nox-app --hidden" in content
         rules_content = fake_rules.read_text()
         assert "workspace = \"1\"" in rules_content
+        # Verify backups were created upon --apply
+        assert (tmp_path / "startup.lua.bak").exists()
+        assert (tmp_path / "windowrules.lua.bak").exists()
 
 
 def test_setup_hyprland_conf(tmp_path: Path) -> None:
@@ -80,8 +83,34 @@ def test_setup_hyprland_conf(tmp_path: Path) -> None:
     with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup), patch.object(
         setup, "HYPRLAND_LUA_WINDOWRULES", fake_rules
     ), patch.object(setup, "HYPRLAND_CONF", fake_conf):
-        result = runner.invoke(app, ["setup", "--hyprland"])
+        result = runner.invoke(app, ["setup", "--hyprland", "--apply"])
         assert result.exit_code == 0
         content = fake_conf.read_text()
         assert "exec-once = nox-app --hidden" in content
         assert "windowrulev2 = workspace 1" in content
+        assert (tmp_path / "hyprland.conf.bak").exists()
+
+
+def test_setup_hyprland_dry_run_diff(tmp_path: Path) -> None:
+    fake_startup = tmp_path / "startup.lua"
+    fake_rules = tmp_path / "windowrules.lua"
+    original_startup = 'local exec_once = {\n    "noctalia",\n}\n'
+    original_rules = '-- window rules\n'
+    fake_startup.write_text(original_startup)
+    fake_rules.write_text(original_rules)
+    with patch.object(setup, "HYPRLAND_LUA_STARTUP", fake_startup), patch.object(
+        setup, "HYPRLAND_LUA_WINDOWRULES", fake_rules
+    ):
+        result = runner.invoke(app, ["setup", "--hyprland"])
+        assert result.exit_code == 0
+        # Files MUST remain unmodified in dry-run mode
+        assert fake_startup.read_text() == original_startup
+        assert fake_rules.read_text() == original_rules
+        # No backup files created in dry-run
+        assert not (tmp_path / "startup.lua.bak").exists()
+        assert not (tmp_path / "windowrules.lua.bak").exists()
+        # Output must contain dry run banner and diff
+        assert "Dry-run: Proposed Hyprland Changes" in result.stdout
+        assert "nox-app --hidden" in result.stdout
+        assert "workspace = \"1\"" in result.stdout
+        assert "--apply" in result.stdout

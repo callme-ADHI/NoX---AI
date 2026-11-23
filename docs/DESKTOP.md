@@ -55,9 +55,10 @@ The system tray icon offers quick actions:
 ### Window Rules
 Add the following window rule to `~/.config/hypr/windowrules.lua` or `~/.config/hypr/hyprland.conf`:
 ```ini
-windowrulev2 = float, class:^(nox-desktop)$
-windowrulev2 = size 1280 820, class:^(nox-desktop)$
-windowrulev2 = center, class:^(nox-desktop)$
+windowrulev2 = float, class:^(nox-desktop|NoX|ai\.nox\.desktop)$
+windowrulev2 = size 1280 820, class:^(nox-desktop|NoX|ai\.nox\.desktop)$
+windowrulev2 = center, class:^(nox-desktop|NoX|ai\.nox\.desktop)$
+windowrulev2 = workspace 1, class:^(nox-desktop|NoX|ai\.nox\.desktop)$
 ```
 
 ### Autostart

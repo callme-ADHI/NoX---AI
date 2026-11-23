@@ -114,3 +114,8 @@ Per Rule 6 of Session O, every change to an existing test file, or to auth, priv
 ### `ui/e2e/briefing_single_button.spec.ts`
 - **Change**: Fixed ESM `__dirname` ReferenceError by adopting standard `fileURLToPath(import.meta.url)`. Verified live execution generating all 4 screenshots.
 - **Reason**: Proves T-2 single button reload/navigation/close survival cleanly.
+
+### `tests/test_setup.py`
+- **Change**: Added `--apply` flag to `test_setup_hyprland_lua` and `test_setup_hyprland_conf` to test file modification and asserted `.bak` backup file creation. Added `test_setup_hyprland_dry_run_diff` testing non-destructive dry-run diff output without modifications.
+- **Reason**: Fulfills P-2 (`nx setup` non-destructive safety, diff display, and automatic backup creation). Strengthens assertions without weakening or deleting tests.
+

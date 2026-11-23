@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import difflib
 import os
 import shutil
 import subprocess
@@ -92,7 +93,7 @@ def check_hyprland_workspace_rule() -> SetupStatus:
     if HYPRLAND_LUA_WINDOWRULES.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_LUA_WINDOWRULES.read_text()
-            if any(k in content for k in ("nox-desktop", "NoX")) and (
+            if any(k in content for k in ("nox-desktop", "NoX", "ai.nox.desktop")) and (
                 "workspace" in content and "1" in content
             ):
                 return SetupStatus(
@@ -102,7 +103,7 @@ def check_hyprland_workspace_rule() -> SetupStatus:
     if HYPRLAND_CONF.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_CONF.read_text()
-            if any(k in content for k in ("nox-desktop", "NoX")) and "workspace 1" in content:
+            if any(k in content for k in ("nox-desktop", "NoX", "ai.nox.desktop")) and "workspace 1" in content:
                 return SetupStatus(
                     "Hyprland workspace 1", True, "Pinned to workspace 1 in hyprland.conf"
                 )
@@ -247,62 +248,100 @@ X-GNOME-Autostart-enabled=true
     return True
 
 
-def install_hyprland_rules() -> bool:
+def generate_file_diff(file_path: Path, new_content: str) -> str:
+    original = file_path.read_text().splitlines() if file_path.exists() else []
+    modified = new_content.splitlines()
+    diff = list(
+        difflib.unified_diff(
+            original,
+            modified,
+            fromfile=f"a/{file_path.name}",
+            tofile=f"b/{file_path.name}",
+            lineterm="",
+        )
+    )
+    return "\n".join(diff)
+
+
+def install_hyprland_rules(apply: bool = False) -> tuple[bool, str]:
     HYPRLAND_DIR.mkdir(parents=True, exist_ok=True)
     rule_lua = (
         '\n-- NoX Desktop App — always on workspace 1\n'
-        'hl.window_rule({ match = { class = "^(nox-desktop|NoX)$" }, workspace = "1" })\n'
-        'hl.window_rule({ match = { class = "^(nox-desktop|NoX)$" }, opacity = 1.0 })\n'
+        'hl.window_rule({ match = { class = "^(nox-desktop|NoX|ai\\\\.nox\\\\.desktop)$" }, workspace = "1" })\n'
+        'hl.window_rule({ match = { class = "^(nox-desktop|NoX|ai\\\\.nox\\\\.desktop)$" }, opacity = 1.0 })\n'
     )
+    rule_conf = (
+        "\n# NoX Desktop App — always on workspace 1\n"
+        "windowrulev2 = workspace 1, class:^(nox-desktop|NoX|ai\\.nox\\.desktop)$\n"
+    )
+
+    diff_output = ""
     if HYPRLAND_LUA_WINDOWRULES.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_LUA_WINDOWRULES.read_text()
-            if "nox-desktop" not in content and "NoX" not in content:
-                with HYPRLAND_LUA_WINDOWRULES.open("a") as f:
-                    f.write(rule_lua)
+            if not any(k in content for k in ("nox-desktop", "NoX", "ai.nox.desktop")):
+                new_content = content + rule_lua
+                diff_output = generate_file_diff(HYPRLAND_LUA_WINDOWRULES, new_content)
+                if apply:
+                    backup = HYPRLAND_LUA_WINDOWRULES.with_suffix(".lua.bak")
+                    shutil.copy2(HYPRLAND_LUA_WINDOWRULES, backup)
+                    HYPRLAND_LUA_WINDOWRULES.write_text(new_content)
     elif HYPRLAND_CONF.exists():
         with contextlib.suppress(Exception):
             content = HYPRLAND_CONF.read_text()
-            if "nox-desktop" not in content and "NoX" not in content:
-                with HYPRLAND_CONF.open("a") as f:
-                    f.write(
-                        "\n# NoX Desktop App — always on workspace 1\n"
-                        "windowrulev2 = workspace 1, class:^(nox-desktop|NoX)$\n"
-                    )
-    return True
+            if not any(k in content for k in ("nox-desktop", "NoX", "ai.nox.desktop")):
+                new_content = content + rule_conf
+                diff_output = generate_file_diff(HYPRLAND_CONF, new_content)
+                if apply:
+                    backup = HYPRLAND_CONF.with_suffix(".conf.bak")
+                    shutil.copy2(HYPRLAND_CONF, backup)
+                    HYPRLAND_CONF.write_text(new_content)
+    return True, diff_output
 
 
-def install_hyprland_autostart(apply: bool = False) -> bool:
+def install_hyprland_autostart(apply: bool = False) -> tuple[bool, str]:
     HYPRLAND_DIR.mkdir(parents=True, exist_ok=True)
-    install_hyprland_rules()
+    _, rules_diff = install_hyprland_rules(apply=apply)
 
+    autostart_diff = ""
     if HYPRLAND_LUA_STARTUP.exists():
         content = HYPRLAND_LUA_STARTUP.read_text()
         if not any(k in content for k in ("nox-app", "nox-desktop")):
             if "local exec_once = {" in content:
-                content = content.replace(
+                new_content = content.replace(
                     "local exec_once = {",
                     'local exec_once = {\n    "nox-app --hidden",',
                     1,
                 )
-                HYPRLAND_LUA_STARTUP.write_text(content)
             else:
-                with HYPRLAND_LUA_STARTUP.open("a") as f:
-                    f.write('\nhl.exec_once("nox-app --hidden")\n')
+                new_content = content + '\nhl.exec_once("nox-app --hidden")\n'
+            autostart_diff = generate_file_diff(HYPRLAND_LUA_STARTUP, new_content)
+            if apply:
+                backup = HYPRLAND_LUA_STARTUP.with_suffix(".lua.bak")
+                shutil.copy2(HYPRLAND_LUA_STARTUP, backup)
+                HYPRLAND_LUA_STARTUP.write_text(new_content)
     else:
         conf_path = HYPRLAND_CONF
         content = conf_path.read_text() if conf_path.exists() else ""
         if "exec-once = nox-app" not in content and "exec-once = nox-desktop" not in content:
-            with conf_path.open("a") as f:
-                f.write(
-                    "\n# NoX desktop app autostart in system tray\n"
-                    "exec-once = nox-app --hidden\n"
-                )
+            new_content = (
+                content
+                + "\n# NoX desktop app autostart in system tray\n"
+                + "exec-once = nox-app --hidden\n"
+            )
+            autostart_diff = generate_file_diff(conf_path, new_content)
+            if apply:
+                if conf_path.exists():
+                    backup = conf_path.with_suffix(".conf.bak")
+                    shutil.copy2(conf_path, backup)
+                conf_path.write_text(new_content)
+
+    combined_diff = "\n".join(filter(None, [rules_diff, autostart_diff]))
 
     if apply and shutil.which("hyprctl"):
         with contextlib.suppress(Exception):
             subprocess.run(["hyprctl", "reload"], capture_output=True, check=False)
-    return True
+    return True, combined_diff
 
 
 def enable_user_linger() -> bool:
@@ -393,10 +432,27 @@ def setup_main(
             console.print("[red]✗[/red] Failed to configure XDG Autostart")
 
     if hyprland or all_flags:
-        if install_hyprland_autostart(apply=apply):
-            console.print("[green]✓[/green] Configured Hyprland exec-once (nox-app --hidden)")
+        success, diff_text = install_hyprland_autostart(apply=apply)
+        if success:
             if apply:
-                console.print("[green]✓[/green] Executed [bold]hyprctl reload[/bold]")
+                if diff_text:
+                    console.print("[bold cyan]Applied Hyprland Changes:[/bold cyan]")
+                    console.print(diff_text)
+                    console.print("[green]✓[/green] Backed up original config(s) to *.bak")
+                console.print("[green]✓[/green] Configured Hyprland exec-once (nox-app --hidden)")
+                if shutil.which("hyprctl"):
+                    console.print("[green]✓[/green] Executed [bold]hyprctl reload[/bold]")
+            else:
+                if diff_text:
+                    console.print(
+                        "[bold yellow]Dry-run: Proposed Hyprland Changes (use --apply to write):[/bold yellow]"
+                    )
+                    console.print(diff_text)
+                    console.print(
+                        "[yellow]![/yellow] Dry-run only; no files modified. Pass [bold]--apply[/bold] to commit changes and create backups."
+                    )
+                else:
+                    console.print("[dim]Hyprland config already up-to-date.[/dim]")
         else:
             console.print("[red]✗[/red] Failed to configure Hyprland autostart")
 

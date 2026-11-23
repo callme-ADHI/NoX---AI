@@ -470,3 +470,176 @@ Notes:
 - Guarded write operations: rerun and comment operations require single-use approval tokens from `ApprovalsCenter`.
 - Honest health state: reports `NOT_CONFIGURED` when unauthenticated rather than faking health.
 - Live instructions for connecting host `gh`: run `gh auth login` with `read:org, repo` scopes.
+
+---
+
+## Phase 8: Desktop App & Packaging (D-1 to D-7, P-1, P-2)
+
+### D-1: Desktop Tray Endpoints
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+cargo test --manifest-path desktop/src-tauri/Cargo.toml test_tray_endpoints_plural
+.venv/bin/python scripts/verify_all.py D-1
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-1        Desktop & Packaging  PASS            VERIFIED-TEST      Desktop tray triggers plural endpoint /api/briefings/run with verified HTTP status checking.
+```
+Notes:
+- Replaced deprecated singular endpoint `/api/briefing/run` with authoritative plural endpoint `/api/briefings/run` in `desktop/src-tauri/src/lib.rs`.
+- Added defense-in-depth alias `@api_router.post("/briefing/run")` in `src/noxai/api/routes.py`.
+- Replaced fire-and-forget curl command spawning with HTTP status code checking and error logging in `trigger_daemon_api`.
+
+### D-2: Notes Vault Path Resolution
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+.venv/bin/python scripts/verify_all.py D-2
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-2        Desktop & Packaging  PASS            VERIFIED-TEST      Notes vault action delegates dynamically to daemon /api/notes/open and /api/notes/info.
+```
+Notes:
+- Eliminated hardcoded vault path `~/.local/share/nox/vault`.
+- Desktop app delegates to daemon's dynamic `POST /api/notes/open` and falls back to querying `GET /api/notes/info` for the configured vault location and Obsidian URI.
+
+### D-3: Dynamic Tray Status Labels
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+.venv/bin/python scripts/verify_all.py D-3
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-3        Desktop & Packaging  PASS            VERIFIED-TEST      Background status thread polls /api/briefings/status and /api/status to update tray labels dynamically.
+```
+Notes:
+- Implemented `start_tray_label_poller` background thread in Tauri 2.
+- Polls `GET /api/briefings/status` and `GET /api/status` to update `item_next` ("Next briefing: HH:MM"), `item_last` ("Last briefing: Morning/Evening (Done)"), and `item_cloud` ("Cloud: Enabled/Disabled").
+- Gracefully indicates `(daemon offline)` when daemon is unreachable.
+
+### D-4: Desktop Token Flow Security
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+cargo test --manifest-path desktop/src-tauri/Cargo.toml test_sanitize_target_url
+.venv/bin/python scripts/verify_all.py D-4
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-4        Desktop & Packaging  PASS            VERIFIED-TEST      sanitize_target_url guarantees token is restricted to 127.0.0.1:7777 and never leaked to external origins.
+```
+Notes:
+- `sanitize_target_url` validates that target URLs are strictly local (`127.0.0.1:7777` or relative paths starting with `/`).
+- External URLs are rejected and routed to system default browser via `open_in_browser` without session token parameters.
+- Prohibited URI schemes (`javascript:`, `file:`, `data:`) are strictly blocked.
+
+### D-5: Navigation Allowlist and IPC Safety
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+cargo test --manifest-path desktop/src-tauri/Cargo.toml test_validate_browser_url
+.venv/bin/python scripts/verify_all.py D-5
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-5        Desktop & Packaging  PASS            VERIFIED-TEST      Navigation allowlist strictly enforces http:// and https:// protocols and strips shell/control metacharacters.
+```
+Notes:
+- `validate_browser_url` restricts URLs to `http://` and `https://` only.
+- Shell metacharacters (`` ` ``, `$`, `;`, `&`, `|`), control characters, and line breaks are strictly blocked.
+- CSP in `tauri.conf.json` restricts webview connections to `127.0.0.1:7777`.
+
+### D-6: Window Class and App-ID Consistency
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+.venv/bin/python scripts/verify_all.py D-6
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-6        Desktop & Packaging  PASS            VERIFIED-TEST      Window class and app-id match across nox.desktop, setup.py window rules regex, and DESKTOP.md.
+```
+Notes:
+- `packaging/arch/nox.desktop`: set `StartupWMClass=nox-desktop`.
+- `src/noxai/commands/setup.py`: window rules pattern matches `^(nox-desktop|NoX|ai\.nox\.desktop)$` across Lua and hyprland.conf.
+- `docs/DESKTOP.md`: documents matching window rules.
+
+### D-7: Desktop Extended Tests & Hyprland Smoke Test
+Label: `VERIFIED-LIVE` & `FIXED-AND-PROVEN`
+Command:
+```bash
+cargo test --manifest-path desktop/src-tauri/Cargo.toml
+.venv/bin/python scripts/verify_all.py D-7
+```
+Output:
+```
+running 10 tests
+test tests::test_token_path_resolution ... ok
+test tests::test_url_path_formatting ... ok
+test tests::test_session_token_retrieval ... ok
+test tests::test_validate_browser_url_valid ... ok
+test tests::test_validate_browser_url_rejected_schemes ... ok
+test tests::test_validate_browser_url_rejected_characters ... ok
+test tests::test_sanitize_target_url_local ... ok
+test tests::test_sanitize_target_url_external_no_token_leak ... ok
+test tests::test_sanitize_target_url_reject_dangerous_schemes ... ok
+test tests::test_tray_endpoints_plural ... ok
+test result: ok. 10 passed; 0 failed; finished in 0.00s
+
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+D-7        Desktop & Packaging  PASS            VERIFIED-LIVE      Cargo unit tests passed (10/10). Live Hyprland instance verified via hyprctl monitors.
+```
+Notes:
+- Extended cargo test suite with 10 unit tests covering token resolution, endpoint formatting, URL sanitization, and tray safety.
+- Smoke tested live Hyprland compositor via `hyprctl monitors` on Arch Linux host (`HYPRLAND_INSTANCE_SIGNATURE`).
+
+### P-1: Arch PKGBUILD Integrity
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+.venv/bin/python scripts/verify_all.py P-1
+```
+Output:
+```
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+P-1        Desktop & Packaging  PASS            VERIFIED-TEST      PKGBUILD specifies verified SHA-256 sums and includes libayatana-appindicator & webkit2gtk-4.1 dependencies.
+```
+Notes:
+- Replaced `SKIP` in `packaging/arch/PKGBUILD` with exact SHA-256 hashes for all 5 source assets (`nox.desktop`, `noxd.service`, `nx`, `noxd`, `nox-app`).
+- Added `libayatana-appindicator` and `webkit2gtk-4.1` dependencies to `package_nox-app()`.
+
+### P-2: nx setup Non-Destructive Safety
+Label: `VERIFIED-TEST` & `FIXED-AND-PROVEN`
+Command:
+```bash
+.venv/bin/pytest tests/test_setup.py -q
+.venv/bin/python scripts/verify_all.py P-2
+```
+Output:
+```
+6 passed in 2.61s
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+P-2        Desktop & Packaging  PASS            VERIFIED-TEST      nx setup non-destructive safety proven: dry-run prints unified diff without modifications; --apply creates *.bak backups before writing.
+```
+Notes:
+- `nx setup --hyprland` without `--apply` runs in dry-run mode: computes proposed window rules and autostart changes, renders a clean unified diff, and leaves files unmodified.
+- When `--apply` is supplied: creates `.bak` backups before modifying files, applies changes, and executes `hyprctl reload`.
+

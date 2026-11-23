@@ -18,11 +18,11 @@ source=(
     "nox-app"
 )
 sha256sums=(
-    'SKIP'
-    'SKIP'
-    'SKIP'
-    'SKIP'
-    'SKIP'
+    'a3e0372f8ecc463d943b330b2239910da0e0aa08767fb3152a58ca7e8efb3c0f'
+    '7b34732b19d47f6259eaa5b6b2e09be8baaa37fbb4d92c9219ec61c7be2b3dfb'
+    'e5102d219c4d538e5cd400d9ad7079c1bb1cdcbac47e2b6c2998bfe77d7ae946'
+    'ffba8f660e2ab93d930198ae6e343a139a291fa5aa1ab4233d582a0831bcd3a6'
+    '89be93d3cf2debfb298ce719837c23a4773a2cc856a98a304e94355aadf88fda'
 )
 
 pkgver() {
@@ -117,7 +117,7 @@ package_nox() {
 
 package_nox-app() {
     pkgdesc="NoX desktop application launcher and desktop entry"
-    depends=('nox')
+    depends=('nox' 'libayatana-appindicator' 'webkit2gtk-4.1')
     
     local src_root="${startdir}/../.."
     
