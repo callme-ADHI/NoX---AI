@@ -141,7 +141,11 @@ class IMAPConnector(BaseConnector):
                 "last_sync_at": None,
                 "last_error": None,
             }
-        return {"status": "CONFIGURED_UNTESTED", "reason": "Configured; not yet synced", "last_sync_at": None}
+        return {
+            "status": "CONFIGURED_UNTESTED",
+            "reason": "Configured; not yet synced",
+            "last_sync_at": None,
+        }
 
     def _parse_message(self, raw_bytes: bytes) -> dict[str, Any]:
         """Parse raw RFC822 message bytes into structured dictionary."""

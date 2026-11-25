@@ -16,7 +16,7 @@ describe('AuditPage Component', () => {
     {
       id: 'audit_1',
       sequence_num: 1,
-      timestamp: '2026-11-22T08:00:00Z',
+      target: 'system',
       action: 'tool_execution',
       actor: 'agent:triage',
       decision: 'allow',

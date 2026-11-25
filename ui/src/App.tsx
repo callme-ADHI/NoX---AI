@@ -41,6 +41,22 @@ export const App: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
   useEffect(() => {
+    // Clean up ?t= from URL and save token to sessionStorage so stale tokens never linger in history
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('t')) {
+        const token = url.searchParams.get('t');
+        if (token) {
+          try {
+            sessionStorage.setItem('nox_token', token);
+            localStorage.setItem('nox_token', token);
+          } catch (e) {}
+        }
+        url.searchParams.delete('t');
+        window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ''));
+      }
+    }
+
     // 1. Fetch system status and unread notifications
     api.getStatus()
       .then(setStatus)

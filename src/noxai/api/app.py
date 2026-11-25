@@ -590,6 +590,64 @@ def create_app(
     if UI_DIST.exists() and (UI_DIST / "assets").exists():
         app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")), name="assets")
 
+    def _render_auth_required_html(reason: str) -> str:
+        return (
+            "<!DOCTYPE html><html lang='en' class='dark'><head>"
+            "<meta charset='UTF-8'>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+            "<title>NoX — Authentication Required</title>"
+            "<style>"
+            "body{background:#090a0f;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,"
+            "'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;"
+            "min-height:100vh;margin:0;padding:1.5rem;box-sizing:border-box;}"
+            ".card{background:#13151f;border:1px solid #282c3f;border-radius:14px;max-width:480px;"
+            "width:100%;padding:2.25rem;box-shadow:0 12px 36px rgba(0,0,0,0.6);text-align:center;}"
+            ".badge{display:inline-block;background:rgba(248,81,73,0.15);color:#ff6b6b;"
+            "border:1px solid rgba(248,81,73,0.35);padding:0.25rem 0.75rem;border-radius:9999px;"
+            "font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;"
+            "margin-bottom:1.25rem;}"
+            "h1{font-size:1.35rem;margin:0 0 0.5rem 0;color:#ffffff;font-weight:600;}"
+            "p{font-size:0.875rem;color:#8b949e;line-height:1.6;margin:0 0 1.25rem 0;}"
+            ".code-box{background:#090a0f;border:1px solid #282c3f;border-radius:8px;"
+            "padding:0.75rem 1rem;font-family:monospace;font-size:0.85rem;color:#38bdf8;"
+            "margin-bottom:1.5rem;display:flex;align-items:center;justify-content:center;gap:0.5rem;}"
+            ".input-row{display:flex;gap:0.5rem;margin-top:1rem;}"
+            ".input-row input{flex:1;background:#090a0f;border:1px solid #282c3f;border-radius:8px;"
+            "padding:0.65rem 0.85rem;color:#e6edf3;font-family:monospace;font-size:0.85rem;"
+            "outline:none;}"
+            ".input-row input:focus{border-color:#38bdf8;}"
+            ".input-row button{background:#38bdf8;color:#090a0f;font-weight:600;border:none;"
+            "border-radius:8px;padding:0.65rem 1.25rem;font-size:0.85rem;cursor:pointer;}"
+            ".hint{font-size:0.75rem;color:#6e7681;margin-top:1.5rem;}"
+            "</style></head><body>"
+            "<div class='card'>"
+            "<div class='badge'>Session Expired</div>"
+            "<h1>Authentication Required</h1>"
+            f"<p>Your session token is missing or expired ({reason}). "
+            "To reconnect to your local NoX instance, run:</p>"
+            "<div class='code-box'><span>$ nx open</span></div>"
+            "<p style='font-size:0.8rem;margin-bottom:0.5rem;'>Or paste the token from "
+            "<code>nx token</code> below:</p>"
+            "<form onsubmit='event.preventDefault();submitToken();' class='input-row'>"
+            "<input type='text' id='tok' placeholder='Paste session token...' autocomplete='off' />"
+            "<button type='submit'>Connect</button>"
+            "</form>"
+            "<div class='hint'>NoX Daemon runs locally on 127.0.0.1:7777</div>"
+            "</div>"
+            "<script>"
+            "function submitToken(){"
+            "var t=document.getElementById('tok').value.trim();"
+            "if(t){window.location.href='/?t='+encodeURIComponent(t);}"
+            "}"
+            "if(window.__TAURI__&&window.__TAURI__.core){"
+            "window.__TAURI__.core.invoke('get_session_token').then(function(t){"
+            "if(t&&t!==''){window.location.href='/?t='+encodeURIComponent(t)+'&shell=desktop';}"
+            "}).catch(function(){});"
+            "}"
+            "</script>"
+            "</body></html>"
+        )
+
     # Root landing & token exchange
     @app.get("/", response_class=Response)
     async def root_index(
@@ -600,20 +658,33 @@ def create_app(
         shell: str | None = Query(default=None),
     ) -> Response:
         """Root endpoint.
-        If `?t=<token>` is supplied by `nx open` or desktop:
-        Validates token. If `direct=True` or `shell='desktop'`, serves the SPA index.html
-        directly with HttpOnly cookie set (preventing cross-origin redirect cookie loss).
-        Otherwise sets HttpOnly SameSite=Strict `nox_session` cookie and 303 redirects to `/`.
-        If already authenticated via cookie or Bearer authorization:
-        Serves `ui/dist/index.html` if built, or daemon status HTML.
+        Validates session token via query (?t=), cookie (nox_session), or Bearer header.
+        If ?t=<token> is valid: sets cookie and serves SPA (or redirects to /).
+        If already authenticated via cookie or header: serves ui/dist/index.html or daemon status.
+        If unauthenticated:
+          - For browser navigation (Accept: text/html): returns an intuitive recovery HTML page
+            allowing reconnection via `nx open` or token entry, avoiding raw JSON browser errors.
+          - For API clients: raises 401 HTTPException with standard JSON envelope.
         """
-        valid_token = load_session_token()
-        if not valid_token:
-            valid_token = generate_session_token()
+        valid_tokens: list[str] = []
+        if hasattr(request.app.state, "session_token") and request.app.state.session_token:
+            valid_tokens.append(request.app.state.session_token)
+        disk_token = load_session_token()
+        if disk_token and disk_token not in valid_tokens:
+            valid_tokens.append(disk_token)
+        if not valid_tokens:
+            new_tok = generate_session_token()
+            request.app.state.session_token = new_tok
+            valid_tokens.append(new_tok)
 
+        def matches_any(cand: str | None) -> bool:
+            if not cand:
+                return False
+            return any(hmac.compare_digest(cand, vt) for vt in valid_tokens)
+
+        # 1. If ?t=<token> is provided
         if t is not None:
-            # Token exchange flow from `nx open` or desktop
-            if hmac.compare_digest(t, valid_token):
+            if matches_any(t):
                 if direct or shell == "desktop":
                     if UI_DIST.exists() and (UI_DIST / "index.html").exists():
                         resp = FileResponse(str(UI_DIST / "index.html"))
@@ -648,14 +719,15 @@ def create_app(
                     path="/",
                 )
                 return redirect
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unauthorized: invalid session token.",
-            )
 
-        # Check existing session cookie
+            # t was provided but is invalid. Check if client has a valid cookie before failing!
+            cookie_val = request.cookies.get(COOKIE_NAME)
+            if matches_any(cookie_val):
+                return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+        # 2. Check existing session cookie
         cookie_val = request.cookies.get(COOKIE_NAME)
-        if cookie_val and hmac.compare_digest(cookie_val, valid_token):
+        if matches_any(cookie_val):
             if UI_DIST.exists() and (UI_DIST / "index.html").exists():
                 return FileResponse(str(UI_DIST / "index.html"))
             return HTMLResponse(
@@ -668,17 +740,34 @@ def create_app(
                 "</body></html>"
             )
 
-        # Check Authorization header (Bearer token)
+        # 3. Check Authorization header (Bearer token)
         auth_hdr = request.headers.get("Authorization")
         if auth_hdr and auth_hdr.startswith("Bearer "):
             bearer_token = auth_hdr.removeprefix("Bearer ").strip()
-            if hmac.compare_digest(bearer_token, valid_token):
+            if matches_any(bearer_token):
                 if UI_DIST.exists() and (UI_DIST / "index.html").exists():
                     return FileResponse(str(UI_DIST / "index.html"))
 
+        # 4. Unauthenticated handling
+        accept_hdr = request.headers.get("accept", "")
+        # If requested by a web browser expecting HTML:
+        if "text/html" in accept_hdr or (
+            "application/json" not in accept_hdr and not request.headers.get("X-Nox-Client")
+        ):
+            err_reason = "invalid session token" if t is not None else "session token required"
+            html_content = _render_auth_required_html(reason=err_reason)
+            resp = HTMLResponse(html_content, status_code=status.HTTP_401_UNAUTHORIZED)
+            resp.delete_cookie(COOKIE_NAME, path="/")
+            return resp
+
+        # API callers receive JSON error envelope
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: authentication required. Launch via 'nx open'.",
+            detail=(
+                "Unauthorized: invalid session token."
+                if t is not None
+                else "Unauthorized: authentication required. Launch via 'nx open'."
+            ),
         )
 
     # SPA catch-all for frontend routes (e.g. /chat, /jobs, /briefings, etc.)
@@ -692,7 +781,11 @@ def create_app(
         cookie_val = request.cookies.get(COOKIE_NAME)
         query_t = request.query_params.get("t")
         auth_hdr = request.headers.get("Authorization", "")
-        bearer_val = auth_hdr.removeprefix("Bearer ").strip() if auth_hdr.startswith("Bearer ") else None
+        bearer_val = (
+            auth_hdr.removeprefix("Bearer ").strip()
+            if auth_hdr.startswith("Bearer ")
+            else None
+        )
 
         is_auth = False
         if valid_token:
@@ -714,7 +807,13 @@ def create_app(
                 if (UI_DIST / "index.html").exists():
                     resp = FileResponse(str(UI_DIST / "index.html"))
                     if query_t:
-                        resp.set_cookie(key=COOKIE_NAME, value=query_t, httponly=True, samesite="lax", path="/")
+                        resp.set_cookie(
+                            key=COOKIE_NAME,
+                            value=query_t,
+                            httponly=True,
+                            samesite="lax",
+                            path="/",
+                        )
                     return resp
 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")

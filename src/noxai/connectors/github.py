@@ -187,7 +187,10 @@ class GitHubConnector(BaseConnector):
 
         return {
             "status": "NOT_CONFIGURED",
-            "reason": "Neither gh CLI authenticated nor GITHUB_TOKEN configured; limited to public endpoints",
+            "reason": (
+                "Neither gh CLI authenticated nor GITHUB_TOKEN configured; "
+                "limited to public endpoints"
+            ),
         }
 
     async def list_watched_repos(self) -> list[dict[str, Any]]:

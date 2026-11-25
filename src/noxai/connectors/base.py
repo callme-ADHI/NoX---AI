@@ -173,7 +173,9 @@ class BaseConnector(abc.ABC):
             )
             await db.commit()
 
-    async def mark_sync(self, status: str = ConnectorStatus.HEALTHY.value, reason: str = "") -> None:
+    async def mark_sync(
+        self, status: str = ConnectorStatus.HEALTHY.value, reason: str = ""
+    ) -> None:
         """Record successful sync timestamp and health."""
         now = datetime.now(UTC).isoformat()
         async with get_db() as db:

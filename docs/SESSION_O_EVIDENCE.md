@@ -666,3 +666,84 @@ Defect ID  Category             Status          Label              Details
 N-6        Security             PASS            FIXED-AND-PROVEN   OPENJARVIS_PARITY.md rebuilt from pinned upstream commit c05ebe99e524a269a08d017ce3730a436ab4c46b; 48/48 subsystems verified with exact line counts.
 ```
 
+## Phase 10: Repo Hygiene, CI, PR #1 (N-8) & Final Verification
+
+### N-8: GitHub Actions CI Workflows & Local CI-Equivalent
+Label: `VERIFIED-LIVE` & `FIXED-AND-PROVEN`
+Provenance & Methodology:
+- Configured GitHub Actions CI workflows:
+  - `.github/workflows/ci.yml`: Triggers on push (`main`, `session-n`) and PR (`main`). Sets least-privilege `permissions: contents: read`. Defines dual parallel matrix jobs:
+    - `test-python`: Sets up Python 3.13 via astral-sh/setup-uv@v5, runs Ruff linter across core packages, executes pytest suite (90 tests across security foundation, connectors, channels, feeds, github intelligence, agent framework, doctor, repo hygiene).
+    - `test-ui`: Sets up Node.js 20 with npm caching, runs Vitest suite (18 test files, 74 tests), builds production web bundle via `npm run build`.
+  - `.github/workflows/codeql.yml`: Configured CodeQL static security analysis for Python and JavaScript/TypeScript.
+- Created authoritative local CI runner: `scripts/ci-local.sh` (executable, exit code 0):
+  1. Ruff linter check (`uv run ruff check ...`)
+  2. Pytest suite (`uv run pytest ...`)
+  3. UI Vitest suite (`npm --prefix ui test -- --run`)
+  4. UI Production build (`npm --prefix ui run build`)
+  5. Test changes audit (`bash scripts/check-test-changes.sh`)
+
+Commands:
+```bash
+bash scripts/ci-local.sh
+.venv/bin/python scripts/verify_all.py N-8
+.venv/bin/python scripts/verify_all.py --all
+```
+Output:
+```
+==================================================
+== NoX Local CI Runner                          ==
+==================================================
+==> [1/5] Running Ruff Linter...
+All checks passed!
+==> [2/5] Running Python Test Suite...
+============================= 90 passed in 13.69s ==============================
+==> [3/5] Running Vitest Suite...
+ Test Files  18 passed (18)
+      Tests  74 passed (74)
+==> [4/5] Building UI Production Bundle...
+✓ built in 4.79s
+==> [5/5] Checking Test & Safety Audits...
+All modified test files are properly documented.
+==================================================
+== ALL LOCAL CI CHECKS PASSED SUCCESSFULLY      ==
+==================================================
+
+Defect ID  Category             Status          Label              Details
+------------------------------------------------------------------------------------------
+N-1        Security             PASS            FIXED-AND-PROVEN   Zero instances of credential fill in codebase
+N-2        Security             PASS            FIXED-AND-PROVEN   All connectors & channels report NOT_CONFIGURED
+N-3        Security             PASS            FIXED-AND-PROVEN   Guarded actions wired across connector sync
+N-4        Security             PASS            FIXED-AND-PROVEN   SecretStore truthfully documented as 0600
+N-5        Security             PASS            FIXED-AND-PROVEN   Multi-language static scanner covers Python, Shell, JS/TS, MD
+N-6        Security             PASS            FIXED-AND-PROVEN   OPENJARVIS_PARITY.md rebuilt from pinned upstream commit c05ebe99e524a269a08d017ce3730a436ab4c46b
+N-7        Security             PASS            FIXED-AND-PROVEN   All 7 page component tests present and passing
+N-8        Security             PASS            FIXED-AND-PROVEN   GitHub Actions CI workflows configured and local CI runner verified
+C-1        Core Runtime         PASS            FIXED-AND-PROVEN   Single authoritative scheduler per job type
+C-2        Core Runtime         PASS            FIXED-AND-PROVEN   04:00, 18:00, catch-up, missed window verified
+C-3        Core Runtime         PASS            FIXED-AND-PROVEN   Real daemon killed with SIGKILL mid-run recovered cleanly
+C-4        Core Runtime         PASS            FIXED-AND-PROVEN   KeyPool pure allocator, refill, lease, and recovery verified
+C-5        Core Runtime         PASS            FIXED-AND-PROVEN   Cloud default ON, persisted toggle, and fallback verified
+C-6        Core Runtime         PASS            FIXED-AND-PROVEN   Live real-model evaluation verified (8/8 pass)
+C-7        Core Runtime         PASS            FIXED-AND-PROVEN   Pre-edit (Path A), post-edit (Path B), and discard verified
+C-8        Core Runtime         PASS            FIXED-AND-PROVEN   Notes chunks tagged local_only in DB
+T-1        Content              PASS            FIXED-AND-PROVEN   Production web tools cleaned of test mocks
+T-2        Content              PASS            FIXED-AND-PROVEN   Single Run briefing button verified with live Playwright
+L-1        Jobs                 PASS            FIXED-AND-PROVEN   Root cause documented in docs/audits/jobs-phase-l.md
+L-2        Jobs                 PASS            FIXED-AND-PROVEN   Plan-first engine verified with typed 31-step graph
+D-1        Desktop & Packaging  PASS            VERIFIED-TEST      Desktop tray triggers plural endpoint /api/briefings/run
+D-2        Desktop & Packaging  PASS            VERIFIED-TEST      Notes vault action delegates dynamically to /api/notes
+D-3        Desktop & Packaging  PASS            VERIFIED-TEST      Background status thread polls /api/briefings/status
+D-4        Desktop & Packaging  PASS            VERIFIED-TEST      sanitize_target_url guarantees token is sent only to 127.0.0.1:7777
+D-5        Desktop & Packaging  PASS            VERIFIED-TEST      Navigation allowlist strictly enforces http:// and https://
+D-6        Desktop & Packaging  PASS            VERIFIED-TEST      Window class and app-id match across nox.desktop, Hyprland rules, and Tauri
+D-7        Desktop & Packaging  PASS            VERIFIED-LIVE      Cargo unit tests passed (10/10). Live Hyprland instance verified
+P-1        Desktop & Packaging  PASS            VERIFIED-TEST      PKGBUILD specifies verified SHA-256 sums and required dependencies
+P-2        Desktop & Packaging  PASS            VERIFIED-TEST      nx setup non-destructive safety proven with dry-run diffs and backups
+F-1        Features             PASS            FIXED-AND-PROVEN   Mail (Gmail/IMAP) and Calendar connectors verified
+F-2        Features             PASS            FIXED-AND-PROVEN   Telegram, Slack, Discord channels and RSS feeds verified
+F-3        Features             PASS            FIXED-AND-PROVEN   GitHub intelligence verified with gh-first engine and REST fallback
+F-4        Features             PASS            FIXED-AND-PROVEN   Multi-mode agents (8 built-in), 7 operational presets verified
+```
+
+

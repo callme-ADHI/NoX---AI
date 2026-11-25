@@ -18,7 +18,7 @@ describe('ApprovalsPage Component', () => {
       action: 'file_write',
       scope: 'fs:write',
       payload: { path: '/home/boss/secrets.txt', content_length: 120 },
-      requested_at: '2026-11-22T09:00:00Z',
+      created_at: '2026-11-22T09:00:00Z',
       expires_at: '2026-11-22T09:15:00Z',
       status: 'pending',
     },

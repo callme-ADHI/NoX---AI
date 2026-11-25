@@ -63,10 +63,13 @@ class FeedsConnector(BaseConnector):
         has_feeds = bool(
             self.rss_urls or self.bluesky_handles or self.mastodon_instances or self.subreddits
         )
+        unconfigured_reason = (
+            "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured"
+        )
         if not has_feeds:
             return {
                 "status": "NOT_CONFIGURED",
-                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                "reason": unconfigured_reason,
                 "last_sync_at": None,
                 "last_error": None,
             }
@@ -94,7 +97,7 @@ class FeedsConnector(BaseConnector):
                         if not has_feeds:
                             return {
                                 "status": "NOT_CONFIGURED",
-                                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                                "reason": unconfigured_reason,
                                 "last_sync_at": last_sync,
                                 "last_error": row[3],
                             }
@@ -111,11 +114,15 @@ class FeedsConnector(BaseConnector):
         if not has_feeds:
             return {
                 "status": "NOT_CONFIGURED",
-                "reason": "No RSS feed URLs, Bluesky handles, Mastodon instances, or subreddits configured",
+                "reason": unconfigured_reason,
                 "last_sync_at": None,
                 "last_error": None,
             }
-        return {"status": "CONFIGURED_UNTESTED", "reason": "Feeds configured; not yet synced", "last_sync_at": None}
+        return {
+            "status": "CONFIGURED_UNTESTED",
+            "reason": "Feeds configured; not yet synced",
+            "last_sync_at": None,
+        }
 
     def _clean_html(self, raw_html: str) -> str:
         clean = re.sub(r"<[^>]+>", " ", raw_html)

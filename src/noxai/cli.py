@@ -16,6 +16,7 @@ The full daemon is wired up in M7.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 import stat
@@ -372,7 +373,7 @@ def health(
         has_git = shutil.which("git") is not None
 
         connectors_info: list[dict[str, Any]] = []
-        try:
+        with contextlib.suppress(Exception):
             from noxai.connectors.base import ConnectorRegistry
             conns = await ConnectorRegistry.list_db_connectors()
             for c in conns:
@@ -383,8 +384,6 @@ def health(
                     "status": c["health_status"],
                     "reason": c["health_reason"],
                 })
-        except Exception:
-            pass
 
         return {
             "status": "healthy" if not panic_active else "panic_engaged",
@@ -471,7 +470,11 @@ def health(
                 c_display = "[dim]DISABLED[/]"
             else:
                 c_display = f"[cyan]{c_stat}[/]"
-            table.add_row(f"Connector: {c_name}", c_display, c_reason or "Configured external service")
+            table.add_row(
+                f"Connector: {c_name}",
+                c_display,
+                c_reason or "Configured external service",
+            )
     else:
         table.add_row(
             "Connectors",

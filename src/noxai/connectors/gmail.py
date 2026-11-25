@@ -284,7 +284,11 @@ class GmailConnector(BaseConnector):
                 "last_sync_at": None,
                 "last_error": None,
             }
-        return {"status": "CONFIGURED_UNTESTED", "reason": "Tokens present; not yet synced", "last_sync_at": None}
+        return {
+            "status": "CONFIGURED_UNTESTED",
+            "reason": "Tokens present; not yet synced",
+            "last_sync_at": None,
+        }
 
     def _extract_body_and_attachments(
         self,

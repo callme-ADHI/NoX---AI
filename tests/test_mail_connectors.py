@@ -241,7 +241,13 @@ async def test_imap_connector_with_mock_client() -> None:
 @pytest.mark.asyncio
 async def test_calendar_connector_and_ics_parsing() -> None:
     """Test Calendar ICS parsing and Google Calendar event sync."""
-    ics_sample = """BEGIN:VCALENDAR
+    now_utc = datetime.now(UTC)
+    dt1 = (now_utc + timedelta(days=1)).strftime("%Y%m%dT%H%M%SZ")
+    dt1_end = (now_utc + timedelta(days=1, hours=1)).strftime("%Y%m%dT%H%M%SZ")
+    dt2 = (now_utc + timedelta(days=2)).strftime("%Y%m%dT%H%M%SZ")
+    dt2_end = (now_utc + timedelta(days=2, hours=1)).strftime("%Y%m%dT%H%M%SZ")
+
+    ics_sample = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//NoX Test//EN
 BEGIN:VEVENT
@@ -249,16 +255,16 @@ UID:event_abc_123
 SUMMARY:AI Architecture Review
 DESCRIPTION:Review OpenJarvis parity & security foundation
 LOCATION:Room 404
-DTSTART:20261121T140000Z
-DTEND:20261121T150000Z
+DTSTART:{dt1}
+DTEND:{dt1_end}
 END:VEVENT
 BEGIN:VEVENT
 UID:event_def_456
 SUMMARY:Hackathon Submission Due
 DESCRIPTION:Final commit deadline
 LOCATION:Online
-DTSTART:20261122T180000Z
-DTEND:20261122T190000Z
+DTSTART:{dt2}
+DTEND:{dt2_end}
 END:VEVENT
 END:VCALENDAR
 """
@@ -267,7 +273,7 @@ END:VCALENDAR
     assert len(events) == 2
     assert events[0]["event_id"] == "event_abc_123"
     assert events[0]["title"] == "AI Architecture Review"
-    assert events[0]["start_time"] == "2026-11-21T14:00:00Z"
+    assert events[0]["start_time"] == conn._parse_ics_datetime(dt1)
     assert events[0]["location"] == "Room 404"
 
     # Test file-based sync

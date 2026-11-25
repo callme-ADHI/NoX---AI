@@ -289,14 +289,16 @@ export interface ConnectorInfo {
 export interface MailItem {
   id: string;
   connector_id: string;
-  thread_id: string;
+  thread_id?: string;
   sender: string;
+  recipient?: string;
   subject: string;
   date: string;
   category: string;
+  is_read?: boolean;
   is_phishing: boolean;
   snippet: string;
-  created_at: string;
+  created_at?: string;
 }
 
 export interface GitHubRepo {

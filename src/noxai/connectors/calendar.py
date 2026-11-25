@@ -118,7 +118,10 @@ class CalendarConnector(BaseConnector):
                         if not has_source:
                             return {
                                 "status": "NOT_CONFIGURED",
-                                "reason": "No ICS file, remote URL, or Google Calendar credentials configured",
+                                "reason": (
+                                    "No ICS file, remote URL, or Google "
+                                    "Calendar credentials configured"
+                                ),
                                 "last_sync_at": last_sync,
                                 "last_error": row[3],
                             }
@@ -135,11 +138,18 @@ class CalendarConnector(BaseConnector):
         if not has_source:
             return {
                 "status": "NOT_CONFIGURED",
-                "reason": "No ICS file, remote URL, or Google Calendar credentials configured",
+                "reason": (
+                    "No ICS file, remote URL, or Google "
+                    "Calendar credentials configured"
+                ),
                 "last_sync_at": None,
                 "last_error": None,
             }
-        return {"status": "CONFIGURED_UNTESTED", "reason": "Configured; not yet synced", "last_sync_at": None}
+        return {
+            "status": "CONFIGURED_UNTESTED",
+            "reason": "Configured; not yet synced",
+            "last_sync_at": None,
+        }
 
     def _parse_ics_datetime(self, val: str) -> str:
         """Parse RFC5545 date/datetime strings to ISO8601 string."""
